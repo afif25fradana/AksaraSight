@@ -202,10 +202,10 @@ def test_engine_server_offline_on_first_page_short_circuits(
     assert len(result.pages) == 1
     assert result.pages[0].status == JobStatus.FAILED
 
-    # Error message explicitly details skipped pages
+    # Error message explicitly details stopping page without claiming exact total count
     assert result.error is not None
     assert "Inference backend offline on page 1" in result.error
-    assert "remaining 2 page(s) not attempted" in result.error
+    assert "remaining pages not attempted" in result.error
     assert "Connection refused on port 8080" in result.error
 
 
@@ -213,7 +213,7 @@ def test_engine_server_offline_mid_document_short_circuits(
     sample_pdf_path: Path,
     mock_client: MagicMock,
 ) -> None:
-    """Server dies on page 2 after page 1 succeeds -> aborts page 3, marks PARTIAL."""
+    """Server dies on page 2 after page 1 succeeds -> aborts page 3, marks FAILED."""
     mock_client.complete.side_effect = [
         ("Page 1 text", {"id": "1"}, 0.1),
         ServerOfflineError("Connection reset by peer"),
@@ -232,7 +232,9 @@ def test_engine_server_offline_mid_document_short_circuits(
 
     assert result.error is not None
     assert "Inference backend offline on page 2 (after 1 page(s) succeeded)" in result.error
-    assert "remaining 1 page(s) not attempted" in result.error
+    assert "remaining pages not attempted" in result.error
+    assert "Connection reset by peer" in result.error
+
 
 
 

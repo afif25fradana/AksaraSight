@@ -8,6 +8,18 @@ from .models import (
     PageResult,
     PROMPT_PRESETS,
 )
+from .pipeline import (
+    CorruptDocumentError,
+    EmptyDocumentError,
+    EncryptedDocumentError,
+    ExtractedPage,
+    FilePreflightError,
+    PipelineError,
+    UnsupportedFormatError,
+    check_preflight,
+    ingest,
+    is_pdf,
+)
 
 __all__ = [
     "JobConfig",
@@ -16,4 +28,14 @@ __all__ = [
     "OutputFormat",
     "PageResult",
     "PROMPT_PRESETS",
+    "CorruptDocumentError",
+    "EmptyDocumentError",
+    "EncryptedDocumentError",
+    "ExtractedPage",
+    "FilePreflightError",
+    "PipelineError",
+    "UnsupportedFormatError",
+    "check_preflight",
+    "ingest",
+    "is_pdf",
 ]

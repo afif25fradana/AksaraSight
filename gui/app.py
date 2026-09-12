@@ -106,11 +106,16 @@ COLOR_CANVAS_BG = "#141517"
 COLOR_SURFACE_1 = "#1c1e22"
 COLOR_SURFACE_2 = "#17181c"
 COLOR_SURFACE_BORDER = "#2a2c33"
+COLOR_SURFACE_BORDER_HOVER = "#3a3d46"
 COLOR_INTERACTIVE_NEUTRAL = "#22242b"
 COLOR_INTERACTIVE_HOVER = "#282a33"
 COLOR_ROW_SELECTED_BG = "#2a2d36"
 COLOR_ACCENT_AMBER = "#d97706"
 COLOR_ACCENT_AMBER_HOVER = "#f59e0b"
+COLOR_ACCENT_AMBER_DISABLED = "#7c4a0a"
+COLOR_ACCENT_AMBER_DISABLED_TEXT = "#a08060"
+COLOR_SCROLLBAR_THUMB = "#252830"
+COLOR_SCROLLBAR_THUMB_HOVER = "#33363f"
 COLOR_TEXT_PRIMARY = "#f3f4f6"
 COLOR_TEXT_MUTED = "#9ca3af"
 COLOR_TEXT_SUBTLE = "#858d99"
@@ -119,6 +124,7 @@ COLOR_STATUS_PROCESSING = "#f59e0b"
 COLOR_STATUS_SUCCESS = "#10b981"
 COLOR_STATUS_PARTIAL = "#fbbf24"
 COLOR_STATUS_FAILED = "#f43f5e"
+COLOR_DRAGOVER_BG = "#1e2028"
 
 
 class OCRApp(ctk.CTk, tdnd.DnDWrapper):
@@ -224,7 +230,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLOR_TEXT_SUBTLE,
         )
-        version_badge.pack(side="left", padx=(8, 0), pady=(4, 0))
+        version_badge.pack(side="left", padx=(8, 0), pady=(3, 0))
 
         # Backend indicator badge
         backend_str = f"Backend: {self.settings.backend} ({self.settings.local_endpoint})"
@@ -234,7 +240,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             text_color=COLOR_TEXT_MUTED,
-            corner_radius=4,
+            corner_radius=6,
             padx=10,
             pady=4,
         )
@@ -243,7 +249,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     def _build_body(self) -> None:
         """Build the 2-column main body area."""
         body_frame = ctk.CTkFrame(self, fg_color="transparent")
-        body_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(8, 4))
+        body_frame.grid(row=1, column=0, sticky="nsew", padx=16, pady=(8, 4))
         body_frame.grid_columnconfigure(0, weight=38, minsize=320)
         body_frame.grid_columnconfigure(1, weight=62, minsize=460)
         body_frame.grid_rowconfigure(0, weight=1)
@@ -260,7 +266,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         left_container.grid_rowconfigure(1, weight=0)  # Queue header
         left_container.grid_rowconfigure(2, weight=1)  # Queue scroll list
 
-        # Drop Zone Card (capped height ~116px, 18px padding, lighter surface)
+        # Drop Zone Card (capped height ~116px, 16px padding, lighter surface)
         self._drop_zone = ctk.CTkFrame(
             left_container,
             corner_radius=8,
@@ -270,10 +276,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             cursor="hand2",
             height=116,
         )
-        self._drop_zone.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 10))
+        self._drop_zone.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 12))
 
         drop_inner = ctk.CTkFrame(self._drop_zone, fg_color="transparent")
-        drop_inner.pack(padx=18, pady=16, fill="both", expand=True)
+        drop_inner.pack(padx=16, pady=16, fill="both", expand=True)
 
         dz_title = ctk.CTkLabel(
             drop_inner,
@@ -303,13 +309,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         for widget in (self._drop_zone, drop_inner, dz_title, dz_subtitle, dz_formats):
             widget.bind("<Button-1>", lambda e: self._on_browse_files())
 
+        # Drop zone hover feedback (brighten border on mouse enter)
+        for hover_w in (self._drop_zone, drop_inner, dz_title, dz_subtitle, dz_formats):
+            hover_w.bind("<Enter>", self._on_drop_zone_enter)
+            hover_w.bind("<Leave>", self._on_drop_zone_leave)
+
         # Register drop target on drop zone card
         self._drop_zone.drop_target_register(tkdnd.DND_FILES)
         self._drop_zone.dnd_bind("<<Drop>>", self._on_drop_files)
 
+        # Drag-over visual feedback (amber border + tinted bg while dragging files over zone)
+        self._drop_zone.dnd_bind("<<DropEnter>>", self._on_drag_enter)
+        self._drop_zone.dnd_bind("<<DropLeave>>", self._on_drag_leave)
+
         # Queue Section Header (14px bold section header, tertiary clear button)
         queue_header = ctk.CTkFrame(left_container, fg_color="transparent")
-        queue_header.grid(row=1, column=0, sticky="new", padx=0, pady=(0, 4))
+        queue_header.grid(row=1, column=0, sticky="new", padx=0, pady=(0, 6))
         queue_header.grid_columnconfigure(0, weight=1)
         queue_header.grid_columnconfigure(1, weight=0)
 
@@ -340,6 +355,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             left_container,
             corner_radius=6,
             fg_color=COLOR_SURFACE_2,
+            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
+            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
         )
         self._queue_scroll.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         left_container.grid_rowconfigure(2, weight=1)
@@ -383,12 +400,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         right_container.grid_rowconfigure(1, weight=0)  # Action Bar
 
         # Tabview styled as compact segmented control (~30px height, corner radius 6)
+        # Active tab: dark fill + amber text (4.86:1 contrast, WCAG AA verified).
+        # Amber reserved for interactive signals, not static navigation background.
         self._tabview = ctk.CTkTabview(
             right_container,
             corner_radius=6,
             fg_color=COLOR_SURFACE_1,
-            segmented_button_selected_color=COLOR_ACCENT_AMBER,
-            segmented_button_selected_hover_color=COLOR_ACCENT_AMBER_HOVER,
+            segmented_button_selected_color=COLOR_INTERACTIVE_NEUTRAL,
+            segmented_button_selected_hover_color=COLOR_INTERACTIVE_HOVER,
             segmented_button_fg_color=COLOR_SURFACE_2,
             segmented_button_unselected_color=COLOR_SURFACE_2,
             segmented_button_unselected_hover_color=COLOR_INTERACTIVE_HOVER,
@@ -397,6 +416,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             height=30,
             corner_radius=6,
             font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_PRIMARY,
         )
         self._tabview.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 8))
 
@@ -414,6 +434,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text_color=COLOR_TEXT_PRIMARY,
             font=ctk.CTkFont(family="Consolas", size=11),
             wrap="word",
+            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
+            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
         )
         self._tb_markdown.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -427,6 +449,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text_color=COLOR_TEXT_PRIMARY,
             font=ctk.CTkFont(family="Segoe UI", size=13),
             wrap="word",
+            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
+            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
         )
         self._tb_preview.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -440,6 +464,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text_color=COLOR_TEXT_PRIMARY,
             font=ctk.CTkFont(family="Consolas", size=11),
             wrap="none",
+            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
+            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
         )
         self._tb_json.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -478,22 +504,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_copy_clipboard,
         )
-        self._btn_copy.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self._btn_copy.grid(row=0, column=0, sticky="w", padx=(0, 8))
 
-        # Primary Button: Warm scanner amber fill
+        # Primary Button: Warm scanner amber fill (starts disabled with muted tint)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
             text="Export Selected",
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color=COLOR_ACCENT_AMBER,
+            fg_color=COLOR_ACCENT_AMBER_DISABLED,
             hover_color=COLOR_ACCENT_AMBER_HOVER,
-            text_color="#ffffff",
+            text_color=COLOR_ACCENT_AMBER_DISABLED_TEXT,
             corner_radius=6,
             height=30,
             state="disabled",
             command=self._on_export_selected,
         )
-        self._btn_export_selected.grid(row=0, column=1, sticky="e", padx=(0, 6))
+        self._btn_export_selected.grid(row=0, column=1, sticky="e", padx=(0, 8))
 
         # Secondary Button: Neutral dark surface with border
         self._btn_export_all = ctk.CTkButton(
@@ -545,7 +571,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._lbl_total_val = ctk.CTkLabel(
             counters_frame,
             text="0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_total_val.pack(side="left", padx=(0, 10))
@@ -561,7 +587,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._lbl_success_val = ctk.CTkLabel(
             counters_frame,
             text="0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_success_val.pack(side="left", padx=(0, 10))
@@ -577,7 +603,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._lbl_failed_val = ctk.CTkLabel(
             counters_frame,
             text="0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_failed_val.pack(side="left")
@@ -675,7 +701,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             cursor="hand2",
         )
-        row.pack(fill="x", padx=4, pady=3)
+        row.pack(fill="x", padx=6, pady=3)
         row.grid_columnconfigure(0, weight=0)  # Left Accent Indicator
         row.grid_columnconfigure(1, weight=1)  # Text column (Name + Meta)
         row.grid_columnconfigure(2, weight=0)  # Status Badge
@@ -732,6 +758,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Clicking any part of the row selects it
         for w in (row, indicator, badge, name, detail):
             w.bind("<Button-1>", lambda e, i_id=item.item_id: self._select_queue_item(i_id))
+
+        # Hover feedback: lighten row bg on mouse enter (respect selected state)
+        for w in (row, indicator, badge, name, detail):
+            w.bind("<Enter>", lambda e, i_id=item.item_id: self._on_queue_row_enter(e, i_id))
+            w.bind("<Leave>", lambda e, i_id=item.item_id: self._on_queue_row_leave(e, i_id))
 
         # Auto-select the first item if nothing is selected
         if self._selected_item_id is None:
@@ -830,9 +861,21 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
 
         self._btn_copy.configure(state="normal" if selected_completed else "disabled")
-        self._btn_export_selected.configure(
-            state="normal" if selected_completed else "disabled"
-        )
+
+        # Export Selected: swap colors to preserve muted amber identity when disabled
+        if selected_completed:
+            self._btn_export_selected.configure(
+                state="normal",
+                fg_color=COLOR_ACCENT_AMBER,
+                text_color="#ffffff",
+            )
+        else:
+            self._btn_export_selected.configure(
+                state="disabled",
+                fg_color=COLOR_ACCENT_AMBER_DISABLED,
+                text_color=COLOR_ACCENT_AMBER_DISABLED_TEXT,
+            )
+
         self._btn_export_all.configure(
             state="normal" if completed_count > 0 else "disabled"
         )
@@ -1015,6 +1058,62 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             path = Path(path_str)
             print(f"[GUI DnD] Dropped file received: {path}")
             self.enqueue_file(path)
+
+    def _on_drop_zone_enter(self, event: Any = None) -> None:
+        """Brighten drop zone border on mouse enter."""
+        self._drop_zone.configure(border_color=COLOR_SURFACE_BORDER_HOVER)
+
+    def _on_drop_zone_leave(self, event: Any = None) -> None:
+        """Revert drop zone border to default on mouse leave."""
+        self._drop_zone.configure(border_color=COLOR_SURFACE_BORDER)
+
+    def _on_drag_enter(self, event: Any = None) -> Any:
+        """Visual feedback when dragging files over the drop zone (amber border + tinted bg)."""
+        self._drop_zone.configure(border_color=COLOR_ACCENT_AMBER, fg_color=COLOR_DRAGOVER_BG)
+        return getattr(event, "action", None)
+
+    def _on_drag_leave(self, event: Any = None) -> Any:
+        """Restore default drop zone appearance when drag leaves."""
+        self._drop_zone.configure(border_color=COLOR_SURFACE_BORDER, fg_color=COLOR_SURFACE_1)
+        return getattr(event, "action", None)
+
+    def _on_queue_row_enter(self, event: Any = None, item_id: str = "") -> None:
+        """Lighten row background on mouse enter, unless already selected."""
+        i_id = item_id or getattr(event, "item_id", "")
+        if not i_id and hasattr(event, "widget"):
+            for q_id, q_item in self._queue_items.items():
+                if event.widget in (
+                    q_item.row_frame,
+                    q_item.indicator_bar,
+                    q_item.badge_label,
+                    q_item.name_label,
+                    q_item.detail_label,
+                ):
+                    i_id = q_id
+                    break
+        if i_id and i_id != self._selected_item_id:
+            it = self._queue_items.get(i_id)
+            if it and it.row_frame:
+                it.row_frame.configure(fg_color=COLOR_INTERACTIVE_HOVER)
+
+    def _on_queue_row_leave(self, event: Any = None, item_id: str = "") -> None:
+        """Restore row background on mouse leave, unless already selected."""
+        i_id = item_id or getattr(event, "item_id", "")
+        if not i_id and hasattr(event, "widget"):
+            for q_id, q_item in self._queue_items.items():
+                if event.widget in (
+                    q_item.row_frame,
+                    q_item.indicator_bar,
+                    q_item.badge_label,
+                    q_item.name_label,
+                    q_item.detail_label,
+                ):
+                    i_id = q_id
+                    break
+        if i_id and i_id != self._selected_item_id:
+            it = self._queue_items.get(i_id)
+            if it and it.row_frame:
+                it.row_frame.configure(fg_color=COLOR_INTERACTIVE_NEUTRAL)
 
     # ==========================================================================
     # Background Worker & Event Handlers

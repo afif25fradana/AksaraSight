@@ -1,5 +1,4 @@
-"""Unit and functional tests for gui/app.py."""
-
+import inspect
 import json
 from pathlib import Path
 import queue
@@ -9,7 +8,8 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from core.constants import SUPPORTED_EXTENSIONS
-from core.models import JobStatus, OCRResult, PageResult
+from core.formatter import save_artifacts
+from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from gui.app import (
     OCRApp,
     QueueItem,
@@ -390,8 +390,8 @@ def test_copy_to_clipboard(tmp_path):
         app._on_closing()
 
 
-def test_export_selected_and_export_all(tmp_path):
-    """Verify Export Selected and Export All trigger save_artifacts with correct targets."""
+def test_export_selected_and_export_all_mocked(tmp_path):
+    """Verify Export Selected and Export All pass expected signature parameters."""
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -428,7 +428,12 @@ def test_export_selected_and_export_all(tmp_path):
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
              patch("gui.app.save_artifacts", return_value=[export_target / "doc1.md"]) as mock_save:
             app._on_export_selected()
-            mock_save.assert_called_once_with(res1, output_dir=str(export_target), save_json=True)
+            mock_save.assert_called_once_with(
+                res1,
+                config=JobConfig(output_format=OutputFormat.BOTH),
+                output_dir=export_target,
+                base_name="doc1",
+            )
             assert app._btn_export_selected.cget("text") == "Exported!"
 
         # 2. Export All
@@ -437,8 +442,8 @@ def test_export_selected_and_export_all(tmp_path):
             app._on_export_all()
             assert mock_save_all.call_count == 2
             mock_save_all.assert_has_calls([
-                call(res1, output_dir=str(export_target), save_json=True),
-                call(res2, output_dir=str(export_target), save_json=True),
+                call(res1, config=JobConfig(output_format=OutputFormat.BOTH), output_dir=export_target, base_name="doc1"),
+                call(res2, config=JobConfig(output_format=OutputFormat.BOTH), output_dir=export_target, base_name="doc2"),
             ], any_order=True)
             assert app._btn_export_all.cget("text") == "Exported All!"
 
@@ -451,3 +456,136 @@ def test_export_selected_and_export_all(tmp_path):
 
     finally:
         app._on_closing()
+
+
+def test_real_save_artifacts_integration_end_to_end(tmp_path):
+    """Verify REAL core.formatter.save_artifacts is called without errors and writes to disk."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        f1 = tmp_path / "report.pdf"
+        f1.write_bytes(b"dummy")
+        app.enqueue_file(f1)
+
+        file_id = str(f1.resolve())
+        res = OCRResult(
+            file_path=file_id,
+            status=JobStatus.SUCCESS,
+            pages=[PageResult(page_num=1, markdown="# Real End-to-End Export")],
+        )
+        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_items[file_id].result = res
+
+        app._select_queue_item(file_id)
+
+        export_target = tmp_path / "actual_export"
+        export_target.mkdir()
+
+        # Real save_artifacts called directly (NO MOCK on save_artifacts!)
+        with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)):
+            app._on_export_selected()
+
+        md_file = export_target / "report.md"
+        json_file = export_target / "report.json"
+
+        assert md_file.exists(), f"Expected {md_file} to exist on disk"
+        assert json_file.exists(), f"Expected {json_file} to exist on disk"
+        assert "# Real End-to-End Export" in md_file.read_text(encoding="utf-8")
+        assert '"page_num": 1' in json_file.read_text(encoding="utf-8")
+        assert app._btn_export_selected.cget("text") == "Exported!"
+    finally:
+        app._on_closing()
+
+
+def test_export_all_disambiguates_filename_collisions_end_to_end(tmp_path):
+    """Verify Export All prevents silent overwrites when multiple files share the same filename stem."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        folder_a = tmp_path / "dept_a"
+        folder_b = tmp_path / "dept_b"
+        folder_c = tmp_path / "dept_c"
+        folder_a.mkdir()
+        folder_b.mkdir()
+        folder_c.mkdir()
+
+        file_a = folder_a / "invoice.pdf"
+        file_b = folder_b / "invoice.pdf"
+        file_c = folder_c / "invoice.pdf"
+        file_a.write_bytes(b"a")
+        file_b.write_bytes(b"b")
+        file_c.write_bytes(b"c")
+
+        app.enqueue_file(file_a)
+        app.enqueue_file(file_b)
+        app.enqueue_file(file_c)
+
+        id_a, id_b, id_c = str(file_a.resolve()), str(file_b.resolve()), str(file_c.resolve())
+
+        app._queue_items[id_a].status = QueueItemStatus.SUCCESS
+        app._queue_items[id_a].result = OCRResult(file_path=id_a, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept A")])
+
+        app._queue_items[id_b].status = QueueItemStatus.SUCCESS
+        app._queue_items[id_b].result = OCRResult(file_path=id_b, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept B")])
+
+        app._queue_items[id_c].status = QueueItemStatus.SUCCESS
+        app._queue_items[id_c].result = OCRResult(file_path=id_c, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept C")])
+
+        export_target = tmp_path / "batch_out"
+        export_target.mkdir()
+
+        # Execute Export All with real save_artifacts
+        with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)):
+            app._on_export_all()
+
+        # Verify all 3 documents were preserved with unique non-colliding filenames
+        file1_md = export_target / "invoice.md"
+        file1_json = export_target / "invoice.json"
+        file2_md = export_target / "invoice_2.md"
+        file2_json = export_target / "invoice_2.json"
+        file3_md = export_target / "invoice_3.md"
+        file3_json = export_target / "invoice_3.json"
+
+        assert file1_md.exists()
+        assert file1_json.exists()
+        assert file2_md.exists()
+        assert file2_json.exists()
+        assert file3_md.exists()
+        assert file3_json.exists()
+
+        # Verify content fidelity - NO SILENT OVERWRITES!
+        assert "Invoice Dept A" in file1_md.read_text(encoding="utf-8")
+        assert "Invoice Dept B" in file2_md.read_text(encoding="utf-8")
+        assert "Invoice Dept C" in file3_md.read_text(encoding="utf-8")
+    finally:
+        app._on_closing()
+
+
+def test_save_artifacts_signature_compatibility():
+    """Verify inspect.signature of save_artifacts matches the arguments provided by OCRApp."""
+    sig = inspect.signature(save_artifacts)
+    params = list(sig.parameters.keys())
+
+    # Ensure required signature parameters are present
+    assert "result" in params
+    assert "config" in params
+    assert "output_dir" in params
+    assert "base_name" in params
+
+    # Confirm OCRResult and JobConfig are accepted without errors
+    dummy_result = OCRResult(file_path="test.pdf", status=JobStatus.SUCCESS)
+    dummy_config = JobConfig(output_format=OutputFormat.BOTH)
+
+    bound = sig.bind(
+        dummy_result,
+        config=dummy_config,
+        output_dir=Path("tmp"),
+        base_name="custom_stem",
+    )
+    assert bound.arguments["result"] is dummy_result
+    assert bound.arguments["config"] is dummy_config
+    assert bound.arguments["base_name"] == "custom_stem"

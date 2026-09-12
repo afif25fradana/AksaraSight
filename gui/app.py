@@ -6,11 +6,12 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import sys
 import threading
 from tkinter import filedialog
 import traceback
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import customtkinter as ctk
 import tkinterdnd2 as tkdnd
@@ -659,6 +660,21 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy.configure(text="Copied!")
         self.after(1200, lambda: self._btn_copy.configure(text="Copy to Clipboard"))
 
+    @staticmethod
+    def _resolve_unique_stem(base_stem: str, used_stems: Set[str], output_dir: Path) -> str:
+        """Resolve a unique file stem within output_dir and the current export batch."""
+        stem = base_stem
+        counter = 1
+        while (
+            stem in used_stems
+            or (output_dir / f"{stem}.md").exists()
+            or (output_dir / f"{stem}.json").exists()
+        ):
+            counter += 1
+            stem = f"{base_stem}_{counter}"
+        used_stems.add(stem)
+        return stem
+
     def _on_export_selected(self) -> None:
         """Export artifacts for the currently selected document."""
         if not self._selected_item_id or self._selected_item_id not in self._queue_items:
@@ -672,9 +688,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if not out_dir:
             return
 
+        out_path = Path(out_dir)
         try:
-            saved = save_artifacts(item.result, output_dir=out_dir, save_json=True)
-            self._update_footer(f"Exported {len(saved)} files to {Path(out_dir).name}")
+            base_stem = re.sub(r'[<>:"/\\|?*]', "_", item.file_path.stem) or "ocr_result"
+            unique_stem = self._resolve_unique_stem(base_stem, set(), out_path)
+            config = JobConfig(output_format=OutputFormat.BOTH)
+            saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
+            self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
             self._btn_export_selected.configure(text="Exported!")
             self.after(1200, lambda: self._btn_export_selected.configure(text="Export Selected"))
         except Exception as exc:
@@ -694,14 +714,20 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if not out_dir:
             return
 
+        out_path = Path(out_dir)
         total_saved = 0
+        used_stems: Set[str] = set()
+        config = JobConfig(output_format=OutputFormat.BOTH)
+
         try:
             for it in completed_items:
                 assert it.result is not None
-                saved = save_artifacts(it.result, output_dir=out_dir, save_json=True)
+                base_stem = re.sub(r'[<>:"/\\|?*]', "_", it.file_path.stem) or "ocr_result"
+                unique_stem = self._resolve_unique_stem(base_stem, used_stems, out_path)
+                saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
                 total_saved += len(saved)
 
-            self._update_footer(f"Exported {len(completed_items)} documents ({total_saved} files) to {Path(out_dir).name}")
+            self._update_footer(f"Exported {len(completed_items)} documents ({total_saved} files) to {out_path.name}")
             self._btn_export_all.configure(text="Exported All!")
             self.after(1200, lambda: self._btn_export_all.configure(text="Export All"))
         except Exception as exc:

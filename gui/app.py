@@ -37,7 +37,19 @@ class WorkerEvent:
 
 
 def _init_tkinterdnd(tkroot: Any) -> str:
-    """Initialize TkinterDnD with forward-slash normalized auto_path for Windows/Tcl 9 compatibility."""
+    """Initialize TkinterDnD with forward-slash normalized auto_path for Windows/Tcl 9 compatibility.
+
+    WHY THIS NORMALIZATION IS REQUIRED:
+    On Windows (specifically Python 3.14 with Tcl 9), standard Windows backslash paths
+    (e.g. 'C:\\Users\\...') contain backslash escape sequences like '\\U'. In Tcl 9, '\\U'
+    is parsed as a Unicode escape sequence ('\\UXXXXXXXX'). When TkinterDnD's internal
+    pkgIndex.tcl evaluates "tkdnd::source {$dir/tkdnd.tcl}", unescaped backslashes in $dir
+    corrupt the interpolated path string, causing Tcl package loading to fail intermittently
+    with 'couldn't read file ".../tkdnd.tcl": no such file or directory'.
+    Normalizing the directory path with forward slashes (str(target_dir).replace('\\', '/'))
+    before appending to Tcl's 'auto_path' ensures Tcl interprets the path cleanly without
+    escape sequence corruption.
+    """
     try:
         import os
         import platform
@@ -241,7 +253,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             print(f"[GUI Worker] Failed processing: {event.file_path} (Error: {event.error})")
             self._status_label.configure(text=f"Failed: {Path(event.file_path).name} - {event.error}")
         elif event.event_type == WorkerEventType.WORKER_CRASHED:
+            # Output diagnostic clearly to stderr and flush so it is never silently swallowed
             print(f"[GUI Worker] FATAL: Worker thread crashed: {event.error}", file=sys.stderr)
+            sys.stderr.flush()
+            # TODO (Phase 3 Layout): Surface this to the user visually in the UI / dialog once the queue table exists
             self._status_label.configure(text=f"Fatal Worker Error: {event.error}")
 
     def _on_closing(self) -> None:

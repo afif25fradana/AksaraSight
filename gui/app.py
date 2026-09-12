@@ -60,6 +60,7 @@ class QueueItem:
     error: Optional[str] = None
     # UI references
     row_frame: Optional[ctk.CTkFrame] = None
+    indicator_bar: Optional[ctk.CTkFrame] = None
     badge_label: Optional[ctk.CTkLabel] = None
     name_label: Optional[ctk.CTkLabel] = None
     detail_label: Optional[ctk.CTkLabel] = None
@@ -87,10 +88,37 @@ def _init_tkinterdnd(tkroot: Any) -> str:
         subfolder = f"{platform_rep}-tcl9" if tcl_major >= 9 else platform_rep
         target_dir = (Path(tkdnd.__file__).parent / "tkdnd" / subfolder).resolve()
         if target_dir.is_dir():
-            tkroot.tk.call("lappend", "auto_path", str(target_dir).replace("\\", "/"))
+            target_str = str(target_dir).replace("\\", "/")
+            tkroot.tk.call("lappend", "auto_path", target_str)
+            try:
+                ver = tkroot.tk.call("package", "require", "tkdnd")
+                tdnd.TkdndVersion = ver
+                return str(ver)
+            except Exception:
+                pass
     except Exception:
         pass
     return tdnd._require(tkroot)
+
+
+# Design System Tokens - Warm Carbon & Scanner Amber
+COLOR_CANVAS_BG = "#141517"
+COLOR_SURFACE_1 = "#1c1e22"
+COLOR_SURFACE_2 = "#17181c"
+COLOR_SURFACE_BORDER = "#2a2c33"
+COLOR_INTERACTIVE_NEUTRAL = "#22242b"
+COLOR_INTERACTIVE_HOVER = "#282a33"
+COLOR_ROW_SELECTED_BG = "#2a2d36"
+COLOR_ACCENT_AMBER = "#d97706"
+COLOR_ACCENT_AMBER_HOVER = "#f59e0b"
+COLOR_TEXT_PRIMARY = "#f3f4f6"
+COLOR_TEXT_MUTED = "#9ca3af"
+COLOR_TEXT_SUBTLE = "#858d99"
+COLOR_STATUS_QUEUED = "#858d99"
+COLOR_STATUS_PROCESSING = "#f59e0b"
+COLOR_STATUS_SUCCESS = "#10b981"
+COLOR_STATUS_PARTIAL = "#fbbf24"
+COLOR_STATUS_FAILED = "#f43f5e"
 
 
 class OCRApp(ctk.CTk, tdnd.DnDWrapper):
@@ -116,7 +144,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Window appearance and geometry
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        self.configure(fg_color=COLOR_CANVAS_BG)
         self.title("GLM-OCR Local Studio")
         self.geometry("1020x680")
         self.minsize(820, 520)
@@ -169,19 +197,20 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _build_header(self) -> None:
         """Build the top header bar with title and backend status indicator."""
-        header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#1a1c23")
+        header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color=COLOR_SURFACE_1)
         header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         header_frame.grid_columnconfigure(0, weight=1)
         header_frame.grid_columnconfigure(1, weight=0)
 
         # App Title & Subtitle
         title_box = ctk.CTkFrame(header_frame, fg_color="transparent")
-        title_box.grid(row=0, column=0, sticky="w", padx=16, pady=10)
+        title_box.grid(row=0, column=0, sticky="w", padx=16, pady=8)
 
         title_label = ctk.CTkLabel(
             title_box,
             text="GLM-OCR Local Studio",
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
         )
         title_label.pack(side="left")
 
@@ -189,9 +218,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             title_box,
             text="v0.1",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#8c90a4",
+            text_color=COLOR_TEXT_SUBTLE,
         )
-        version_badge.pack(side="left", padx=(8, 0), pady=(4, 0))
+        version_badge.pack(side="left", padx=(8, 0), pady=(3, 0))
 
         # Backend indicator badge
         backend_str = f"Backend: {self.settings.backend} ({self.settings.local_endpoint})"
@@ -199,12 +228,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             header_frame,
             text=backend_str,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#2b2d3a",
-            corner_radius=6,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            text_color=COLOR_TEXT_MUTED,
+            corner_radius=4,
             padx=10,
             pady=4,
         )
-        self._backend_badge.grid(row=0, column=1, sticky="e", padx=16, pady=10)
+        self._backend_badge.grid(row=0, column=1, sticky="e", padx=16, pady=8)
 
     def _build_body(self) -> None:
         """Build the 2-column main body area."""
@@ -228,38 +258,38 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Drop Zone Card
         self._drop_zone = ctk.CTkFrame(
             left_container,
-            corner_radius=10,
-            border_width=2,
-            border_color="#3a3d52",
-            fg_color="#1e212b",
+            corner_radius=8,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            fg_color=COLOR_SURFACE_2,
             cursor="hand2",
         )
         self._drop_zone.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 10))
 
         drop_inner = ctk.CTkFrame(self._drop_zone, fg_color="transparent")
-        drop_inner.pack(padx=16, pady=18, fill="both", expand=True)
+        drop_inner.pack(padx=14, pady=12, fill="both", expand=True)
 
         dz_title = ctk.CTkLabel(
             drop_inner,
-            text="DRAG & DROP FILES HERE",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            text_color="#e1e4ed",
+            text="Drop documents to extract",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
         )
         dz_title.pack()
 
         dz_subtitle = ctk.CTkLabel(
             drop_inner,
-            text="or click to browse local files",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color="#8c90a4",
+            text="or click anywhere in this card to browse local files",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_MUTED,
         )
-        dz_subtitle.pack(pady=(2, 6))
+        dz_subtitle.pack(pady=(2, 4))
 
         dz_formats = ctk.CTkLabel(
             drop_inner,
-            text="Supports PDF, PNG, JPG, TIFF, BMP, WEBP",
+            text="PDF  ·  PNG  ·  JPG  ·  TIFF  ·  BMP  ·  WEBP",
             font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#63677d",
+            text_color=COLOR_TEXT_SUBTLE,
         )
         dz_formats.pack()
 
@@ -280,7 +310,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._queue_title = ctk.CTkLabel(
             queue_header,
             text="Queue (0)",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
         )
         self._queue_title.grid(row=0, column=0, sticky="w")
 
@@ -289,9 +320,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text="Clear Finished",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             width=90,
-            height=26,
-            fg_color="#2e3240",
-            hover_color="#3e4356",
+            height=24,
+            corner_radius=4,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_MUTED,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
             command=self._on_clear_finished,
         )
         self._clear_btn.grid(row=0, column=1, sticky="e")
@@ -299,19 +334,41 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Scrollable Queue List
         self._queue_scroll = ctk.CTkScrollableFrame(
             left_container,
-            corner_radius=8,
-            fg_color="#181a20",
+            corner_radius=6,
+            fg_color=COLOR_SURFACE_2,
         )
         self._queue_scroll.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         left_container.grid_rowconfigure(2, weight=1)
 
-        self._empty_queue_label = ctk.CTkLabel(
-            self._queue_scroll,
-            text="No documents in queue.\nDrop or browse files above to begin.",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color="#63677d",
+        # Empty Queue Placeholder
+        self._empty_queue_frame = ctk.CTkFrame(self._queue_scroll, fg_color="transparent")
+        self._empty_queue_frame.pack(expand=True, pady=36)
+
+        glyph = ctk.CTkLabel(
+            self._empty_queue_frame,
+            text="[ ⎘ ]",
+            font=ctk.CTkFont(family="Consolas", size=15, weight="bold"),
+            text_color=COLOR_TEXT_SUBTLE,
         )
-        self._empty_queue_label.pack(expand=True, pady=40)
+        glyph.pack()
+
+        eq_title = ctk.CTkLabel(
+            self._empty_queue_frame,
+            text="Queue is empty",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        eq_title.pack(pady=(4, 2))
+
+        eq_hint = ctk.CTkLabel(
+            self._empty_queue_frame,
+            text="Drop files above or click to browse",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_SUBTLE,
+        )
+        eq_hint.pack()
+
+        self._empty_queue_label = self._empty_queue_frame
 
     def _build_right_panel(self, parent: ctk.CTkFrame) -> None:
         """Build the right panel: Split preview pane tabview and action bar."""
@@ -321,13 +378,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         right_container.grid_rowconfigure(0, weight=1)  # Tabview
         right_container.grid_rowconfigure(1, weight=0)  # Action Bar
 
-        # Tabview
+        # Tabview with warm scanner amber selection
         self._tabview = ctk.CTkTabview(
             right_container,
-            corner_radius=8,
-            fg_color="#1e212b",
-            segmented_button_selected_color="#1f538d",
-            segmented_button_selected_hover_color="#2b6cb0",
+            corner_radius=6,
+            fg_color=COLOR_SURFACE_1,
+            segmented_button_selected_color=COLOR_ACCENT_AMBER,
+            segmented_button_selected_hover_color=COLOR_ACCENT_AMBER_HOVER,
+            segmented_button_fg_color=COLOR_SURFACE_1,
+            segmented_button_unselected_color=COLOR_INTERACTIVE_NEUTRAL,
+            segmented_button_unselected_hover_color=COLOR_INTERACTIVE_HOVER,
         )
         self._tabview.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 8))
 
@@ -339,7 +399,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tb_markdown = ctk.CTkTextbox(
             tab_markdown,
             corner_radius=6,
-            font=ctk.CTkFont(family="Consolas", size=12),
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            fg_color=COLOR_SURFACE_2,
+            text_color=COLOR_TEXT_PRIMARY,
+            font=ctk.CTkFont(family="Consolas", size=11),
             wrap="word",
         )
         self._tb_markdown.pack(fill="both", expand=True, padx=4, pady=4)
@@ -348,6 +412,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tb_preview = ctk.CTkTextbox(
             tab_preview,
             corner_radius=6,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            fg_color=COLOR_SURFACE_2,
+            text_color=COLOR_TEXT_PRIMARY,
             font=ctk.CTkFont(family="Segoe UI", size=13),
             wrap="word",
         )
@@ -357,6 +425,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tb_json = ctk.CTkTextbox(
             tab_json,
             corner_radius=6,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            fg_color=COLOR_SURFACE_2,
+            text_color=COLOR_TEXT_PRIMARY,
             font=ctk.CTkFont(family="Consolas", size=11),
             wrap="none",
         )
@@ -365,7 +437,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Initial Empty Text State
         self._set_textbox_content(
             self._tb_markdown,
-            "Select a document from the queue to inspect raw Markdown output.",
+            "<!-- No document selected -->\n<!-- Select an item from the queue on the left to inspect raw Markdown output -->",
         )
         self._set_textbox_content(
             self._tb_preview,
@@ -373,10 +445,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._set_textbox_content(
             self._tb_json,
-            '{\n  "message": "Select a document to inspect structured JSON output."\n}',
+            '{\n  "status": "idle",\n  "message": "Select a document from the queue to inspect structured JSON output."\n}',
         )
 
-        # Action Bar
+        # Action Bar with clear primary/secondary hierarchy
         action_bar = ctk.CTkFrame(right_container, fg_color="transparent")
         action_bar.grid(row=1, column=0, sticky="ew", padx=0, pady=0)
         action_bar.grid_columnconfigure(0, weight=1)
@@ -386,7 +458,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy = ctk.CTkButton(
             action_bar,
             text="Copy to Clipboard",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            corner_radius=6,
+            height=30,
             state="disabled",
             command=self._on_copy_clipboard,
         )
@@ -395,7 +474,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
             text="Export Selected",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=COLOR_ACCENT_AMBER,
+            hover_color=COLOR_ACCENT_AMBER_HOVER,
+            text_color="#ffffff",
+            corner_radius=6,
+            height=30,
             state="disabled",
             command=self._on_export_selected,
         )
@@ -404,7 +488,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_export_all = ctk.CTkButton(
             action_bar,
             text="Export All",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            corner_radius=6,
+            height=30,
             state="disabled",
             command=self._on_export_all,
         )
@@ -412,7 +503,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _build_footer(self) -> None:
         """Build the bottom status bar."""
-        footer_frame = ctk.CTkFrame(self, corner_radius=0, height=28, fg_color="#1a1c23")
+        footer_frame = ctk.CTkFrame(self, corner_radius=0, height=26, fg_color=COLOR_SURFACE_1)
         footer_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         footer_frame.grid_columnconfigure(0, weight=1)
         footer_frame.grid_columnconfigure(1, weight=1)
@@ -421,7 +512,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             footer_frame,
             text="Ready",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#8c90a4",
+            text_color=COLOR_TEXT_MUTED,
             anchor="w",
         )
         self._footer_status.grid(row=0, column=0, sticky="w", padx=16, pady=4)
@@ -430,8 +521,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._footer_counters = ctk.CTkLabel(
             footer_frame,
             text="Total: 0 | Success: 0 | Failed: 0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#8c90a4",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=COLOR_TEXT_SUBTLE,
             anchor="e",
         )
         self._footer_counters.grid(row=0, column=1, sticky="e", padx=16, pady=4)
@@ -483,47 +574,60 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Create an interactive row widget for a document in the scrollable queue list."""
         row = ctk.CTkFrame(
             self._queue_scroll,
-            corner_radius=6,
-            fg_color="#242735",
+            height=28,
+            corner_radius=4,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
             cursor="hand2",
         )
-        row.pack(fill="x", padx=4, pady=3)
-        row.grid_columnconfigure(0, weight=0)  # Badge
-        row.grid_columnconfigure(1, weight=1)  # Name
-        row.grid_columnconfigure(2, weight=0)  # Detail
+        row.pack(fill="x", padx=4, pady=2)
+        row.grid_columnconfigure(0, weight=0)  # Left Accent Indicator
+        row.grid_columnconfigure(1, weight=0)  # Badge
+        row.grid_columnconfigure(2, weight=1)  # Name
+        row.grid_columnconfigure(3, weight=0)  # Detail
+
+        indicator = ctk.CTkFrame(
+            row,
+            width=3,
+            height=1,
+            fg_color="transparent",
+            corner_radius=1,
+        )
+        indicator.grid(row=0, column=0, sticky="ns", padx=(0, 4))
 
         badge = ctk.CTkLabel(
             row,
             text="[ ]",
             font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-            text_color="#8c90a4",
-            width=28,
+            text_color=COLOR_STATUS_QUEUED,
+            width=26,
         )
-        badge.grid(row=0, column=0, padx=(8, 4), pady=6, sticky="w")
+        badge.grid(row=0, column=1, padx=(2, 4), pady=5, sticky="w")
 
         name = ctk.CTkLabel(
             row,
             text=item.file_path.name,
             font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=COLOR_TEXT_PRIMARY,
             anchor="w",
         )
-        name.grid(row=0, column=1, padx=4, pady=6, sticky="w")
+        name.grid(row=0, column=2, padx=4, pady=5, sticky="w")
 
         detail = ctk.CTkLabel(
             row,
             text="Queued",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#8c90a4",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=COLOR_TEXT_SUBTLE,
         )
-        detail.grid(row=0, column=2, padx=(4, 10), pady=6, sticky="e")
+        detail.grid(row=0, column=3, padx=(4, 8), pady=5, sticky="e")
 
         item.row_frame = row
+        item.indicator_bar = indicator
         item.badge_label = badge
         item.name_label = name
         item.detail_label = detail
 
         # Clicking any part of the row selects it
-        for w in (row, badge, name, detail):
+        for w in (row, indicator, badge, name, detail):
             w.bind("<Button-1>", lambda e, i_id=item.item_id: self._select_queue_item(i_id))
 
         # Auto-select the first item if nothing is selected
@@ -537,16 +641,20 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Unhighlight previous row
         if self._selected_item_id and self._selected_item_id in self._queue_items:
-            prev_row = self._queue_items[self._selected_item_id].row_frame
-            if prev_row:
-                prev_row.configure(fg_color="#242735")
+            prev_item = self._queue_items[self._selected_item_id]
+            if prev_item.row_frame:
+                prev_item.row_frame.configure(fg_color=COLOR_INTERACTIVE_NEUTRAL)
+            if prev_item.indicator_bar:
+                prev_item.indicator_bar.configure(fg_color="transparent")
 
         self._selected_item_id = item_id
         item = self._queue_items[item_id]
 
-        # Highlight newly selected row
+        # Highlight newly selected row with 1px accent indicator
         if item.row_frame:
-            item.row_frame.configure(fg_color="#2f3b52")
+            item.row_frame.configure(fg_color=COLOR_ROW_SELECTED_BG)
+        if item.indicator_bar:
+            item.indicator_bar.configure(fg_color=COLOR_ACCENT_AMBER)
 
         # Render preview content for this item
         self._render_preview(item)
@@ -899,9 +1007,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if item:
                 item.status = QueueItemStatus.PROCESSING
                 if item.badge_label:
-                    item.badge_label.configure(text="[>]", text_color="#3b82f6")
+                    item.badge_label.configure(text="[>]", text_color=COLOR_STATUS_PROCESSING)
                 if item.detail_label:
-                    item.detail_label.configure(text="Processing...", text_color="#3b82f6")
+                    item.detail_label.configure(text="Processing...", text_color=COLOR_STATUS_PROCESSING)
             self._update_footer(f"Processing: {Path(event.file_path).name}")
 
         elif event.event_type == WorkerEventType.COMPLETED:
@@ -915,10 +1023,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 item.duration = duration
                 if item.badge_label:
                     badge_icon = "[✓]" if status_val == "SUCCESS" else "[~]"
-                    badge_color = "#10b981" if status_val == "SUCCESS" else "#f59e0b"
+                    badge_color = COLOR_STATUS_SUCCESS if status_val == "SUCCESS" else COLOR_STATUS_PARTIAL
                     item.badge_label.configure(text=badge_icon, text_color=badge_color)
                 if item.detail_label:
-                    detail_color = "#10b981" if status_val == "SUCCESS" else "#f59e0b"
+                    detail_color = COLOR_STATUS_SUCCESS if status_val == "SUCCESS" else COLOR_STATUS_PARTIAL
                     item.detail_label.configure(text=f"{duration:.1f}s", text_color=detail_color)
             self._update_footer(f"Done: {Path(event.file_path).name} ({status_val})")
 
@@ -931,9 +1039,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 item.result = event.result
                 item.error = err_msg
                 if item.badge_label:
-                    item.badge_label.configure(text="[✗]", text_color="#ef4444")
+                    item.badge_label.configure(text="[✗]", text_color=COLOR_STATUS_FAILED)
                 if item.detail_label:
-                    item.detail_label.configure(text="Failed", text_color="#ef4444")
+                    item.detail_label.configure(text="Failed", text_color=COLOR_STATUS_FAILED)
             self._update_footer(f"Failed: {Path(event.file_path).name} - {err_msg}")
 
         elif event.event_type == WorkerEventType.WORKER_CRASHED:

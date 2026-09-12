@@ -12,7 +12,12 @@ from .client import (
 )
 from .constants import SUPPORTED_EXTENSIONS
 from .engine import OCREngine
-from .formatter import format_output, save_artifacts
+from .formatter import (
+    format_output,
+    resolve_unique_stem,
+    sanitize_filename_stem,
+    save_artifacts,
+)
 from .models import (
     JobConfig,
     JobStatus,
@@ -62,6 +67,8 @@ __all__ = [
     "ingest",
     "is_pdf",
     "resolve_chat_endpoint",
+    "resolve_unique_stem",
+    "sanitize_filename_stem",
     "save_artifacts",
 ]
 

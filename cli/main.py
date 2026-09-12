@@ -155,6 +155,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     engine = OCREngine(settings=settings)
     results: List[OCRResult] = []
     total_files = len(file_list)
+    used_stems: Set[str] = set()
 
     for idx, doc_path in enumerate(file_list, 1):
         if not args.quiet and total_files > 1:
@@ -166,7 +167,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         # Save to disk if -o is specified
         if args.output is not None:
-            save_artifacts(result, job_config, output_dir=args.output)
+            save_artifacts(result, job_config, output_dir=args.output, used_stems=used_stems)
             if not args.quiet and total_files > 1:
                 status_label = result.status.value
                 sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")

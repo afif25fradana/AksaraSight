@@ -1,5 +1,15 @@
 """Core domain logic, models, and orchestration for OCR-LLM-Local."""
 
+from .client import (
+    BadRequestError,
+    ClientError,
+    ResponseParsingError,
+    ServerError,
+    ServerOfflineError,
+    ServerTimeoutError,
+    VisionClient,
+    resolve_chat_endpoint,
+)
 from .models import (
     JobConfig,
     JobStatus,
@@ -22,20 +32,29 @@ from .pipeline import (
 )
 
 __all__ = [
-    "JobConfig",
-    "JobStatus",
-    "OCRResult",
-    "OutputFormat",
-    "PageResult",
-    "PROMPT_PRESETS",
+    "BadRequestError",
+    "ClientError",
     "CorruptDocumentError",
     "EmptyDocumentError",
     "EncryptedDocumentError",
     "ExtractedPage",
     "FilePreflightError",
+    "JobConfig",
+    "JobStatus",
+    "OCRResult",
+    "OutputFormat",
+    "PageResult",
     "PipelineError",
+    "PROMPT_PRESETS",
+    "ResponseParsingError",
+    "ServerError",
+    "ServerOfflineError",
+    "ServerTimeoutError",
     "UnsupportedFormatError",
+    "VisionClient",
     "check_preflight",
     "ingest",
     "is_pdf",
+    "resolve_chat_endpoint",
 ]
+

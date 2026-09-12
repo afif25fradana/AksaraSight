@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 import pytest
 
+from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
@@ -709,5 +710,25 @@ def test_queue_row_hover_enter_leave_and_selected_guard(tmp_path):
         assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
         app._on_queue_row_leave(event_b, item_id=id_b)
         assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+    finally:
+        app._on_closing()
+
+
+def test_backend_badge_reads_from_engine_settings():
+    """Verify backend badge displays engine.settings when settings arg is omitted."""
+    custom_settings = Settings(
+        backend="ollama",
+        local_endpoint="http://localhost:11434/v1",
+    )
+    mock_engine = MagicMock()
+    mock_engine.settings = custom_settings
+
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        assert app._backend_badge.cget("text") == "Backend: ollama (http://localhost:11434/v1)"
+        assert app.settings.backend == "ollama"
+        assert app.settings.local_endpoint == "http://localhost:11434/v1"
     finally:
         app._on_closing()

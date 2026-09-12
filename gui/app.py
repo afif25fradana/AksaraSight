@@ -149,7 +149,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except Exception:
             pass
 
-        self.settings = settings or Settings.from_env()
+        self.settings = settings or getattr(engine, "settings", None) or Settings.from_env()
         self.engine = engine or OCREngine(self.settings)
 
         # Window appearance and geometry

@@ -253,7 +253,7 @@ def _process_image(
 
 def _process_pdf(
     source: Union[str, Path, bytes, bytearray, memoryview],
-    dpi: int = 150,
+    dpi: int = 100,
     image_format: str = "JPEG",
     jpeg_quality: int = 95,
 ) -> Iterator[ExtractedPage]:
@@ -363,7 +363,7 @@ def _process_pdf(
 
 def ingest(
     source: Union[str, Path, bytes, bytearray, memoryview],
-    dpi: int = 150,
+    dpi: int = 100,
     image_format: str = "JPEG",
     jpeg_quality: int = 95,
 ) -> Iterator[ExtractedPage]:

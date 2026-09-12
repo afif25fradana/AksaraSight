@@ -9,3 +9,8 @@ build/
 *.egg-info/
 output/
 results/
+test_output/
+*.pdf
+test_invoice*.png
+currency_test.png
+dpi_benchmark_results.json

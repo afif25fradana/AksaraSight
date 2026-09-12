@@ -1,16 +1,13 @@
 """Core OCR orchestration engine coordinating document ingestion and vision inference."""
 
-import io
 from pathlib import Path
 import time
 from typing import Optional, Union
-from PIL import Image
-import pypdfium2 as pdfium
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
 from core.models import JobConfig, JobStatus, OCRResult, PageResult
-from core.pipeline import PipelineError, ingest, is_pdf
+from core.pipeline import PipelineError, ingest
 
 
 class OCREngine:
@@ -39,23 +36,6 @@ class OCREngine:
         self.settings = settings or Settings()
         self.client = client or VisionClient(self.settings)
 
-    @staticmethod
-    def _probe_total_pages(source: Union[str, Path, bytes, bytearray, memoryview]) -> Optional[int]:
-        """Probe the document's total page count ahead of time without rasterizing.
-
-        Enables precise diagnostic error messages if inference is aborted mid-document.
-        Returns None if source is unreadable or format cannot be determined.
-        """
-        try:
-            if is_pdf(source):
-                with pdfium.PdfDocument(source) as doc:
-                    return len(doc)
-            # Image inspection (supports multi-frame formats like TIFF)
-            stream = source if isinstance(source, (str, Path)) else io.BytesIO(source)
-            with Image.open(stream) as img:
-                return getattr(img, "n_frames", 1)
-        except Exception:
-            return None
 
     def process_document(
         self,
@@ -97,8 +77,6 @@ class OCREngine:
 
         result = OCRResult(file_path=file_path)
 
-        # Quick non-rasterizing probe for total page count (for abort diagnostics)
-        total_pages = self._probe_total_pages(source)
 
         try:
             # Note: ingest() is a generator; validation and pre-flight execute
@@ -143,15 +121,14 @@ class OCREngine:
 
                     succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
                     if succeeded > 0:
-                        prefix = f"Inference backend offline on page {page.page_num} (after {succeeded} page(s) succeeded)"
+                        result.error = (
+                            f"Inference backend offline on page {page.page_num} "
+                            f"(after {succeeded} page(s) succeeded); remaining pages not attempted: {exc}"
+                        )
                     else:
-                        prefix = f"Inference backend offline on page {page.page_num}"
-
-                    if total_pages is not None and total_pages > page.page_num:
-                        remaining = total_pages - page.page_num
-                        result.error = f"{prefix}; remaining {remaining} page(s) not attempted: {exc}"
-                    else:
-                        result.error = f"{prefix}: {exc}"
+                        result.error = (
+                            f"Inference backend offline on page 1; remaining pages not attempted: {exc}"
+                        )
                     break
                 except ClientError as exc:
                     # Per-page isolation for non-offline errors (timeout, 400, 5xx exhaustion, parsing)

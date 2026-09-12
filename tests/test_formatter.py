@@ -8,6 +8,7 @@ from core.formatter import (
     WINDOWS_RESERVED_NAMES,
     format_output,
     resolve_unique_stem,
+    sanitize_export_path,
     sanitize_filename_stem,
     save_artifacts,
 )
@@ -214,4 +215,57 @@ def test_save_artifacts_avoids_clobbering_existing_disk_files(
 
     assert (tmp_path / "financial_audit.md").exists()
     assert (tmp_path / "financial_audit_2.md").exists()
+
+
+# ==============================================================================
+# Path Privacy Export Sanitization Tests (Finding 4.1)
+# ==============================================================================
+
+def test_sanitize_export_path_relative_to_base_and_cwd(tmp_path: Path) -> None:
+    """Verify sanitize_export_path relativizes within base_dir or cwd."""
+    sub_file = tmp_path / "batches" / "scan1.pdf"
+
+    # Relativize against explicit base_dir
+    sanitized = sanitize_export_path(sub_file, base_dir=tmp_path)
+    assert sanitized == "batches/scan1.pdf"
+
+    # In-memory marker preserved
+    assert sanitize_export_path("<in-memory>") == "<in-memory>"
+    assert sanitize_export_path("<bytes>") == "<bytes>"
+    assert sanitize_export_path("") == ""
+
+
+def test_save_artifacts_path_privacy_sanitization(tmp_path: Path) -> None:
+    """Verify save_artifacts sanitizes file_path in exported JSON by default without mutating OCRResult."""
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    result = OCRResult(
+        file_path=str(raw_path),
+        pages=[PageResult(page_num=1, markdown="Secret", status=JobStatus.SUCCESS)],
+    )
+    config = JobConfig(output_format=OutputFormat.JSON)
+
+    # 1. Default (sanitize_path=True) with custom base_dir
+    saved = save_artifacts(
+        result,
+        config,
+        output_dir=tmp_path / "out",
+        base_dir=tmp_path / "private_user_dir",
+    )
+    exported_json = json.loads(saved["json"].read_text(encoding="utf-8"))
+    assert exported_json["file_path"] == "secret_doc.pdf"
+
+    # Verify OCRResult internal data model was NOT mutated
+    assert result.file_path == str(raw_path)
+    assert result.to_dict()["file_path"] == str(raw_path)
+
+    # 2. Explicit sanitize_path=False preserves absolute path
+    saved_raw = save_artifacts(
+        result,
+        config,
+        output_dir=tmp_path / "out_raw",
+        sanitize_path=False,
+    )
+    exported_raw_json = json.loads(saved_raw["json"].read_text(encoding="utf-8"))
+    assert exported_raw_json["file_path"] == str(raw_path)
+
 

@@ -409,3 +409,41 @@ def test_response_parsing_invalid_content_type() -> None:
     client = VisionClient(session=mock_session)
     with pytest.raises(ResponseParsingError, match="Expected string content"):
         client.complete("data:image/jpeg;base64,abc")
+
+
+def test_response_parsing_error_message_truncation() -> None:
+    """Verify large error payloads are truncated to prevent log and memory bloating (Finding 3.3)."""
+    mock_session = MagicMock(spec=requests.Session)
+    client = VisionClient(session=mock_session)
+
+    # 1. Massive choices-missing dictionary (e.g. 50,000 chars)
+    huge_data = {"unexpected_key_" + str(i): "x" * 100 for i in range(500)}
+    mock_resp1 = MagicMock(spec=requests.Response)
+    mock_resp1.status_code = 200
+    mock_resp1.json.return_value = huge_data
+    mock_session.post.return_value = mock_resp1
+
+    with pytest.raises(ResponseParsingError) as exc_info:
+        client.complete("data:image/jpeg;base64,abc")
+
+    err_str = str(exc_info.value)
+    assert "Response missing non-empty 'choices' array:" in err_str
+    assert err_str.endswith("...")
+    # Bound max error message length well under 400 chars (defensive against 50KB explosion)
+    assert len(err_str) <= 350
+
+    # 2. Massive first_choice dictionary missing 'message'
+    huge_choice = {"field_" + str(i): "val" * 50 for i in range(200)}
+    mock_resp2 = MagicMock(spec=requests.Response)
+    mock_resp2.status_code = 200
+    mock_resp2.json.return_value = {"choices": [huge_choice]}
+    mock_session.post.return_value = mock_resp2
+
+    with pytest.raises(ResponseParsingError) as exc_info2:
+        client.complete("data:image/jpeg;base64,abc")
+
+    err_str2 = str(exc_info2.value)
+    assert "Choice missing 'message' dictionary:" in err_str2
+    assert err_str2.endswith("...")
+    assert len(err_str2) <= 350
+

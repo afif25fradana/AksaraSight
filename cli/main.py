@@ -185,7 +185,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         # Save to disk if -o is specified
         if args.output is not None:
-            save_artifacts(result, job_config, output_dir=args.output, used_stems=used_stems)
+            save_artifacts(
+                result,
+                job_config,
+                output_dir=args.output,
+                used_stems=used_stems,
+                base_dir=input_path if input_path.is_dir() else None,
+            )
             if not args.quiet and total_files > 1:
                 status_label = result.status.value
                 sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")

@@ -270,8 +270,10 @@ class VisionClient:
 
         choices = data.get("choices")
         if not isinstance(choices, list) or len(choices) == 0:
+            data_repr = str(data)
+            snippet = data_repr[:250] + ("..." if len(data_repr) > 250 else "")
             raise ResponseParsingError(
-                f"Response missing non-empty 'choices' array: {data}"
+                f"Response missing non-empty 'choices' array: {snippet}"
             )
 
         first_choice = choices[0]
@@ -282,8 +284,10 @@ class VisionClient:
 
         message = first_choice.get("message")
         if not isinstance(message, dict):
+            choice_repr = str(first_choice)
+            snippet = choice_repr[:250] + ("..." if len(choice_repr) > 250 else "")
             raise ResponseParsingError(
-                f"Choice missing 'message' dictionary: {first_choice}"
+                f"Choice missing 'message' dictionary: {snippet}"
             )
 
         content = message.get("content")

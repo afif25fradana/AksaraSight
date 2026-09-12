@@ -336,3 +336,49 @@ def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
     assert passed_settings.local_endpoint == "http://192.168.1.100:8080/v1"
     assert passed_settings.allow_remote is True
 
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_duplicate_filenames_no_overwrite(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Verify CLI batch processing with duplicate stems creates unique files instead of overwriting."""
+    input_dir = tmp_path / "inputs"
+    sub_a = input_dir / "sub_a"
+    sub_b = input_dir / "sub_b"
+    sub_a.mkdir(parents=True)
+    sub_b.mkdir(parents=True)
+
+    file_a = sub_a / "document.pdf"
+    file_b = sub_b / "document.pdf"
+    file_a.write_bytes(b"%PDF-1.4 dummy a")
+    file_b.write_bytes(b"%PDF-1.4 dummy b")
+
+    output_dir = tmp_path / "outputs"
+
+    def fake_process_document(path, config=None):
+        return OCRResult(
+            file_path=str(path),
+            pages=[PageResult(page_num=1, markdown=f"# Output for {path.parent.name}", status=JobStatus.SUCCESS)],
+            status=JobStatus.SUCCESS,
+        )
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = fake_process_document
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([
+        str(input_dir),
+        "-r",
+        "-o", str(output_dir),
+        "-f", "markdown",
+    ])
+
+    assert exit_code == 0
+    assert (output_dir / "document.md").exists()
+    assert (output_dir / "document_2.md").exists()
+    content_1 = (output_dir / "document.md").read_text(encoding="utf-8")
+    content_2 = (output_dir / "document_2.md").read_text(encoding="utf-8")
+    assert content_1 != content_2
+
+

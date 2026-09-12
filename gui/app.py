@@ -20,7 +20,7 @@ import tkinterdnd2.TkinterDnD as tdnd
 from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS
 from core.engine import OCREngine
-from core.formatter import format_output, save_artifacts
+from core.formatter import format_output, resolve_unique_stem, save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
 
 
@@ -925,17 +925,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     @staticmethod
     def _resolve_unique_stem(base_stem: str, used_stems: Set[str], output_dir: Path) -> str:
         """Resolve a unique file stem within output_dir and the current export batch."""
-        stem = base_stem
-        counter = 1
-        while (
-            stem in used_stems
-            or (output_dir / f"{stem}.md").exists()
-            or (output_dir / f"{stem}.json").exists()
-        ):
-            counter += 1
-            stem = f"{base_stem}_{counter}"
-        used_stems.add(stem)
-        return stem
+        return resolve_unique_stem(base_stem, output_dir=output_dir, used_stems=used_stems)
 
     def _on_export_selected(self) -> None:
         """Export artifacts for the currently selected document."""
@@ -952,8 +942,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         out_path = Path(out_dir)
         try:
-            base_stem = re.sub(r'[<>:"/\\|?*]', "_", item.file_path.stem) or "ocr_result"
-            unique_stem = self._resolve_unique_stem(base_stem, set(), out_path)
+            unique_stem = self._resolve_unique_stem(item.file_path.stem, set(), out_path)
             config = JobConfig(output_format=OutputFormat.BOTH)
             saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
             self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
@@ -984,8 +973,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         try:
             for it in completed_items:
                 assert it.result is not None
-                base_stem = re.sub(r'[<>:"/\\|?*]', "_", it.file_path.stem) or "ocr_result"
-                unique_stem = self._resolve_unique_stem(base_stem, used_stems, out_path)
+                unique_stem = self._resolve_unique_stem(it.file_path.stem, used_stems, out_path)
                 saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
                 total_saved += len(saved)
 

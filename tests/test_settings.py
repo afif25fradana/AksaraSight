@@ -130,4 +130,67 @@ def test_direct_settings_constructor_validation():
     s = Settings(backend="  OLLAMA  ", local_endpoint="http://127.0.0.1:11434/v1/")
     assert s.backend == "ollama"
     assert s.local_endpoint == "http://127.0.0.1:11434/v1"
+    assert s.is_loopback is True
+    assert s.allow_remote is False
+
+
+@pytest.mark.parametrize(
+    "loopback_url",
+    [
+        "http://localhost:8080/v1",
+        "http://127.0.0.1:8080/v1",
+        "http://[::1]:8080/v1",
+        "http://0.0.0.0:8080/v1",
+    ],
+)
+def test_loopback_hosts_allowed_by_default(loopback_url):
+    """Verify loopback addresses pass validation by default."""
+    s = Settings(local_endpoint=loopback_url)
+    assert s.is_loopback is True
+
+
+@pytest.mark.parametrize(
+    "remote_url",
+    [
+        "http://api.openai.com/v1",
+        "https://external-cloud.com/v1",
+        "http://192.168.1.50:8080/v1",
+        "http://10.0.0.1:8080/v1",
+    ],
+)
+def test_remote_endpoint_fails_fast_by_default(remote_url):
+    """Verify non-loopback endpoints raise ValueError fail-fast when allow_remote is False."""
+    with pytest.raises(ValueError, match="Security violation: Non-loopback endpoint"):
+        Settings(local_endpoint=remote_url)
+
+
+def test_remote_endpoint_allowed_with_explicit_opt_in():
+    """Verify non-loopback endpoint passes when allow_remote=True is explicitly set."""
+    s = Settings(local_endpoint="http://192.168.1.50:8080/v1", allow_remote=True)
+    assert s.local_endpoint == "http://192.168.1.50:8080/v1"
+    assert s.allow_remote is True
+    assert s.is_loopback is False
+
+
+@pytest.mark.parametrize("env_val", ["1", "true", "True", "yes", "YES", "on"])
+def test_remote_endpoint_allowed_via_env_var(monkeypatch, env_val):
+    """Verify OCR_ALLOW_REMOTE permits non-loopback endpoints via environment variable."""
+    monkeypatch.setenv("OCR_ENDPOINT", "http://192.168.1.100:8080/v1")
+    monkeypatch.setenv("OCR_ALLOW_REMOTE", env_val)
+
+    s = Settings.from_env()
+    assert s.allow_remote is True
+    assert s.is_loopback is False
+    assert s.local_endpoint == "http://192.168.1.100:8080/v1"
+
+
+def test_remote_endpoint_rejected_via_env_var_when_not_opted_in(monkeypatch):
+    """Verify non-loopback endpoint in env raises ValueError when OCR_ALLOW_REMOTE is not set."""
+    monkeypatch.setenv("OCR_ENDPOINT", "http://evil-server.com/v1")
+    monkeypatch.delenv("OCR_ALLOW_REMOTE", raising=False)
+    monkeypatch.delenv("ALLOW_REMOTE", raising=False)
+
+    with pytest.raises(ValueError, match="Security violation: Non-loopback endpoint"):
+        Settings.from_env()
+
 

@@ -233,13 +233,21 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         version_badge.pack(side="left", padx=(8, 0), pady=(3, 0))
 
         # Backend indicator badge
-        backend_str = f"Backend: {self.settings.backend} ({self.settings.local_endpoint})"
+        if not self.settings.is_loopback:
+            backend_str = f"REMOTE BACKEND: {self.settings.backend} ({self.settings.local_endpoint})"
+            badge_fg = "#3d2a00"
+            badge_text = COLOR_STATUS_PARTIAL
+        else:
+            backend_str = f"Backend: {self.settings.backend} ({self.settings.local_endpoint})"
+            badge_fg = COLOR_INTERACTIVE_NEUTRAL
+            badge_text = COLOR_TEXT_MUTED
+
         self._backend_badge = ctk.CTkLabel(
             header_frame,
             text=backend_str,
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=COLOR_INTERACTIVE_NEUTRAL,
-            text_color=COLOR_TEXT_MUTED,
+            fg_color=badge_fg,
+            text_color=badge_text,
             corner_radius=6,
             padx=10,
             pady=4,

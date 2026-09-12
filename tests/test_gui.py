@@ -732,3 +732,26 @@ def test_backend_badge_reads_from_engine_settings():
         assert app.settings.local_endpoint == "http://localhost:11434/v1"
     finally:
         app._on_closing()
+
+
+def test_backend_badge_shows_remote_indicator():
+    """Verify backend badge displays REMOTE BACKEND warning when connected to non-loopback endpoint."""
+    remote_settings = Settings(
+        backend="vllm",
+        local_endpoint="http://192.168.1.150:8000/v1",
+        allow_remote=True,
+    )
+    mock_engine = MagicMock()
+    mock_engine.settings = remote_settings
+
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        badge_text = app._backend_badge.cget("text")
+        assert badge_text == "REMOTE BACKEND: vllm (http://192.168.1.150:8000/v1)"
+        assert app.settings.is_loopback is False
+        assert app.settings.allow_remote is True
+    finally:
+        app._on_closing()
+

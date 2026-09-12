@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override OpenAI-compatible base URL (e.g. 'http://localhost:8080/v1').",
     )
     parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="Explicitly permit connecting to non-loopback / remote inference endpoints.",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -120,6 +125,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             local_endpoint=args.endpoint or base_settings.local_endpoint,
             timeout=base_settings.timeout,
             max_retries=base_settings.max_retries,
+            allow_remote=args.allow_remote or base_settings.allow_remote,
         )
     except ValueError as exc:
         sys.stderr.write(f"Configuration error: {exc}\n")

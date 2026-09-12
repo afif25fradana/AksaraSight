@@ -298,3 +298,41 @@ def test_cli_passes_settings_and_prompt_overrides(
     assert passed_config.prompt_mode == "table"
     assert passed_config.custom_prompt == "Custom OCR Table Prompt:"
     assert passed_config.effective_prompt == "Custom OCR Table Prompt:"
+
+
+def test_cli_remote_endpoint_rejected_without_flag(
+    dummy_png: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Verify CLI exits with code 1 and error message if remote endpoint given without --allow-remote."""
+    exit_code = main([
+        str(dummy_png),
+        "--endpoint", "http://192.168.1.100:8080/v1",
+    ])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Configuration error: Security violation: Non-loopback endpoint" in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify CLI accepts non-loopback endpoint when --allow-remote flag is specified."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([
+        str(dummy_png),
+        "--endpoint", "http://192.168.1.100:8080/v1",
+        "--allow-remote",
+    ])
+    assert exit_code == 0
+    _, init_kwargs = mock_engine_cls.call_args
+    passed_settings = init_kwargs["settings"]
+    assert passed_settings.local_endpoint == "http://192.168.1.100:8080/v1"
+    assert passed_settings.allow_remote is True
+

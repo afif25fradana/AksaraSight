@@ -320,3 +320,52 @@ def test_ingest_mislabeled_pdf_as_image(tmp_path):
     assert pages[1].page_num == 2
     assert pages[0].is_success is True
     assert pages[1].is_success is True
+
+
+# ==============================================================================
+# Thread Safety: Concurrent PDF Ingestion
+# ==============================================================================
+
+def test_ingest_multithreaded_pdf_concurrency(tmp_path):
+    """Verify concurrent calls to ingest() across multiple threads succeed without crash.
+
+    pypdfium2 is inherently not thread-safe and terminates the process if C API calls
+    are made concurrently without synchronization. core/pipeline._process_pdf synchronizes
+    all calls via module-level _PDFIUM_LOCK.
+    """
+    import threading
+
+    pdf_path = tmp_path / "concurrent_test.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 200)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # Also prepare a mislabeled image to verify unlocked fallback under concurrent load
+    mislabeled_path = tmp_path / "mislabeled.pdf"
+    img = Image.new("RGB", (100, 100), color="blue")
+    img.save(mislabeled_path, format="JPEG")
+
+    thread_count = 10
+    iterations_per_thread = 5
+    errors = []
+
+    def worker(worker_id):
+        try:
+            for _ in range(iterations_per_thread):
+                target = mislabeled_path if worker_id % 2 == 0 else pdf_path
+                pages = list(ingest(target))
+                assert len(pages) == 1
+                assert pages[0].is_success is True
+                assert pages[0].image_b64.startswith("data:image/jpeg;base64,")
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(thread_count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+

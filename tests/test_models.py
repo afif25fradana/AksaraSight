@@ -1,0 +1,147 @@
+"""Unit tests for core/models.py."""
+
+from pathlib import Path
+import json
+import pytest
+from core.models import (
+    JobConfig,
+    JobStatus,
+    OCRResult,
+    OutputFormat,
+    PageResult,
+    PROMPT_PRESETS,
+)
+
+
+def test_job_config_presets():
+    """Verify standard prompt presets resolution."""
+    config_text = JobConfig(prompt_mode="text")
+    assert config_text.effective_prompt == "Text Recognition:"
+
+    config_table = JobConfig(prompt_mode="table")
+    assert config_table.effective_prompt == "Table Recognition:"
+
+    config_formula = JobConfig(prompt_mode="formula")
+    assert config_formula.effective_prompt == "Formula Recognition:"
+
+
+def test_job_config_case_insensitivity():
+    """Verify prompt_mode matches case-insensitively with whitespace stripped."""
+    config = JobConfig(prompt_mode="  TABLE  ")
+    assert config.effective_prompt == "Table Recognition:"
+
+
+def test_job_config_custom_prompt_override():
+    """Verify custom_prompt overrides any preset."""
+    config = JobConfig(
+        prompt_mode="text",
+        custom_prompt="Extract only key-value pairs as JSON:",
+    )
+    assert config.effective_prompt == "Extract only key-value pairs as JSON:"
+
+
+def test_job_config_invalid_prompt_mode_fail_fast():
+    """Verify invalid prompt_mode without custom_prompt raises ValueError immediately."""
+    config = JobConfig(prompt_mode="unsupported_mode")
+    with pytest.raises(ValueError, match="Invalid prompt_mode: 'unsupported_mode'"):
+        _ = config.effective_prompt
+
+
+def test_page_result_defaults():
+    """Verify PageResult default attributes."""
+    page = PageResult(page_num=1)
+    assert page.page_num == 1
+    assert page.markdown == ""
+    assert page.raw_json is None
+    assert page.latency == 0.0
+    assert page.status == JobStatus.SUCCESS
+    assert page.error is None
+
+
+def test_ocr_result_empty():
+    """Verify OCRResult with no pages and no error resolves to SUCCESS."""
+    result = OCRResult(file_path="sample.png")
+    assert result.resolve_status() == JobStatus.SUCCESS
+    assert result.markdown == ""
+    assert result.to_markdown() == ""
+
+
+def test_ocr_result_file_level_error():
+    """Verify document-level error resolves status to FAILED."""
+    result = OCRResult(file_path="corrupt.png", error="Corrupt image header")
+    assert result.resolve_status() == JobStatus.FAILED
+    assert result.status == JobStatus.FAILED
+
+
+def test_ocr_result_all_pages_success():
+    """Verify multi-page all-success resolves to SUCCESS and aggregates markdown."""
+    p1 = PageResult(page_num=1, markdown="# Page 1 Header", status=JobStatus.SUCCESS)
+    p2 = PageResult(page_num=2, markdown="Page 2 Content", status=JobStatus.SUCCESS)
+    result = OCRResult(file_path="doc.pdf", pages=[p1, p2])
+
+    assert result.resolve_status() == JobStatus.SUCCESS
+    assert result.status == JobStatus.SUCCESS
+    assert result.markdown == "# Page 1 Header\n\n---\n\nPage 2 Content"
+    assert result.to_markdown() == result.markdown
+
+
+def test_ocr_result_all_pages_failed():
+    """Verify multi-page all-failed resolves to FAILED."""
+    p1 = PageResult(page_num=1, status=JobStatus.FAILED, error="Timeout")
+    p2 = PageResult(page_num=2, status=JobStatus.FAILED, error="Connection refused")
+    result = OCRResult(file_path="doc.pdf", pages=[p1, p2])
+
+    assert result.resolve_status() == JobStatus.FAILED
+    assert result.status == JobStatus.FAILED
+    assert result.markdown == ""
+
+
+def test_ocr_result_partial_success():
+    """Verify mixed success/failure resolves to PARTIAL."""
+    p1 = PageResult(page_num=1, markdown="Page 1 Text", status=JobStatus.SUCCESS)
+    p2 = PageResult(page_num=2, status=JobStatus.FAILED, error="Inference failure")
+    result = OCRResult(file_path="doc.pdf", pages=[p1, p2])
+
+    assert result.resolve_status() == JobStatus.PARTIAL
+    assert result.status == JobStatus.PARTIAL
+    # Aggregate markdown should only include successful pages
+    assert result.markdown == "Page 1 Text"
+
+
+def test_ocr_result_to_dict_and_to_json():
+    """Verify to_dict and to_json output structure and auto-resolution of status."""
+    p1 = PageResult(
+        page_num=1,
+        markdown="Text 1",
+        latency=1.2,
+        status=JobStatus.SUCCESS,
+        raw_json={"choices": [{"message": {"content": "Text 1"}}]},
+    )
+    p2 = PageResult(
+        page_num=2,
+        markdown="",
+        latency=0.3,
+        status=JobStatus.FAILED,
+        error="Failed page",
+    )
+    result = OCRResult(
+        file_path=Path("sample.pdf"),
+        pages=[p1, p2],
+        total_duration=1.5,
+    )
+
+    data = result.to_dict()
+    assert data["file_path"] == "sample.pdf"
+    assert data["status"] == "PARTIAL"  # Auto-resolved in to_dict
+    assert data["total_duration"] == 1.5
+    assert data["page_count"] == 2
+    assert len(data["pages"]) == 2
+    assert data["pages"][0]["status"] == "SUCCESS"
+    assert data["pages"][1]["status"] == "FAILED"
+    assert data["pages"][1]["error"] == "Failed page"
+
+    # Test JSON serialization
+    json_str = result.to_json()
+    parsed = json.loads(json_str)
+    assert parsed["status"] == "PARTIAL"
+    assert parsed["pages"][0]["markdown"] == "Text 1"

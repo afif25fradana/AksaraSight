@@ -649,12 +649,27 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return
 
         path = Path(file_path).expanduser().resolve()
-        item_id = str(path)
 
-        # Ignore non-existent files or unsupported extensions if dropped
-        if path.suffix.lower() not in SUPPORTED_EXTENSIONS and not path.is_dir():
+        # If a directory is dropped, recursively discover and enqueue supported documents
+        if path.is_dir():
+            child_files = sorted(
+                p for p in path.rglob("*")
+                if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+            )
+            if not child_files:
+                print(f"[GUI Ingest] No supported document files found in directory: {path.name}")
+                self._update_footer(f"No supported documents in {path.name}")
+                return
+            for child in child_files:
+                self.enqueue_file(child)
+            return
+
+        # Ignore non-existent files or unsupported extensions
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             print(f"[GUI Ingest] Skipped unsupported file: {path.name}")
             return
+
+        item_id = str(path)
 
         # Avoid re-queueing currently queued or processing document
         if item_id in self._queue_items and self._queue_items[item_id].status in (

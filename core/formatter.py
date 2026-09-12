@@ -1,6 +1,7 @@
 """Serialization and disk persistence helpers for OCR document results."""
 
 from pathlib import Path
+import json
 import re
 from typing import Dict, Optional, Set, Union
 
@@ -78,7 +79,56 @@ def resolve_unique_stem(
     return stem
 
 
-def format_output(result: OCRResult, output_format: OutputFormat) -> Dict[str, str]:
+def sanitize_export_path(
+    file_path: Union[str, Path],
+    base_dir: Optional[Union[str, Path]] = None,
+) -> str:
+    """Sanitize a document file path for exported artifacts to avoid leaking user home paths.
+
+    Attempts to relativize the path to base_dir (or Path.cwd()). If the path lies outside
+    that base directory, attempts to relativize to Path.home() (stripping the OS username/home
+    prefix), and falls back to Path(file_path).name if across drives or un-relativizable.
+
+    Args:
+        file_path: Raw source document path.
+        base_dir: Optional reference directory to relativize against (defaults to Path.cwd()).
+
+    Returns:
+        str: Relativized and privacy-safe path representation using standard forward slashes.
+    """
+    raw = str(file_path)
+    if not raw or raw in ("<in-memory>", "<bytes>"):
+        return raw
+
+    try:
+        target = Path(file_path).resolve()
+    except Exception:
+        return Path(raw).name
+
+    # 1. Try relative to base_dir or cwd
+    try:
+        ref_dir = Path(base_dir if base_dir is not None else Path.cwd()).resolve()
+        return str(target.relative_to(ref_dir)).replace("\\", "/")
+    except (ValueError, RuntimeError):
+        pass
+
+    # 2. Try relative to user home directory (strips C:/Users/<username>)
+    try:
+        home_dir = Path.home().resolve()
+        return str(target.relative_to(home_dir)).replace("\\", "/")
+    except (ValueError, RuntimeError):
+        pass
+
+    # 3. Fallback to bare filename if across drives or non-relativizable
+    return target.name
+
+
+def format_output(
+    result: OCRResult,
+    output_format: OutputFormat,
+    sanitize_path: bool = False,
+    base_dir: Optional[Union[str, Path]] = None,
+) -> Dict[str, str]:
     """Format an OCRResult into output strings according to the requested format.
 
     Reuses OCRResult.to_markdown() and OCRResult.to_json() without duplicating
@@ -87,6 +137,9 @@ def format_output(result: OCRResult, output_format: OutputFormat) -> Dict[str, s
     Args:
         result: Aggregated document OCRResult instance.
         output_format: Target format (MARKDOWN, JSON, or BOTH).
+        sanitize_path: If True, relativizes file_path in exported JSON to avoid leaking
+            local user home directories.
+        base_dir: Optional reference directory for path relativization.
 
     Returns:
         Dict[str, str]: Mapping of format name ('markdown', 'json') to serialized content.
@@ -97,7 +150,12 @@ def format_output(result: OCRResult, output_format: OutputFormat) -> Dict[str, s
         outputs["markdown"] = result.to_markdown()
 
     if output_format in (OutputFormat.JSON, OutputFormat.BOTH):
-        outputs["json"] = result.to_json()
+        if sanitize_path:
+            data = result.to_dict()
+            data["file_path"] = sanitize_export_path(result.file_path, base_dir=base_dir)
+            outputs["json"] = json.dumps(data, indent=2, ensure_ascii=False)
+        else:
+            outputs["json"] = result.to_json()
 
     return outputs
 
@@ -108,6 +166,8 @@ def save_artifacts(
     output_dir: Union[str, Path],
     base_name: Optional[str] = None,
     used_stems: Optional[Set[str]] = None,
+    sanitize_path: bool = True,
+    base_dir: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Path]:
     """Persist formatted OCR outputs to disk files with collision safety.
 
@@ -121,6 +181,8 @@ def save_artifacts(
         output_dir: Destination folder path.
         base_name: Optional explicit base filename stem without extension.
         used_stems: Optional set tracking stems allocated within an export batch.
+        sanitize_path: Whether to relativize file_path in exported JSON (default True).
+        base_dir: Optional reference directory for path relativization.
 
     Returns:
         Dict[str, Path]: Mapping of format name to absolute Path of each created file.
@@ -139,7 +201,12 @@ def save_artifacts(
 
     safe_stem = resolve_unique_stem(candidate_stem, output_dir=out_dir, used_stems=used_stems)
 
-    formatted = format_output(result, config.output_format)
+    formatted = format_output(
+        result,
+        config.output_format,
+        sanitize_path=sanitize_path,
+        base_dir=base_dir,
+    )
     saved_paths: Dict[str, Path] = {}
 
     if "markdown" in formatted:

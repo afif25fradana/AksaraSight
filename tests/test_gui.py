@@ -836,3 +836,48 @@ def test_gui_cancellation_flow(tmp_path):
         app._on_closing()
 
 
+def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
+    """Verify dropping a folder discovers and enqueues supported files recursively (Finding 1.3)."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        drop_folder = tmp_path / "dropped_batch"
+        sub_folder = drop_folder / "sub"
+        sub_folder.mkdir(parents=True)
+
+        doc1 = drop_folder / "doc1.pdf"
+        doc1.write_bytes(b"%PDF-1.4 dummy 1")
+
+        img1 = sub_folder / "scan.png"
+        img1.write_bytes(b"\x89PNG dummy 2")
+
+        unsupported_doc = sub_folder / "notes.docx"
+        unsupported_doc.write_bytes(b"PK dummy 3")
+
+        # Enqueue the directory
+        app.enqueue_file(drop_folder)
+
+        # The folder itself must NOT be queued
+        assert str(drop_folder.resolve()) not in app._queue_items
+
+        # Supported children must be queued
+        assert str(doc1.resolve()) in app._queue_items
+        assert str(img1.resolve()) in app._queue_items
+
+        # Unsupported files must be skipped
+        assert str(unsupported_doc.resolve()) not in app._queue_items
+        assert len(app._queue_items) == 2
+
+        # Test empty folder drop
+        empty_folder = tmp_path / "empty_folder"
+        empty_folder.mkdir()
+        app.enqueue_file(empty_folder)
+        assert "No supported documents in empty_folder" in app._footer_status.cget("text")
+        assert len(app._queue_items) == 2
+    finally:
+        app._on_closing()
+
+
+

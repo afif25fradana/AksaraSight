@@ -109,7 +109,7 @@ def test_ocr_result_partial_success():
 
 
 def test_ocr_result_to_dict_and_to_json():
-    """Verify to_dict and to_json output structure and auto-resolution of status."""
+    """Verify to_dict and to_json output structure without mutating status (pure CQS)."""
     p1 = PageResult(
         page_num=1,
         markdown="Text 1",
@@ -130,9 +130,17 @@ def test_ocr_result_to_dict_and_to_json():
         total_duration=1.5,
     )
 
+    # Before explicit status resolution, to_dict() reflects current status without mutating
+    assert result.status == JobStatus.SUCCESS
+    assert result.to_dict()["status"] == "SUCCESS"
+
+    # Caller (e.g. engine.py) explicitly resolves status
+    result.resolve_status()
+    assert result.status == JobStatus.PARTIAL
+
     data = result.to_dict()
     assert data["file_path"] == "sample.pdf"
-    assert data["status"] == "PARTIAL"  # Auto-resolved in to_dict
+    assert data["status"] == "PARTIAL"
     assert data["total_duration"] == 1.5
     assert data["page_count"] == 2
     assert len(data["pages"]) == 2

@@ -140,7 +140,6 @@ def test_direct_settings_constructor_validation():
         "http://localhost:8080/v1",
         "http://127.0.0.1:8080/v1",
         "http://[::1]:8080/v1",
-        "http://0.0.0.0:8080/v1",
     ],
 )
 def test_loopback_hosts_allowed_by_default(loopback_url):
@@ -152,6 +151,7 @@ def test_loopback_hosts_allowed_by_default(loopback_url):
 @pytest.mark.parametrize(
     "remote_url",
     [
+        "http://0.0.0.0:8080/v1",
         "http://api.openai.com/v1",
         "https://external-cloud.com/v1",
         "http://192.168.1.50:8080/v1",

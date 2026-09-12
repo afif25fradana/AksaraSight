@@ -319,8 +319,9 @@ def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
     mock_success_result: OCRResult,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    """Verify CLI accepts non-loopback endpoint when --allow-remote flag is specified."""
+    """Verify CLI accepts non-loopback endpoint when --allow-remote flag is specified and warns."""
     mock_engine = MagicMock()
     mock_engine.process_document.return_value = mock_success_result
     mock_engine_cls.return_value = mock_engine
@@ -335,6 +336,8 @@ def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
     passed_settings = init_kwargs["settings"]
     assert passed_settings.local_endpoint == "http://192.168.1.100:8080/v1"
     assert passed_settings.allow_remote is True
+    captured = capsys.readouterr()
+    assert "WARNING: Backend endpoint is non-loopback" in captured.err
 
 
 @patch("cli.main.OCREngine")

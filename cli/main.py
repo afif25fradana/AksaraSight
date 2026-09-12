@@ -131,6 +131,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(f"Configuration error: {exc}\n")
         return 1
 
+    # Emit prominent warning if non-loopback endpoint is in use
+    if not settings.is_loopback:
+        sys.stderr.write(
+            f"WARNING: Backend endpoint is non-loopback — document data will leave this machine: "
+            f"'{settings.local_endpoint}'\n"
+        )
+
     # 3. Build JobConfig
     output_fmt = OutputFormat(args.format.lower())
     job_config = JobConfig(

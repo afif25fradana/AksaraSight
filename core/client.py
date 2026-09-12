@@ -46,7 +46,7 @@ class ResponseParsingError(ClientError):
 
     Note:
         Handling for empty/null message content, missing choice dictionaries, and
-        unexpected content types is defensive-only (未verified against a live llama-server
+        unexpected content types is defensive-only (unverified against a live llama-server
         instance). These parsing edge cases are implemented based on llama.cpp source
         inspection and OpenAI specifications, and must be re-validated during Phase 1
         live integration tests once the local backend is online.
@@ -253,7 +253,7 @@ class VisionClient:
 
         Note:
             Parsing edge cases (such as None content, missing choices, or non-string
-            content fields) are implemented defensively (未verified against live llama-server)
+            content fields) are implemented defensively (unverified against live llama-server)
             and must be re-validated during integration testing.
         """
         try:

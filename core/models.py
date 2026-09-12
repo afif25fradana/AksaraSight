@@ -104,6 +104,7 @@ class OCRResult:
     total_duration: float = 0.0
     status: JobStatus = JobStatus.SUCCESS
     error: Optional[str] = None
+    aborted: bool = False
 
     def resolve_status(self) -> JobStatus:
         """Compute and update aggregate status based on file error and page outcomes.
@@ -160,6 +161,7 @@ class OCRResult:
             "status": self.status.value,
             "total_duration": self.total_duration,
             "error": self.error,
+            "aborted": self.aborted,
             "page_count": len(self.pages),
             "pages": [
                 {

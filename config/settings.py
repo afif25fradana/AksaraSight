@@ -25,6 +25,43 @@ class Settings:
     timeout: float = 60.0
     max_retries: int = 2
 
+    def __post_init__(self) -> None:
+        """Validate and normalize configuration attributes across all construction paths."""
+        # Backend validation & normalization
+        if not isinstance(self.backend, str):
+            raise ValueError(f"BACKEND must be a string, got: '{self.backend}'")
+        clean_backend = self.backend.strip().lower()
+        if clean_backend not in VALID_BACKENDS:
+            valid_list = ", ".join(sorted(VALID_BACKENDS))
+            raise ValueError(f"Invalid BACKEND: '{self.backend}'. Supported backends: {valid_list}")
+        object.__setattr__(self, "backend", clean_backend)
+
+        # Endpoint validation & normalization
+        if not isinstance(self.local_endpoint, str):
+            raise ValueError(f"LOCAL_ENDPOINT must be a string, got: '{self.local_endpoint}'")
+        clean_endpoint = self.local_endpoint.strip().rstrip("/")
+        if not (clean_endpoint.startswith("http://") or clean_endpoint.startswith("https://")):
+            raise ValueError(f"Invalid LOCAL_ENDPOINT: '{self.local_endpoint}'. Must start with 'http://' or 'https://'")
+        object.__setattr__(self, "local_endpoint", clean_endpoint)
+
+        # Timeout validation
+        try:
+            val_timeout = float(self.timeout)
+            if val_timeout <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(f"TIMEOUT must be a positive number, got: '{self.timeout}'")
+        object.__setattr__(self, "timeout", val_timeout)
+
+        # Max retries validation
+        try:
+            val_retries = int(self.max_retries)
+            if val_retries < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{self.max_retries}'")
+        object.__setattr__(self, "max_retries", val_retries)
+
     @classmethod
     def from_env(cls, env_path: Optional[str | Path] = None) -> "Settings":
         """Load and validate settings from environment variables and .env file.
@@ -46,40 +83,15 @@ class Settings:
         else:
             load_dotenv()
 
-        # Backend validation
-        raw_backend = os.getenv("OCR_BACKEND") or os.getenv("BACKEND", "llama-cpp")
-        backend = raw_backend.strip().lower()
-        if backend not in VALID_BACKENDS:
-            valid_list = ", ".join(sorted(VALID_BACKENDS))
-            raise ValueError(f"Invalid BACKEND: '{backend}'. Supported backends: {valid_list}")
-
-        # Endpoint validation & normalization
-        raw_endpoint = os.getenv("OCR_ENDPOINT") or os.getenv("LOCAL_ENDPOINT", "http://localhost:8080/v1")
-        endpoint = raw_endpoint.strip().rstrip("/")
-        if not (endpoint.startswith("http://") or endpoint.startswith("https://")):
-            raise ValueError(f"Invalid LOCAL_ENDPOINT: '{endpoint}'. Must start with 'http://' or 'https://'")
-
-        # Timeout validation
-        raw_timeout = os.getenv("OCR_TIMEOUT") or os.getenv("TIMEOUT", "60")
-        try:
-            timeout = float(raw_timeout)
-            if timeout <= 0:
-                raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"TIMEOUT must be a positive number, got: '{raw_timeout}'")
-
-        # Max retries validation
+        backend = os.getenv("OCR_BACKEND") or os.getenv("BACKEND", "llama-cpp")
+        endpoint = os.getenv("OCR_ENDPOINT") or os.getenv("LOCAL_ENDPOINT", "http://localhost:8080/v1")
+        raw_timeout = os.getenv("OCR_TIMEOUT") or os.getenv("TIMEOUT", "60.0")
         raw_retries = os.getenv("OCR_MAX_RETRIES") or os.getenv("MAX_RETRIES", "2")
-        try:
-            max_retries = int(raw_retries)
-            if max_retries < 0:
-                raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{raw_retries}'")
 
         return cls(
             backend=backend,
             local_endpoint=endpoint,
-            timeout=timeout,
-            max_retries=max_retries,
+            timeout=raw_timeout,  # type: ignore[arg-type]
+            max_retries=raw_retries,  # type: ignore[arg-type]
         )
+

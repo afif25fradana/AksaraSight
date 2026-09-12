@@ -142,6 +142,7 @@ def test_ocr_result_to_dict_and_to_json():
     assert data["file_path"] == "sample.pdf"
     assert data["status"] == "PARTIAL"
     assert data["total_duration"] == 1.5
+    assert data["aborted"] is False
     assert data["page_count"] == 2
     assert len(data["pages"]) == 2
     assert data["pages"][0]["status"] == "SUCCESS"
@@ -152,4 +153,6 @@ def test_ocr_result_to_dict_and_to_json():
     json_str = result.to_json()
     parsed = json.loads(json_str)
     assert parsed["status"] == "PARTIAL"
+    assert parsed["aborted"] is False
     assert parsed["pages"][0]["markdown"] == "Text 1"
+

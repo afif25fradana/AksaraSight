@@ -110,3 +110,24 @@ def test_load_from_custom_env_file(tmp_path, monkeypatch):
     s = Settings.from_env(env_path=env_file)
     assert s.backend == "ollama"
     assert s.timeout == 99.0
+
+
+def test_direct_settings_constructor_validation():
+    """Verify Settings(...) constructor enforces __post_init__ validation."""
+    with pytest.raises(ValueError, match="Invalid BACKEND"):
+        Settings(backend="invalid-backend")
+
+    with pytest.raises(ValueError, match="Invalid LOCAL_ENDPOINT"):
+        Settings(local_endpoint="not-an-http-url")
+
+    with pytest.raises(ValueError, match="TIMEOUT must be a positive number"):
+        Settings(timeout=-10)
+
+    with pytest.raises(ValueError, match="MAX_RETRIES must be a non-negative integer"):
+        Settings(max_retries=-1)
+
+    # Valid direct construction with normalization
+    s = Settings(backend="  OLLAMA  ", local_endpoint="http://127.0.0.1:11434/v1/")
+    assert s.backend == "ollama"
+    assert s.local_endpoint == "http://127.0.0.1:11434/v1"
+

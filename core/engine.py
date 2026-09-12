@@ -119,6 +119,7 @@ class OCREngine:
                         )
                     )
 
+                    result.aborted = True
                     succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
                     if succeeded > 0:
                         result.error = (

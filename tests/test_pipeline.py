@@ -2,6 +2,7 @@
 
 import io
 from pathlib import Path
+from unittest.mock import patch
 from PIL import Image
 import pypdfium2 as pdfium
 import pytest
@@ -12,6 +13,7 @@ from core.pipeline import (
     EncryptedDocumentError,
     ExtractedPage,
     FilePreflightError,
+    MAX_RASTER_PIXELS,
     PipelineError,
     UnsupportedFormatError,
     check_preflight,
@@ -368,4 +370,43 @@ def test_ingest_multithreaded_pdf_concurrency(tmp_path):
         t.join()
 
     assert errors == []
+
+
+# ==============================================================================
+# Pre-Render Dimension Safety Tests (Finding 3.2)
+# ==============================================================================
+
+def test_oversized_pdf_page_dimension_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that a PDF page exceeding scaled raster limit is rejected with clean error."""
+    pdf_path = tmp_path / "oversized.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # Monkeypatch MAX_RASTER_PIXELS to a low threshold (e.g. 5,000 pixels)
+    monkeypatch.setattr("core.pipeline.MAX_RASTER_PIXELS", 5000)
+
+    pages = list(ingest(pdf_path, dpi=100))
+    assert len(pages) == 1
+    assert pages[0].is_success is False
+    assert "exceed safety threshold of 5,000 pixels" in pages[0].error
+
+
+def test_oversized_pdf_page_with_mocked_huge_size(tmp_path: Path) -> None:
+    """Verify that a page reporting massive dimensions (>89M px) rejects before calling render()."""
+    pdf_path = tmp_path / "mock_huge.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    with patch("pypdfium2.PdfPage.get_size", return_value=(50000.0, 50000.0)), \
+         patch("pypdfium2.PdfPage.render") as mock_render:
+        pages = list(ingest(pdf_path, dpi=100))
+        assert len(pages) == 1
+        assert pages[0].is_success is False
+        assert "exceed safety threshold" in pages[0].error
+        mock_render.assert_not_called()
+
 

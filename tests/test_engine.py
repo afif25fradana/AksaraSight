@@ -203,6 +203,7 @@ def test_engine_server_offline_on_first_page_short_circuits(
     assert result.pages[0].status == JobStatus.FAILED
 
     # Error message explicitly details stopping page without claiming exact total count
+    assert result.aborted is True
     assert result.error is not None
     assert "Inference backend offline on page 1" in result.error
     assert "remaining pages not attempted" in result.error
@@ -224,6 +225,7 @@ def test_engine_server_offline_mid_document_short_circuits(
 
     # Status resolves to FAILED due to file-level abort error, while successful pages are preserved in pages
     assert result.status == JobStatus.FAILED
+    assert result.aborted is True
     assert mock_client.complete.call_count == 2
     assert len(result.pages) == 2
 
@@ -234,6 +236,7 @@ def test_engine_server_offline_mid_document_short_circuits(
     assert "Inference backend offline on page 2 (after 1 page(s) succeeded)" in result.error
     assert "remaining pages not attempted" in result.error
     assert "Connection reset by peer" in result.error
+
 
 
 

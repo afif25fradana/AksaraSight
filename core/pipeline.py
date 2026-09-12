@@ -14,6 +14,9 @@ import pypdfium2.raw as pdfium_c
 # Enforce strict rejection of truncated images
 ImageFile.LOAD_TRUNCATED_IMAGES = False
 
+# Maximum pixel threshold for rasterization safety (matches Pillow's MAX_IMAGE_PIXELS)
+MAX_RASTER_PIXELS: int = getattr(Image, "MAX_IMAGE_PIXELS", 89_478_485) or 89_478_485
+
 # Module-level lock synchronizing all pypdfium2 C API calls across threads
 _PDFIUM_LOCK = threading.Lock()
 
@@ -329,20 +332,39 @@ def _process_pdf(
 
         for i in range(total_pages):
             page_num = i + 1
+            render_error: Optional[str] = None
+            pil_img: Optional[Image.Image] = None
+
             with _PDFIUM_LOCK:
                 try:
                     page = doc[i]
                     try:
-                        pil_img = page.render(scale=scale).to_pil()
+                        width_pt, height_pt = page.get_size()
+                        pixel_width = int(width_pt * scale)
+                        pixel_height = int(height_pt * scale)
+                        pixel_area = pixel_width * pixel_height
+
+                        if pixel_area > MAX_RASTER_PIXELS:
+                            render_error = (
+                                f"Page {page_num} dimensions ({pixel_width}x{pixel_height} = "
+                                f"{pixel_area:,} pixels) exceed safety threshold of "
+                                f"{MAX_RASTER_PIXELS:,} pixels"
+                            )
+                        else:
+                            pil_img = page.render(scale=scale).to_pil()
                     finally:
                         page.close()
                 except Exception as page_err:
-                    yield ExtractedPage(
-                        page_num=page_num,
-                        error=f"Failed to rasterize page {page_num}: {page_err}",
-                    )
-                    continue
+                    render_error = f"Failed to rasterize page {page_num}: {page_err}"
 
+            if render_error:
+                yield ExtractedPage(
+                    page_num=page_num,
+                    error=render_error,
+                )
+                continue
+
+            assert pil_img is not None
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
             b64 = image_to_base64_url(pil_img, img_format=image_format, quality=jpeg_quality)

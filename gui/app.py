@@ -1221,6 +1221,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
 def main() -> None:
     """Run the GLM-OCR Local GUI application."""
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("GLM-OCR Local Studio Desktop GUI")
+        print("Usage: python -m gui.app")
+        return
     app = OCRApp()
     app.mainloop()
 

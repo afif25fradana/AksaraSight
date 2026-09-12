@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
 VALID_BACKENDS: Set[str] = {"llama-cpp", "ollama", "vllm"}
-LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 
 
 @dataclass(frozen=True)

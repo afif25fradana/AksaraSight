@@ -150,12 +150,11 @@ class OCRResult:
         return self.markdown
 
     def to_dict(self) -> Dict[str, Any]:
-        """Export structured dictionary representation with freshly resolved status.
+        """Export structured dictionary representation of the document result.
 
         Returns:
             Dict[str, Any]: Normalized document result dictionary.
         """
-        self.resolve_status()
         return {
             "file_path": str(self.file_path),
             "status": self.status.value,

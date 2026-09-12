@@ -11,6 +11,14 @@ from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from gui.app import (
+    COLOR_ACCENT_AMBER,
+    COLOR_DRAGOVER_BG,
+    COLOR_INTERACTIVE_HOVER,
+    COLOR_INTERACTIVE_NEUTRAL,
+    COLOR_ROW_SELECTED_BG,
+    COLOR_SURFACE_1,
+    COLOR_SURFACE_BORDER,
+    COLOR_SURFACE_BORDER_HOVER,
     OCRApp,
     QueueItem,
     QueueItemStatus,
@@ -589,3 +597,117 @@ def test_save_artifacts_signature_compatibility():
     assert bound.arguments["result"] is dummy_result
     assert bound.arguments["config"] is dummy_config
     assert bound.arguments["base_name"] == "custom_stem"
+
+
+def test_drop_zone_hover_enter_leave():
+    """Verify drop zone border color brightens on mouse enter and reverts on leave."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # Initial state should be standard border
+        assert app._drop_zone.cget("border_color") == COLOR_SURFACE_BORDER
+
+        # Simulate enter
+        event = SimpleNamespace(widget=app._drop_zone)
+        app._on_drop_zone_enter(event)
+        assert app._drop_zone.cget("border_color") == COLOR_SURFACE_BORDER_HOVER
+
+        # Simulate leave
+        app._on_drop_zone_leave(event)
+        assert app._drop_zone.cget("border_color") == COLOR_SURFACE_BORDER
+    finally:
+        app._on_closing()
+
+
+def test_drag_over_enter_leave():
+    """Verify drag-over flips border to amber and tints background, reverting on leave."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # Initial state
+        assert app._drop_zone.cget("border_color") == COLOR_SURFACE_BORDER
+        assert app._drop_zone.cget("fg_color") == COLOR_SURFACE_1
+
+        # Simulate drag enter with action
+        event = SimpleNamespace(action="copy")
+        action_ret = app._on_drag_enter(event)
+        assert action_ret == "copy"
+        assert app._drop_zone.cget("border_color") == COLOR_ACCENT_AMBER
+        assert app._drop_zone.cget("fg_color") == COLOR_DRAGOVER_BG
+
+        # Simulate drag leave
+        action_ret_leave = app._on_drag_leave(event)
+        assert action_ret_leave == "copy"
+        assert app._drop_zone.cget("border_color") == COLOR_SURFACE_BORDER
+        assert app._drop_zone.cget("fg_color") == COLOR_SURFACE_1
+    finally:
+        app._on_closing()
+
+
+def test_queue_row_hover_enter_leave_and_selected_guard(tmp_path):
+    """Verify queue row hover lightens background on unselected items and preserves selected item background."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        file_a = tmp_path / "first.pdf"
+        file_b = tmp_path / "second.pdf"
+        file_a.write_bytes(b"dummy1")
+        file_b.write_bytes(b"dummy2")
+
+        app.enqueue_file(file_a)
+        app.enqueue_file(file_b)
+
+        id_a = str(file_a.resolve())
+        id_b = str(file_b.resolve())
+
+        item_a = app._queue_items[id_a]
+        item_b = app._queue_items[id_b]
+
+        # file_a was first item, so it was auto-selected
+        assert app._selected_item_id == id_a
+        assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+        assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
+
+        # 1. Hover over unselected row (item_b): flips to COLOR_INTERACTIVE_HOVER
+        event_b = SimpleNamespace(widget=item_b.row_frame, item_id=id_b)
+        app._on_queue_row_enter(event_b, item_id=id_b)
+        assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_HOVER
+
+        # 2. Leave unselected row (item_b): reverts to COLOR_INTERACTIVE_NEUTRAL
+        app._on_queue_row_leave(event_b, item_id=id_b)
+        assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
+
+        # 3. Hover over selected row (item_a): MUST NOT clobber COLOR_ROW_SELECTED_BG
+        event_a = SimpleNamespace(widget=item_a.row_frame, item_id=id_a)
+        app._on_queue_row_enter(event_a, item_id=id_a)
+        assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+
+        # Leave selected row: still COLOR_ROW_SELECTED_BG
+        app._on_queue_row_leave(event_a, item_id=id_a)
+        assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+
+        # 4. Switch selection to item_b and verify roles swap
+        app._select_queue_item(id_b)
+        assert app._selected_item_id == id_b
+        assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+        assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
+
+        # Hover over now-unselected item_a: flips to COLOR_INTERACTIVE_HOVER
+        app._on_queue_row_enter(event_a, item_id=id_a)
+        assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_HOVER
+        app._on_queue_row_leave(event_a, item_id=id_a)
+        assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
+
+        # Hover over now-selected item_b: preserved as COLOR_ROW_SELECTED_BG
+        app._on_queue_row_enter(event_b, item_id=id_b)
+        assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+        app._on_queue_row_leave(event_b, item_id=id_b)
+        assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
+    finally:
+        app._on_closing()

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import io
 import os
 from pathlib import Path
+import threading
 from typing import Iterator, Optional, Union
 from PIL import Image, ImageFile, ImageSequence, UnidentifiedImageError
 import pypdfium2 as pdfium
@@ -12,6 +13,9 @@ import pypdfium2.raw as pdfium_c
 
 # Enforce strict rejection of truncated images
 ImageFile.LOAD_TRUNCATED_IMAGES = False
+
+# Module-level lock synchronizing all pypdfium2 C API calls across threads
+_PDFIUM_LOCK = threading.Lock()
 
 
 # ==============================================================================
@@ -263,6 +267,11 @@ def _process_pdf(
       a .pdf extension but is actually a mislabeled valid image (e.g. renamed JPEG/PNG),
       it is processed as an image. If Pillow also fails, CorruptDocumentError is raised.
 
+    Thread Safety:
+    - All pypdfium2 C API calls (document load, page render, explicit close) are
+      synchronized via module-level _PDFIUM_LOCK. Pillow image encoding and page yielding
+      run outside the lock to allow concurrent vision inference across threads.
+
     Args:
         source: PDF file path or byte buffer.
         dpi: Target rasterization resolution (default: 150).
@@ -280,7 +289,8 @@ def _process_pdf(
     scale = dpi / 72.0
 
     try:
-        doc = pdfium.PdfDocument(source)
+        with _PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(source)
     except pdfium.PdfiumError as e:
         err_code = getattr(e, "err_code", None)
 
@@ -300,6 +310,7 @@ def _process_pdf(
         if err_code == pdfium_c.FPDF_ERR_FORMAT:
             # Fallback for mislabeled extensions (e.g. JPEG/PNG renamed to .pdf):
             # Attempt to process via Pillow before declaring corrupt PDF.
+            # Runs outside _PDFIUM_LOCK since it invokes Pillow, not pypdfium2.
             try:
                 yield from _process_image(source, image_format=image_format, jpeg_quality=jpeg_quality)
                 return
@@ -310,30 +321,40 @@ def _process_pdf(
 
         raise CorruptDocumentError(f"Failed to load PDF document: {e}") from e
 
-    with doc:
-        total_pages = len(doc)
-        if total_pages == 0:
-            raise EmptyDocumentError("PDF document contains 0 pages")
+    try:
+        with _PDFIUM_LOCK:
+            total_pages = len(doc)
+            if total_pages == 0:
+                raise EmptyDocumentError("PDF document contains 0 pages")
 
         for i in range(total_pages):
             page_num = i + 1
-            try:
-                page = doc[i]
-                pil_img = page.render(scale=scale).to_pil()
-                if pil_img.mode != "RGB":
-                    pil_img = pil_img.convert("RGB")
-                b64 = image_to_base64_url(pil_img, img_format=image_format, quality=jpeg_quality)
-                yield ExtractedPage(
-                    page_num=page_num,
-                    image_b64=b64,
-                    width=pil_img.width,
-                    height=pil_img.height,
-                )
-            except Exception as page_err:
-                yield ExtractedPage(
-                    page_num=page_num,
-                    error=f"Failed to rasterize page {page_num}: {page_err}",
-                )
+            with _PDFIUM_LOCK:
+                try:
+                    page = doc[i]
+                    try:
+                        pil_img = page.render(scale=scale).to_pil()
+                    finally:
+                        page.close()
+                except Exception as page_err:
+                    yield ExtractedPage(
+                        page_num=page_num,
+                        error=f"Failed to rasterize page {page_num}: {page_err}",
+                    )
+                    continue
+
+            if pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
+            b64 = image_to_base64_url(pil_img, img_format=image_format, quality=jpeg_quality)
+            yield ExtractedPage(
+                page_num=page_num,
+                image_b64=b64,
+                width=pil_img.width,
+                height=pil_img.height,
+            )
+    finally:
+        with _PDFIUM_LOCK:
+            doc.close()
 
 
 # ==============================================================================
@@ -349,6 +370,8 @@ def ingest(
     """Ingest, validate, and rasterize a document into base64 vision API pages.
 
     Supports both single/multi-page images (PNG, JPEG, TIFF, etc.) and PDF documents.
+    Safe to call from multiple threads concurrently (internally synchronized around
+    pypdfium2 C API calls).
 
     Args:
         source: File path (str | Path) or in-memory byte buffer.

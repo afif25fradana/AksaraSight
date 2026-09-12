@@ -154,5 +154,47 @@ def test_ocr_result_to_dict_and_to_json():
     parsed = json.loads(json_str)
     assert parsed["status"] == "PARTIAL"
     assert parsed["aborted"] is False
+    assert parsed["cancelled"] is False
     assert parsed["pages"][0]["markdown"] == "Text 1"
+
+
+def test_job_config_max_pages_validation():
+    """Verify max_pages positive integer validation."""
+    assert JobConfig(max_pages=5).max_pages == 5
+    assert JobConfig(max_pages="3").max_pages == 3
+    assert JobConfig(max_pages=None).max_pages is None
+
+    with pytest.raises(ValueError, match="max_pages must be a positive integer"):
+        JobConfig(max_pages=0)
+
+    with pytest.raises(ValueError, match="max_pages must be a positive integer"):
+        JobConfig(max_pages=-1)
+
+    with pytest.raises(ValueError, match="max_pages must be a positive integer"):
+        JobConfig(max_pages="abc")
+
+
+def test_ocr_result_cancelled_resolution():
+    """Verify OCRResult resolves to JobStatus.CANCELLED when cancelled=True."""
+    p1 = PageResult(page_num=1, markdown="Page 1 Text", status=JobStatus.SUCCESS)
+    result = OCRResult(
+        file_path="multipage.pdf",
+        pages=[p1],
+        cancelled=True,
+        error="Processing cancelled by user after page 1",
+    )
+
+    assert result.resolve_status() == JobStatus.CANCELLED
+    assert result.status == JobStatus.CANCELLED
+    assert result.cancelled is True
+
+    data = result.to_dict()
+    assert data["status"] == "CANCELLED"
+    assert data["cancelled"] is True
+    assert data["error"] == "Processing cancelled by user after page 1"
+
+    parsed = json.loads(result.to_json())
+    assert parsed["status"] == "CANCELLED"
+    assert parsed["cancelled"] is True
+
 

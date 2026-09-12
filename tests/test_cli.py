@@ -385,3 +385,35 @@ def test_cli_batch_duplicate_filenames_no_overwrite(
     assert content_1 != content_2
 
 
+@patch("cli.main.OCREngine")
+def test_cli_max_pages_flag_forwarded(
+    mock_engine_cls: MagicMock,
+    dummy_pdf: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify --max-pages flag forwards positive int to JobConfig."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(dummy_pdf), "--max-pages", "5"])
+
+    assert exit_code == 0
+    assert mock_engine.process_document.call_count == 1
+    _, kwargs = mock_engine.process_document.call_args
+    assert kwargs["config"].max_pages == 5
+
+
+def test_cli_max_pages_flag_invalid(
+    dummy_pdf: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify non-positive --max-pages flag triggers fatal error."""
+    exit_code = main([str(dummy_pdf), "--max-pages", "0"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error: --max-pages must be a positive integer" in captured.err
+
+
+

@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicitly permit connecting to non-loopback / remote inference endpoints.",
     )
     parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="Maximum number of pages to process per document.",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -139,11 +145,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
 
     # 3. Build JobConfig
+    if args.max_pages is not None and args.max_pages <= 0:
+        sys.stderr.write("Error: --max-pages must be a positive integer.\n")
+        return 1
+
     output_fmt = OutputFormat(args.format.lower())
     job_config = JobConfig(
         output_format=output_fmt,
         prompt_mode=args.prompt_mode,
         custom_prompt=args.prompt,
+        max_pages=args.max_pages,
     )
 
     # 4. Resolve files to process

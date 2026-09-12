@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import time
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
@@ -151,3 +151,15 @@ class OCREngine:
         result.total_duration = time.perf_counter() - start_time
         result.resolve_status()
         return result
+
+    def close(self) -> None:
+        """Release underlying client network session and connection pool resources."""
+        if self.client and hasattr(self.client, "close"):
+            self.client.close()
+
+    def __enter__(self) -> "OCREngine":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+

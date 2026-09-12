@@ -10,6 +10,8 @@ from .client import (
     VisionClient,
     resolve_chat_endpoint,
 )
+from .engine import OCREngine
+from .formatter import format_output, save_artifacts
 from .models import (
     JobConfig,
     JobStatus,
@@ -41,6 +43,7 @@ __all__ = [
     "FilePreflightError",
     "JobConfig",
     "JobStatus",
+    "OCREngine",
     "OCRResult",
     "OutputFormat",
     "PageResult",
@@ -53,8 +56,11 @@ __all__ = [
     "UnsupportedFormatError",
     "VisionClient",
     "check_preflight",
+    "format_output",
     "ingest",
     "is_pdf",
     "resolve_chat_endpoint",
+    "save_artifacts",
 ]
+
 

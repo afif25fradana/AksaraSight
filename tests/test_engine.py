@@ -2,6 +2,7 @@
 
 import io
 from pathlib import Path
+import threading
 from unittest.mock import MagicMock
 from PIL import Image
 import pypdfium2 as pdfium
@@ -264,3 +265,45 @@ def test_engine_handles_pipeline_rasterization_failure(mock_client: MagicMock) -
     assert result.pages[1].status == JobStatus.SUCCESS
     # Client should only be called for the successful page
     assert mock_client.complete.call_count == 1
+
+
+# ==============================================================================
+# Page Limits & Cancellation Tests (Finding 3.1)
+# ==============================================================================
+
+def test_engine_max_pages_limit(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Verify max_pages limits number of pages processed on multi-page documents."""
+    engine = OCREngine(client=mock_client)
+    config = JobConfig(max_pages=2)
+
+    result = engine.process_document(sample_pdf_path, config=config)
+
+    assert result.status == JobStatus.SUCCESS
+    assert len(result.pages) == 2
+    assert mock_client.complete.call_count == 2
+    assert result.pages[0].page_num == 1
+    assert result.pages[1].page_num == 2
+
+
+def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Verify cancel_token halts processing cleanly between pages."""
+    cancel_token = threading.Event()
+
+    def complete_side_effect(*args, **kwargs):
+        # Trigger cancellation after the first page completes
+        cancel_token.set()
+        return ("# Page 1 Text", {"id": "1"}, 0.1)
+
+    mock_client.complete.side_effect = complete_side_effect
+
+    engine = OCREngine(client=mock_client)
+    result = engine.process_document(sample_pdf_path, cancel_token=cancel_token)
+
+    assert result.status == JobStatus.CANCELLED
+    assert result.cancelled is True
+    assert "Processing cancelled by user after page 1" in result.error
+    assert len(result.pages) == 1
+    assert mock_client.complete.call_count == 1
+    assert result.pages[0].status == JobStatus.SUCCESS
+    assert result.pages[0].markdown == "# Page 1 Text"
+

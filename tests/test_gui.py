@@ -17,6 +17,7 @@ from gui.app import (
     COLOR_INTERACTIVE_HOVER,
     COLOR_INTERACTIVE_NEUTRAL,
     COLOR_ROW_SELECTED_BG,
+    COLOR_STATUS_CANCELLED,
     COLOR_SURFACE_1,
     COLOR_SURFACE_BORDER,
     COLOR_SURFACE_BORDER_HOVER,
@@ -754,4 +755,84 @@ def test_backend_badge_shows_remote_indicator():
         assert app.settings.allow_remote is True
     finally:
         app._on_closing()
+
+
+def test_gui_cancellation_flow(tmp_path):
+    """Verify GUI cancel button state, signal triggering, and CANCELLED event handling."""
+    mock_engine = MagicMock()
+    test_file = tmp_path / "long_doc.pdf"
+    test_file.write_bytes(b"%PDF-1.4 dummy")
+
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # Initially disabled
+        assert app._btn_cancel.cget("state") == "disabled"
+        assert "after current page" in app._btn_cancel.cget("text")
+
+        app.enqueue_file(test_file)
+        item_id = str(test_file.resolve())
+        item = app._queue_items[item_id]
+
+        # Simulate STARTED event
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.STARTED,
+                file_path=item_id,
+            )
+        )
+        app._process_result_queue()
+
+        # Wire up a mock cancel event as would exist during in-flight processing
+        import threading
+        fake_cancel_event = threading.Event()
+        app._current_cancel_event = fake_cancel_event
+        app._update_action_buttons()
+
+        assert app._btn_cancel.cget("state") == "normal"
+
+        # User clicks cancel
+        app._on_cancel_current()
+        assert fake_cancel_event.is_set()
+        assert app._btn_cancel.cget("state") == "disabled"
+        assert app._btn_cancel.cget("text") == "Cancelling..."
+        assert "Cancelling after current page" in app._footer_status.cget("text")
+
+        # Simulate CANCELLED event from worker
+        cancelled_result = OCRResult(
+            file_path=item_id,
+            cancelled=True,
+            status=JobStatus.CANCELLED,
+            error="Processing cancelled by user after page 1",
+            pages=[PageResult(page_num=1, markdown="# Page 1 Done", status=JobStatus.SUCCESS)],
+        )
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.CANCELLED,
+                file_path=item_id,
+                result=cancelled_result,
+                error=cancelled_result.error,
+            )
+        )
+        app._current_cancel_event = None
+        app._process_result_queue()
+
+        assert item.status == QueueItemStatus.CANCELLED
+        assert item.badge_label.cget("text") == "[-]"
+        assert item.badge_label.cget("text_color") == COLOR_STATUS_CANCELLED
+        assert "Cancelled" in item.detail_label.cget("text")
+        assert "Cancelled: long_doc.pdf" in app._footer_status.cget("text")
+
+        # Active selection preview rendered
+        tb_content = app._tb_preview.get("1.0", "end")
+        assert "Processing Cancelled: long_doc.pdf" in tb_content
+        assert "# Page 1 Done" in tb_content
+
+        # Clear finished includes cancelled items
+        app._on_clear_finished()
+        assert item_id not in app._queue_items
+    finally:
+        app._on_closing()
+
 

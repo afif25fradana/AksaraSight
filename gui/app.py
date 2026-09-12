@@ -29,6 +29,7 @@ class WorkerEventType(str, Enum):
     STARTED = "STARTED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
     WORKER_CRASHED = "WORKER_CRASHED"
 
 
@@ -38,6 +39,7 @@ class QueueItemStatus(str, Enum):
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 @dataclass
@@ -124,6 +126,7 @@ COLOR_STATUS_PROCESSING = "#f59e0b"
 COLOR_STATUS_SUCCESS = "#10b981"
 COLOR_STATUS_PARTIAL = "#fbbf24"
 COLOR_STATUS_FAILED = "#f43f5e"
+COLOR_STATUS_CANCELLED = "#858d99"
 COLOR_DRAGOVER_BG = "#1e2028"
 
 
@@ -172,6 +175,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._total_count: int = 0
         self._success_count: int = 0
         self._failed_count: int = 0
+        self._current_cancel_event: Optional[threading.Event] = None
 
         # Build UI layout
         self._build_layout()
@@ -494,9 +498,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Action Bar with clear primary (amber) and secondary (neutral with border) weights
         action_bar = ctk.CTkFrame(right_container, fg_color="transparent")
         action_bar.grid(row=1, column=0, sticky="ew", padx=0, pady=0)
-        action_bar.grid_columnconfigure(0, weight=1)
-        action_bar.grid_columnconfigure(1, weight=0)
+        action_bar.grid_columnconfigure(0, weight=0)
+        action_bar.grid_columnconfigure(1, weight=1)
         action_bar.grid_columnconfigure(2, weight=0)
+        action_bar.grid_columnconfigure(3, weight=0)
 
         self._btn_copy = ctk.CTkButton(
             action_bar,
@@ -514,6 +519,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._btn_copy.grid(row=0, column=0, sticky="w", padx=(0, 8))
 
+        self._btn_cancel = ctk.CTkButton(
+            action_bar,
+            text="Cancel (after current page)",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_SUBTLE,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            corner_radius=6,
+            height=30,
+            state="disabled",
+            command=self._on_cancel_current,
+        )
+        self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
+
         # Primary Button: Warm scanner amber fill (starts disabled with muted tint)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
@@ -527,7 +548,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_export_selected,
         )
-        self._btn_export_selected.grid(row=0, column=1, sticky="e", padx=(0, 8))
+        self._btn_export_selected.grid(row=0, column=2, sticky="e", padx=(0, 8))
 
         # Secondary Button: Neutral dark surface with border
         self._btn_export_all = ctk.CTkButton(
@@ -544,7 +565,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_export_all,
         )
-        self._btn_export_all.grid(row=0, column=2, sticky="e", padx=0)
+        self._btn_export_all.grid(row=0, column=3, sticky="e", padx=0)
 
     def _build_footer(self) -> None:
         """Build the bottom status bar (~30px height, split into status label and counters)."""
@@ -691,6 +712,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return f"{base_meta} · Processing..."
         elif item.status == QueueItemStatus.FAILED:
             return f"{base_meta} · Failed"
+        elif item.status == QueueItemStatus.CANCELLED:
+            if item.result and item.result.pages:
+                count = len(item.result.pages)
+                page_str = f"{count} page" if count == 1 else f"{count} pages"
+                return f"{base_meta} · Cancelled ({page_str})"
+            return f"{base_meta} · Cancelled"
         else:  # SUCCESS / PARTIAL
             if item.result and item.result.pages:
                 count = len(item.result.pages)
@@ -831,6 +858,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 {"status": "FAILED", "file": item.file_path.name, "error": err_msg},
                 indent=2,
             )
+        elif item.status == QueueItemStatus.CANCELLED:
+            cancel_msg = item.error or (item.result.error if item.result else "Processing cancelled by user")
+            if item.result and item.result.pages:
+                md_text = f"<!-- Cancelled: {cancel_msg} -->\n\n" + item.result.to_markdown()
+                prev_text = f"Processing Cancelled: {item.file_path.name}\n({cancel_msg})\n\nPartial Output:\n" + item.result.to_markdown()
+            else:
+                md_text = f"<!-- Processing cancelled before pages completed -->\n\n{cancel_msg}"
+                prev_text = f"Processing Cancelled: {item.file_path.name}\n\n{cancel_msg}"
+            json_text = item.result.to_json() if item.result else json.dumps(
+                {"status": "CANCELLED", "file": item.file_path.name, "error": cancel_msg},
+                indent=2,
+            )
         else:  # SUCCESS / PARTIAL
             assert item.result is not None
             md_text = item.result.to_markdown()
@@ -856,10 +895,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._selected_item_id is not None
             and self._selected_item_id in self._queue_items
         )
+        selected_item = self._queue_items[self._selected_item_id] if has_selected else None
         selected_completed = (
-            has_selected
-            and self._queue_items[self._selected_item_id].status == QueueItemStatus.SUCCESS
-            and self._queue_items[self._selected_item_id].result is not None
+            selected_item is not None
+            and selected_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED)
+            and selected_item.result is not None
+            and len(selected_item.result.pages) > 0
         )
 
         completed_count = sum(
@@ -867,6 +908,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             for it in self._queue_items.values()
             if it.status == QueueItemStatus.SUCCESS and it.result is not None
         )
+
+        # Cancel button state: active only when a job is actively processing and cancel not yet requested
+        is_processing = any(
+            it.status == QueueItemStatus.PROCESSING
+            for it in self._queue_items.values()
+        )
+        if is_processing and self._current_cancel_event and not self._current_cancel_event.is_set():
+            self._btn_cancel.configure(text="Cancel (after current page)", state="normal")
+        elif is_processing and self._current_cancel_event and self._current_cancel_event.is_set():
+            self._btn_cancel.configure(text="Cancelling...", state="disabled")
+        else:
+            self._btn_cancel.configure(text="Cancel (after current page)", state="disabled")
 
         self._btn_copy.configure(state="normal" if selected_completed else "disabled")
 
@@ -904,6 +957,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     # ==========================================================================
     # Action Bar Handlers
     # ==========================================================================
+
+    def _on_cancel_current(self) -> None:
+        """Signal the current in-flight job to cancel after the current page finishes."""
+        if self._current_cancel_event and not self._current_cancel_event.is_set():
+            self._current_cancel_event.set()
+            self._btn_cancel.configure(text="Cancelling...", state="disabled")
+            self._update_footer("Cancelling after current page...")
 
     def _on_copy_clipboard(self) -> None:
         """Copy active markdown text of selected item to Windows clipboard."""
@@ -988,7 +1048,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         finished_ids = [
             i_id
             for i_id, it in self._queue_items.items()
-            if it.status in (QueueItemStatus.SUCCESS, QueueItemStatus.FAILED)
+            if it.status in (QueueItemStatus.SUCCESS, QueueItemStatus.FAILED, QueueItemStatus.CANCELLED)
         ]
         if not finished_ids:
             return
@@ -1138,9 +1198,15 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     )
                 )
 
+                # Setup cancel token for this document
+                cancel_event = threading.Event()
+                self._current_cancel_event = cancel_event
+
                 try:
-                    result = self.engine.process_document(file_path_str)
-                    if result.status in (JobStatus.SUCCESS, JobStatus.PARTIAL):
+                    result = self.engine.process_document(file_path_str, cancel_token=cancel_event)
+                    if result.status == JobStatus.CANCELLED or result.cancelled:
+                        event_type = WorkerEventType.CANCELLED
+                    elif result.status in (JobStatus.SUCCESS, JobStatus.PARTIAL):
                         event_type = WorkerEventType.COMPLETED
                     else:
                         event_type = WorkerEventType.FAILED
@@ -1164,6 +1230,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                         )
                     )
                 finally:
+                    self._current_cancel_event = None
                     self._task_queue.task_done()
 
         except Exception as crash_exc:
@@ -1249,6 +1316,24 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                         text_color=COLOR_STATUS_FAILED,
                     )
             self._update_footer(f"Failed: {Path(event.file_path).name} - {err_msg}")
+
+        elif event.event_type == WorkerEventType.CANCELLED:
+            err_msg = event.error or "Cancelled"
+            print(f"[GUI Worker] Cancelled processing: {event.file_path} ({err_msg})")
+            if item:
+                item.status = QueueItemStatus.CANCELLED
+                item.result = event.result
+                item.error = err_msg
+                duration = event.result.total_duration if event.result else 0.0
+                item.duration = duration
+                if item.badge_label:
+                    item.badge_label.configure(text="[-]", text_color=COLOR_STATUS_CANCELLED)
+                if item.detail_label:
+                    item.detail_label.configure(
+                        text=self._format_queue_item_meta(item),
+                        text_color=COLOR_STATUS_CANCELLED,
+                    )
+            self._update_footer(f"Cancelled: {Path(event.file_path).name}")
 
         elif event.event_type == WorkerEventType.WORKER_CRASHED:
             print(f"[GUI Worker] FATAL: Worker thread crashed: {event.error}", file=sys.stderr)

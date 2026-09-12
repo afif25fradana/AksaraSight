@@ -19,6 +19,7 @@ class JobStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     PARTIAL = "PARTIAL"
+    CANCELLED = "CANCELLED"
 
 
 class OutputFormat(str, Enum):
@@ -37,11 +38,24 @@ class JobConfig:
         output_format: Target format ('markdown', 'json', 'both').
         prompt_mode: Preset prompt selector ('text', 'table', 'formula').
         custom_prompt: Optional explicit prompt override that bypasses presets.
+        max_pages: Optional upper limit on the number of pages processed per document.
     """
 
     output_format: OutputFormat = OutputFormat.MARKDOWN
     prompt_mode: str = "text"
     custom_prompt: Optional[str] = None
+    max_pages: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        """Validate configuration parameters."""
+        if self.max_pages is not None:
+            try:
+                val = int(self.max_pages)
+                if val <= 0:
+                    raise ValueError
+                object.__setattr__(self, "max_pages", val)
+            except (ValueError, TypeError):
+                raise ValueError(f"max_pages must be a positive integer, got: {self.max_pages}")
 
     @property
     def effective_prompt(self) -> str:
@@ -105,11 +119,13 @@ class OCRResult:
     status: JobStatus = JobStatus.SUCCESS
     error: Optional[str] = None
     aborted: bool = False
+    cancelled: bool = False
 
     def resolve_status(self) -> JobStatus:
-        """Compute and update aggregate status based on file error and page outcomes.
+        """Compute and update aggregate status based on file error, cancellation, and page outcomes.
 
         Rules:
+        - If cancellation was requested: CANCELLED.
         - If document-level error is present: FAILED.
         - If no pages exist: SUCCESS (if no error), otherwise FAILED.
         - If all pages succeeded: SUCCESS.
@@ -119,6 +135,10 @@ class OCRResult:
         Returns:
             JobStatus: The resolved status assigned to self.status.
         """
+        if self.cancelled:
+            self.status = JobStatus.CANCELLED
+            return self.status
+
         if self.error:
             self.status = JobStatus.FAILED
             return self.status
@@ -162,6 +182,7 @@ class OCRResult:
             "total_duration": self.total_duration,
             "error": self.error,
             "aborted": self.aborted,
+            "cancelled": self.cancelled,
             "page_count": len(self.pages),
             "pages": [
                 {

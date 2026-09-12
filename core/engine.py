@@ -1,6 +1,7 @@
 """Core OCR orchestration engine coordinating document ingestion and vision inference."""
 
 from pathlib import Path
+import threading
 import time
 from typing import Any, Optional, Union
 
@@ -42,6 +43,7 @@ class OCREngine:
         source: Union[str, Path, bytes, bytearray, memoryview],
         config: Optional[JobConfig] = None,
         file_name: Optional[str] = None,
+        cancel_token: Optional[threading.Event] = None,
     ) -> OCRResult:
         """Process an entire document (image or PDF) and return an aggregated OCRResult.
 
@@ -56,13 +58,20 @@ class OCREngine:
         4. Fail-Fast Short-Circuit: If ServerOfflineError is encountered, the engine aborts
            immediately to avoid grinding through remaining pages against a dead server,
            logging the count of skipped pages in result.error.
-        5. Status Resolution: OCRResult.resolve_status() is called explicitly once at the end
+        5. Cancellation Support: Checked between pages via cancel_token.
+        6. Status Resolution: OCRResult.resolve_status() is called explicitly once at the end
            of document processing (CQS compliance).
 
         Args:
             source: Document file path (str | Path) or raw byte buffer.
             config: Job configuration containing prompt mode, overrides, and target format.
             file_name: Optional display filename when source is provided as raw bytes.
+            cancel_token: Optional threading.Event instance checked between document pages.
+                NOTE ON IN-FLIGHT LATENCY: Cancellation is evaluated strictly between pages,
+                not during an in-flight VisionClient.complete() HTTP request. Because network
+                socket calls are blocking, setting this token while page inference is underway
+                will have a short latency (until the current page response arrives) before
+                processing cleanly halts.
 
         Returns:
             OCRResult: Aggregated document result containing page results, status, and duration.
@@ -77,12 +86,21 @@ class OCREngine:
 
         result = OCRResult(file_path=file_path)
 
-
         try:
             # Note: ingest() is a generator; validation and pre-flight execute
             # once iteration begins (on the first next() call). Wrapping the iteration
             # loop ensures all PipelineErrors are caught cleanly.
             for page in ingest(source):
+                # Page limit safeguard (Finding 3.1)
+                if cfg.max_pages is not None and page.page_num > cfg.max_pages:
+                    break
+
+                # Inter-page cancellation check (Finding 3.1)
+                if cancel_token is not None and cancel_token.is_set():
+                    result.cancelled = True
+                    result.error = f"Processing cancelled by user after page {len(result.pages)}"
+                    break
+
                 # Pipeline-level rasterization failure for this individual page
                 if not page.is_success:
                     result.pages.append(

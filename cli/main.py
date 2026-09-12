@@ -7,20 +7,9 @@ from typing import List, Optional, Sequence, Set
 
 from config.settings import Settings, VALID_BACKENDS
 from core.engine import OCREngine
+from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
-
-# Explicit, tested file extensions matching core.pipeline capabilities
-SUPPORTED_EXTENSIONS: Set[str] = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".tiff",
-    ".tif",
-    ".bmp",
-    ".webp",
-    ".pdf",
-}
 
 
 def build_parser() -> argparse.ArgumentParser:

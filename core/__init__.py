@@ -10,6 +10,7 @@ from .client import (
     VisionClient,
     resolve_chat_endpoint,
 )
+from .constants import SUPPORTED_EXTENSIONS
 from .engine import OCREngine
 from .formatter import format_output, save_artifacts
 from .models import (
@@ -50,6 +51,7 @@ __all__ = [
     "PipelineError",
     "PROMPT_PRESETS",
     "ResponseParsingError",
+    "SUPPORTED_EXTENSIONS",
     "ServerError",
     "ServerOfflineError",
     "ServerTimeoutError",

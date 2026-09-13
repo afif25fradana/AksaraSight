@@ -1,6 +1,7 @@
 """Command Line Interface for OCR-LLM-Local."""
 
 import argparse
+import dataclasses
 from pathlib import Path
 import sys
 from typing import List, Optional, Sequence, Set
@@ -132,13 +133,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # 2. Build Settings with CLI overrides and validate
     try:
         base_settings = Settings.from_env()
-        settings = Settings(
-            backend=args.backend or base_settings.backend,
-            local_endpoint=args.endpoint or base_settings.local_endpoint,
-            timeout=base_settings.timeout,
-            max_retries=base_settings.max_retries,
-            allow_remote=args.allow_remote or base_settings.allow_remote,
-        )
+        overrides = {}
+        if args.backend:
+            overrides["backend"] = args.backend
+        if args.endpoint:
+            overrides["local_endpoint"] = args.endpoint
+        if args.allow_remote:
+            overrides["allow_remote"] = True
+        settings = dataclasses.replace(base_settings, **overrides)
     except ValueError as exc:
         sys.stderr.write(f"Configuration error: {exc}\n")
         return 1
@@ -217,14 +219,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if result.status == JobStatus.FAILED and not result.pages:
                 sys.stderr.write(f"Processing failed: {result.error}\n")
             else:
+                md = result.markdown
                 if output_fmt == OutputFormat.MARKDOWN:
-                    sys.stdout.write(result.to_markdown())
-                    if not result.to_markdown().endswith("\n"):
+                    sys.stdout.write(md)
+                    if not md.endswith("\n"):
                         sys.stdout.write("\n")
                 elif output_fmt == OutputFormat.JSON:
                     sys.stdout.write(result.to_json() + "\n")
                 else:  # BOTH to stdout
-                    sys.stdout.write(result.to_markdown())
+                    sys.stdout.write(md)
                     sys.stdout.write("\n\n---\n\n")
                     sys.stdout.write(result.to_json() + "\n")
                 sys.stdout.flush()

@@ -14,7 +14,6 @@ from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from gui.app import (
-    COLOR_ACCENT_AMBER,
     COLOR_ACCENT_PRIMARY,
     COLOR_CANVAS_BG,
     COLOR_CHIP_IMG_BG,
@@ -657,7 +656,7 @@ def test_drag_over_enter_leave():
         event = SimpleNamespace(action="copy")
         action_ret = app._on_drag_enter(event)
         assert action_ret == "copy"
-        assert app._drop_zone.cget("border_color") == COLOR_ACCENT_AMBER
+        assert app._drop_zone.cget("border_color") == COLOR_ACCENT_PRIMARY
         assert app._drop_zone.cget("fg_color") == COLOR_DRAGOVER_BG
 
         # Simulate drag leave

@@ -63,7 +63,6 @@ def test_ocr_result_empty():
     result = OCRResult(file_path="sample.png")
     assert result.resolve_status() == JobStatus.SUCCESS
     assert result.markdown == ""
-    assert result.to_markdown() == ""
 
 
 def test_ocr_result_file_level_error():
@@ -82,7 +81,6 @@ def test_ocr_result_all_pages_success():
     assert result.resolve_status() == JobStatus.SUCCESS
     assert result.status == JobStatus.SUCCESS
     assert result.markdown == "# Page 1 Header\n\n---\n\nPage 2 Content"
-    assert result.to_markdown() == result.markdown
 
 
 def test_ocr_result_all_pages_failed():

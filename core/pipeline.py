@@ -20,6 +20,9 @@ MAX_RASTER_PIXELS: int = getattr(Image, "MAX_IMAGE_PIXELS", 89_478_485) or 89_47
 # Module-level lock synchronizing all pypdfium2 C API calls across threads
 _PDFIUM_LOCK = threading.Lock()
 
+DEFAULT_IMAGE_FORMAT: str = "JPEG"
+DEFAULT_JPEG_QUALITY: int = 95
+
 
 # ==============================================================================
 # Pipeline Exception Hierarchy
@@ -142,36 +145,25 @@ def is_pdf(source: Union[str, Path, bytes, bytearray, memoryview]) -> bool:
     return False
 
 
-def image_to_base64_url(image: Image.Image, img_format: str = "JPEG", quality: int = 95) -> str:
-    """Convert a Pillow Image to an RFC-2397 Data URL base64 string.
+def image_to_base64_url(image: Image.Image, quality: int = DEFAULT_JPEG_QUALITY) -> str:
+    """Convert a Pillow Image to an RFC-2397 JPEG Data URL base64 string.
 
     Converts non-RGB images to standard RGB prior to encoding.
 
     Args:
         image: Pillow Image instance.
-        img_format: Image encoding format ('JPEG' or 'PNG').
         quality: JPEG compression quality (1-100, default: 95).
 
     Returns:
-        str: RFC-2397 formatted data URL (e.g. 'data:image/jpeg;base64,...').
+        str: RFC-2397 formatted data URL ('data:image/jpeg;base64,...').
     """
     if image.mode != "RGB":
         image = image.convert("RGB")
 
     buffer = io.BytesIO()
-    fmt = img_format.upper()
-    if fmt in ("JPEG", "JPG"):
-        image.save(buffer, format="JPEG", quality=quality)
-        mime = "image/jpeg"
-    elif fmt == "PNG":
-        image.save(buffer, format="PNG")
-        mime = "image/png"
-    else:
-        image.save(buffer, format=fmt)
-        mime = f"image/{fmt.lower()}"
-
+    image.save(buffer, format="JPEG", quality=quality)
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:{mime};base64,{encoded}"
+    return f"data:image/jpeg;base64,{encoded}"
 
 
 # ==============================================================================
@@ -180,8 +172,6 @@ def image_to_base64_url(image: Image.Image, img_format: str = "JPEG", quality: i
 
 def _process_image(
     source: Union[str, Path, bytes, bytearray, memoryview],
-    image_format: str = "JPEG",
-    jpeg_quality: int = 95,
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Validate and extract image frames via Pillow using two-stage validation.
@@ -192,8 +182,6 @@ def _process_image(
 
     Args:
         source: Image file path or byte buffer.
-        image_format: Target format for base64 output ('JPEG' or 'PNG').
-        jpeg_quality: Quality for JPEG encoding.
         max_image_dimension: Upper limit in pixels on longest image edge (default: 2048).
 
     Yields:
@@ -234,39 +222,36 @@ def _process_image(
     try:
         with open_fresh_img() as img:
             n_frames = getattr(img, "n_frames", 1)
-            if n_frames > 1:
-                # Handle multi-frame images (e.g. multi-page TIFF)
-                for page_num, frame in enumerate(ImageSequence.Iterator(img), start=1):
-                    try:
+            for page_num, frame in enumerate(ImageSequence.Iterator(img), start=1):
+                try:
+                    if n_frames == 1:
+                        img.load()
+                    else:
                         frame.load()
-                        rgb_frame = frame.convert("RGB")
-                        scaled_frame = _downscale_if_needed(rgb_frame, max_image_dimension)
-                        b64 = image_to_base64_url(scaled_frame, img_format=image_format, quality=jpeg_quality)
-                        yield ExtractedPage(
-                            page_num=page_num,
-                            total_pages=n_frames,
-                            image_b64=b64,
-                            width=scaled_frame.width,
-                            height=scaled_frame.height,
-                        )
-                    except Exception as frame_err:
-                        yield ExtractedPage(
-                            page_num=page_num,
-                            total_pages=n_frames,
-                            error=f"Failed to rasterize frame {page_num}: {frame_err}",
-                        )
-            else:
-                img.load()
-                rgb_img = img.convert("RGB")
-                scaled_img = _downscale_if_needed(rgb_img, max_image_dimension)
-                b64 = image_to_base64_url(scaled_img, img_format=image_format, quality=jpeg_quality)
-                yield ExtractedPage(
-                    page_num=1,
-                    total_pages=1,
-                    image_b64=b64,
-                    width=scaled_img.width,
-                    height=scaled_img.height,
-                )
+                    rgb_frame = frame.convert("RGB")
+                    scaled_frame = _downscale_if_needed(rgb_frame, max_image_dimension)
+                    b64 = image_to_base64_url(scaled_frame)
+                    yield ExtractedPage(
+                        page_num=page_num,
+                        total_pages=n_frames,
+                        image_b64=b64,
+                        width=scaled_frame.width,
+                        height=scaled_frame.height,
+                    )
+                except (OSError, SyntaxError, ValueError) as e:
+                    if n_frames == 1:
+                        raise CorruptDocumentError(f"Corrupt or truncated image raster stream: {e}") from e
+                    yield ExtractedPage(
+                        page_num=page_num,
+                        total_pages=n_frames,
+                        error=f"Failed to rasterize frame {page_num}: {e}",
+                    )
+                except Exception as frame_err:
+                    yield ExtractedPage(
+                        page_num=page_num,
+                        total_pages=n_frames,
+                        error=f"Failed to rasterize frame {page_num}: {frame_err}",
+                    )
     except (OSError, SyntaxError, ValueError) as e:
         raise CorruptDocumentError(f"Corrupt or truncated image raster stream: {e}") from e
 
@@ -274,8 +259,6 @@ def _process_image(
 def _process_pdf(
     source: Union[str, Path, bytes, bytearray, memoryview],
     dpi: int = 100,
-    image_format: str = "JPEG",
-    jpeg_quality: int = 95,
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Render PDF pages to base64 images via pypdfium2.
@@ -336,8 +319,6 @@ def _process_pdf(
             try:
                 yield from _process_image(
                     source,
-                    image_format=image_format,
-                    jpeg_quality=jpeg_quality,
                     max_image_dimension=max_image_dimension,
                 )
                 return
@@ -392,7 +373,7 @@ def _process_pdf(
             assert pil_img is not None
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
-            b64 = image_to_base64_url(pil_img, img_format=image_format, quality=jpeg_quality)
+            b64 = image_to_base64_url(pil_img)
             yield ExtractedPage(
                 page_num=page_num,
                 total_pages=total_pages,
@@ -412,8 +393,6 @@ def _process_pdf(
 def ingest(
     source: Union[str, Path, bytes, bytearray, memoryview],
     dpi: int = 100,
-    image_format: str = "JPEG",
-    jpeg_quality: int = 95,
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Ingest, validate, and rasterize a document into base64 vision API pages.
@@ -425,8 +404,6 @@ def ingest(
     Args:
         source: File path (str | Path) or in-memory byte buffer.
         dpi: PDF rasterization resolution (default: 100, recommended for GLM-OCR).
-        image_format: Vision API image encoding format ('JPEG' or 'PNG').
-        jpeg_quality: JPEG compression quality (default: 95).
         max_image_dimension: Longest edge resolution cap for standalone images (default: 2048).
 
     Yields:
@@ -445,14 +422,10 @@ def ingest(
         yield from _process_pdf(
             source,
             dpi=dpi,
-            image_format=image_format,
-            jpeg_quality=jpeg_quality,
             max_image_dimension=max_image_dimension,
         )
     else:
         yield from _process_image(
             source,
-            image_format=image_format,
-            jpeg_quality=jpeg_quality,
             max_image_dimension=max_image_dimension,
         )

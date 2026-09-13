@@ -147,7 +147,7 @@ def format_output(
     outputs: Dict[str, str] = {}
 
     if output_format in (OutputFormat.MARKDOWN, OutputFormat.BOTH):
-        outputs["markdown"] = result.to_markdown()
+        outputs["markdown"] = result.markdown
 
     if output_format in (OutputFormat.JSON, OutputFormat.BOTH):
         if sanitize_path:

@@ -31,6 +31,50 @@ from core.formatter import format_output, resolve_unique_stem, save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from core.pipeline import _PDFIUM_LOCK
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
+# Design System Tokens - Calm Trust Palette (WCAG 2.1 AA verified)
+COLOR_CANVAS_BG = "#121417"
+COLOR_SURFACE_1 = "#1a1d21"
+COLOR_SURFACE_2 = "#22262b"
+COLOR_SURFACE_BORDER = "#2e333b"
+COLOR_SURFACE_BORDER_HOVER = "#3d444e"
+COLOR_INTERACTIVE_NEUTRAL = "#252a31"
+COLOR_INTERACTIVE_HOVER = "#2f3640"
+COLOR_ROW_SELECTED_BG = "#2a3745"
+
+# Accent Tokens (Slate Blue)
+COLOR_ACCENT_PRIMARY = "#2e6e91"
+COLOR_ACCENT_HOVER = "#3b82a6"
+COLOR_ACCENT_DISABLED = "#1e3847"
+COLOR_ACCENT_DISABLED_TEXT = "#8da5b5"
+COLOR_ACCENT_TEXT = "#56a0c7"
+
+COLOR_SCROLLBAR_THUMB = "#2a303a"
+COLOR_SCROLLBAR_THUMB_HOVER = "#38414e"
+
+# Typography Tokens (WCAG 2.1 AA/AAA compliant)
+COLOR_TEXT_PRIMARY = "#f1f3f5"
+COLOR_TEXT_SECONDARY = "#9ca3af"
+COLOR_TEXT_MUTED = "#94a3b8"
+COLOR_TEXT_SUBTLE = "#94a3b8"
+
+# Status Dot Tokens
+COLOR_STATUS_QUEUED = "#94a3b8"
+COLOR_STATUS_PROCESSING = "#38bdf8"
+COLOR_STATUS_SUCCESS = "#34d399"
+COLOR_STATUS_PARTIAL = "#fbbf24"
+COLOR_STATUS_WARNING = "#fbbf24"
+COLOR_STATUS_FAILED = "#fb7185"
+COLOR_STATUS_ERROR = "#fb7185"
+COLOR_STATUS_CANCELLED = "#94a3b8"
+
+# File Type Chips
+COLOR_CHIP_PDF_BG = "#331e24"
+COLOR_CHIP_PDF_TEXT = "#fb7185"
+COLOR_CHIP_IMG_BG = "#182c3d"
+COLOR_CHIP_IMG_TEXT = "#38bdf8"
+
+COLOR_DRAGOVER_BG = "#192833"
+
 from gui.settings_window import SettingsWindow
 
 logger = logging.getLogger(__name__)
@@ -121,52 +165,7 @@ def _init_tkinterdnd(tkroot: Any) -> str:
     return tdnd._require(tkroot)
 
 
-# Design System Tokens - Calm Trust Palette (WCAG 2.1 AA verified)
-COLOR_CANVAS_BG = "#121417"
-COLOR_SURFACE_1 = "#1a1d21"
-COLOR_SURFACE_2 = "#22262b"
-COLOR_SURFACE_BORDER = "#2e333b"
-COLOR_SURFACE_BORDER_HOVER = "#3d444e"
-COLOR_INTERACTIVE_NEUTRAL = "#252a31"
-COLOR_INTERACTIVE_HOVER = "#2f3640"
-COLOR_ROW_SELECTED_BG = "#2a3745"
 
-# Accent Tokens (Slate Blue)
-COLOR_ACCENT_PRIMARY = "#2e6e91"
-COLOR_ACCENT_HOVER = "#3b82a6"
-COLOR_ACCENT_DISABLED = "#1e3847"
-COLOR_ACCENT_DISABLED_TEXT = "#8da5b5"
-COLOR_ACCENT_TEXT = "#56a0c7"
-# Backwards-compatibility aliases for existing imports
-COLOR_ACCENT_AMBER = COLOR_ACCENT_PRIMARY
-COLOR_ACCENT_AMBER_HOVER = COLOR_ACCENT_HOVER
-COLOR_ACCENT_AMBER_DISABLED = COLOR_ACCENT_DISABLED
-COLOR_ACCENT_AMBER_DISABLED_TEXT = COLOR_ACCENT_DISABLED_TEXT
-
-COLOR_SCROLLBAR_THUMB = "#2a303a"
-COLOR_SCROLLBAR_THUMB_HOVER = "#38414e"
-
-# Typography Tokens (WCAG 2.1 AA/AAA compliant)
-COLOR_TEXT_PRIMARY = "#f1f3f5"
-COLOR_TEXT_SECONDARY = "#9ca3af"
-COLOR_TEXT_MUTED = "#94a3b8"
-COLOR_TEXT_SUBTLE = "#94a3b8"
-
-# Status Dot Tokens
-COLOR_STATUS_QUEUED = "#94a3b8"
-COLOR_STATUS_PROCESSING = "#38bdf8"
-COLOR_STATUS_SUCCESS = "#34d399"
-COLOR_STATUS_PARTIAL = "#fbbf24"
-COLOR_STATUS_FAILED = "#fb7185"
-COLOR_STATUS_CANCELLED = "#94a3b8"
-
-# File Type Chips
-COLOR_CHIP_PDF_BG = "#331e24"
-COLOR_CHIP_PDF_TEXT = "#fb7185"
-COLOR_CHIP_IMG_BG = "#182c3d"
-COLOR_CHIP_IMG_TEXT = "#38bdf8"
-
-COLOR_DRAGOVER_BG = "#192833"
 
 
 class OCRApp(ctk.CTk, tdnd.DnDWrapper):
@@ -1274,10 +1273,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         elif item.status == QueueItemStatus.PROCESSING:
             if item.result and item.result.pages:
+                md = item.result.markdown
                 if target_tab == "Raw Markdown":
-                    self._set_textbox_content(self._tb_markdown, item.result.to_markdown())
+                    self._set_textbox_content(self._tb_markdown, md)
                 elif target_tab == "Text Preview":
-                    self._render_markdown_preview(item.result.to_markdown())
+                    self._render_markdown_preview(md)
                 elif target_tab == "JSON Tree":
                     self._set_textbox_content(self._tb_json, item.result.to_json())
             else:
@@ -1316,13 +1316,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             cancel_msg = item.error or (item.result.error if item.result else "Processing cancelled by user")
             if target_tab == "Raw Markdown":
                 if item.result and item.result.pages:
-                    md_text = f"<!-- Cancelled: {cancel_msg} -->\n\n" + item.result.to_markdown()
+                    md_text = f"<!-- Cancelled: {cancel_msg} -->\n\n" + item.result.markdown
                 else:
                     md_text = f"<!-- Processing cancelled before pages completed -->\n\n{cancel_msg}"
                 self._set_textbox_content(self._tb_markdown, md_text)
             elif target_tab == "Text Preview":
                 if item.result and item.result.pages:
-                    prev_text = f"Processing Cancelled: {item.file_path.name}\n({cancel_msg})\n\nPartial Output:\n" + item.result.to_markdown()
+                    prev_text = f"Processing Cancelled: {item.file_path.name}\n({cancel_msg})\n\nPartial Output:\n" + item.result.markdown
                 else:
                     prev_text = f"Processing Cancelled: {item.file_path.name}\n\n{cancel_msg}"
                 self._render_markdown_preview(prev_text)
@@ -1335,10 +1335,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         else:  # SUCCESS / PARTIAL
             assert item.result is not None
+            md = item.result.markdown
             if target_tab == "Raw Markdown":
-                self._set_textbox_content(self._tb_markdown, item.result.to_markdown())
+                self._set_textbox_content(self._tb_markdown, md)
             elif target_tab == "Text Preview":
-                self._render_markdown_preview(item.result.to_markdown())
+                self._render_markdown_preview(md)
             elif target_tab == "JSON Tree":
                 self._set_textbox_content(self._tb_json, item.result.to_json())
 
@@ -1737,18 +1738,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if not item.result:
             return
 
-        markdown_text = item.result.to_markdown()
+        markdown_text = item.result.markdown
         self.clipboard_clear()
         self.clipboard_append(markdown_text)
 
         # Temporary visual feedback
         self._btn_copy.configure(text="Copied!")
         self.after(1200, lambda: self._btn_copy.configure(text="Copy to Clipboard"))
-
-    @staticmethod
-    def _resolve_unique_stem(base_stem: str, used_stems: Set[str], output_dir: Path) -> str:
-        """Resolve a unique file stem within output_dir and the current export batch."""
-        return resolve_unique_stem(base_stem, output_dir=output_dir, used_stems=used_stems)
 
     def _on_export_selected(self) -> None:
         """Export artifacts for the currently selected document."""
@@ -1765,7 +1761,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         out_path = Path(out_dir)
         try:
-            unique_stem = self._resolve_unique_stem(item.file_path.stem, set(), out_path)
+            unique_stem = resolve_unique_stem(item.file_path.stem, output_dir=out_path, used_stems=set())
             config = JobConfig(output_format=OutputFormat.BOTH)
             saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
             self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
@@ -1806,7 +1802,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     if self._is_shutting_down or self._shutdown_event.is_set():
                         return
                     assert it.result is not None
-                    unique_stem = self._resolve_unique_stem(it.file_path.stem, used_stems, out_path)
+                    unique_stem = resolve_unique_stem(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
                     saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
                     total_saved += len(saved)
                     self._safe_after(

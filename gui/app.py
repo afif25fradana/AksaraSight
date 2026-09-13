@@ -222,6 +222,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._pending_engine_settings: Optional[Settings] = None
         self._current_image_page_idx: int = 0
         self._current_ctk_image: Optional[ctk.CTkImage] = None
+        self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
+        self._is_exporting: bool = False
+        self._export_thread: Optional[threading.Thread] = None
+        self._ingest_threads: List[threading.Thread] = []
+        self._pending_batch_inserts: int = 0
+        self._ui_callback_queue: queue.Queue[Tuple[Any, tuple, dict]] = queue.Queue()
 
         # Build UI layout
         self._build_layout()
@@ -469,6 +475,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             command=self._on_clear_finished,
         )
         self._clear_btn.grid(row=0, column=1, sticky="e")
+
+        self._queue_cleanup_hint = ctk.CTkLabel(
+            queue_header,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#fbbf24",
+            anchor="w",
+        )
 
         # Scrollable Queue List
         self._queue_scroll = ctk.CTkScrollableFrame(
@@ -903,31 +917,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     # Queue Management & Selection
     # ==========================================================================
 
-    def enqueue_file(self, file_path: Union[str, Path]) -> None:
-        """Submit a document file to the worker task queue and add it to the UI queue table."""
-        if self._is_shutting_down:
-            return
-
-        path = Path(file_path).expanduser().resolve()
-
-        # If a directory is dropped, recursively discover and enqueue supported documents
-        if path.is_dir():
-            child_files = sorted(
-                p for p in path.rglob("*")
-                if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-            )
-            if not child_files:
-                print(f"[GUI Ingest] No supported document files found in directory: {path.name}")
-                self._update_footer(f"No supported documents in {path.name}")
-                return
-            for child in child_files:
-                self.enqueue_file(child)
-            return
-
-        # Ignore non-existent files or unsupported extensions
+    def _enqueue_single_file_item(self, path: Path) -> Optional[QueueItem]:
+        """Validate and construct a QueueItem, add to tracking and worker queue without updating UI counts."""
         if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-            print(f"[GUI Ingest] Skipped unsupported file: {path.name}")
-            return
+            return None
 
         item_id = str(path)
 
@@ -936,7 +929,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             QueueItemStatus.QUEUED,
             QueueItemStatus.PROCESSING,
         ):
-            return
+            return None
 
         # Compute formatted file size once at creation time (P10)
         try:
@@ -950,7 +943,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except Exception:
             file_size_str = "0 B"
 
-        # Create queue item model
         item = QueueItem(
             item_id=item_id,
             file_path=path,
@@ -960,19 +952,116 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._queue_items[item_id] = item
         self._total_count += 1
 
-        # Create row widget
         self._create_queue_row_widget(item)
-
-        # Hide empty queue label
-        if self._empty_queue_label.winfo_manager() == "pack":
-            self._empty_queue_label.pack_forget()
-
-        # Update UI counts
-        self._update_queue_header()
-        self._update_footer()
-
-        # Submit to background worker
         self._task_queue.put(path)
+        return item
+
+    def _batch_insert_queue_items(
+        self,
+        files: List[Path],
+        folder_name: str,
+        start_idx: int = 0,
+        chunk_size: int = 25,
+    ) -> None:
+        """Insert queue row widgets in chunks to keep UI responsive during folder drops (P6)."""
+        if self._is_shutting_down:
+            self._pending_batch_inserts = max(0, self._pending_batch_inserts - 1)
+            return
+
+        end_idx = min(len(files), start_idx + chunk_size)
+        chunk = files[start_idx:end_idx]
+
+        for p in chunk:
+            self._enqueue_single_file_item(p)
+
+        if end_idx < len(files):
+            self.after(1, self._batch_insert_queue_items, files, folder_name, end_idx, chunk_size)
+        else:
+            self._pending_batch_inserts = max(0, self._pending_batch_inserts - 1)
+            if self._empty_queue_label.winfo_manager() == "pack":
+                self._empty_queue_label.pack_forget()
+            self._update_queue_header()
+            self._update_footer(f"Enqueued {len(files)} files from {folder_name}")
+
+    def enqueue_file(self, file_path: Union[str, Path], sync: bool = False) -> Optional[threading.Thread]:
+        """Submit a document file or folder to the worker task queue and add it to the UI queue table (P6)."""
+        if self._is_shutting_down:
+            return None
+
+        path = Path(file_path).expanduser().resolve()
+
+        # If a directory is dropped, recursively discover and enqueue supported documents
+        if path.is_dir():
+            if sync:
+                child_files = sorted(
+                    p for p in path.rglob("*")
+                    if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+                )
+                if not child_files:
+                    print(f"[GUI Ingest] No supported document files found in directory: {path.name}")
+                    self._update_footer(f"No supported documents in {path.name}")
+                    return None
+                for child in child_files:
+                    self._enqueue_single_file_item(child)
+                if self._empty_queue_label.winfo_manager() == "pack":
+                    self._empty_queue_label.pack_forget()
+                self._update_queue_header()
+                self._update_footer(f"Enqueued {len(child_files)} files from {path.name}")
+                return None
+
+            # Asynchronous recursive scan off main thread + chunked batch insertion (P6)
+            def _scan_worker() -> None:
+                try:
+                    child_files = sorted(
+                        p for p in path.rglob("*")
+                        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+                    )
+                except Exception as exc:
+                    logger.warning("Error scanning directory %s: %s", path, exc)
+                    child_files = []
+
+                if not child_files:
+                    print(f"[GUI Ingest] No supported document files found in directory: {path.name}")
+                    self._safe_after(0, lambda: self._update_footer(f"No supported documents in {path.name}"))
+                    return
+
+                self._pending_batch_inserts += 1
+                self._safe_after(0, self._batch_insert_queue_items, child_files, path.name, 0, 25)
+
+            t = threading.Thread(target=_scan_worker, name=f"FolderScan-{path.name}", daemon=True)
+            self._ingest_threads.append(t)
+            t.start()
+            return t
+
+        # Single file
+        item = self._enqueue_single_file_item(path)
+        if item is not None:
+            if self._empty_queue_label.winfo_manager() == "pack":
+                self._empty_queue_label.pack_forget()
+            self._update_queue_header()
+            self._update_footer()
+        return None
+
+    def wait_for_ingest(self, timeout: float = 5.0) -> None:
+        """Wait for any active background folder scan and pending UI insertion batches."""
+        for t in list(self._ingest_threads):
+            if t.is_alive():
+                t.join(timeout=timeout)
+        self._drain_ui_callbacks()
+
+        deadline = time.time() + timeout
+        while time.time() < deadline and self._pending_batch_inserts > 0:
+            self._drain_ui_callbacks()
+            try:
+                self.update()
+            except Exception:
+                pass
+            time.sleep(0.01)
+        self._drain_ui_callbacks()
+        try:
+            self.update()
+        except Exception:
+            pass
 
     def _format_queue_item_meta(self, item: QueueItem) -> str:
         """Format 2nd line metadata string for queue rows based on file info and processing status.
@@ -1595,14 +1684,30 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 border_color=COLOR_SURFACE_BORDER,
             )
 
-        self._btn_export_all.configure(
-            state="normal" if completed_count > 0 else "disabled"
-        )
+        if self._is_exporting:
+            self._btn_export_all.configure(text="Exporting...", state="disabled")
+        else:
+            self._btn_export_all.configure(
+                text="Export All",
+                state="normal" if completed_count > 0 else "disabled"
+            )
 
     def _update_queue_header(self) -> None:
-        """Update the queue header label with active total count."""
+        """Update the queue header label with active total count and cleanup hint (P7)."""
         count = len(self._queue_items)
         self._queue_title.configure(text=f"Queue ({count})")
+
+        finished_count = sum(
+            1 for it in self._queue_items.values()
+            if it.status in (QueueItemStatus.SUCCESS, QueueItemStatus.FAILED, QueueItemStatus.CANCELLED)
+        )
+        if finished_count > 100:
+            self._queue_cleanup_hint.configure(
+                text=f"💡 {finished_count} finished items — consider 'Clear Finished' to keep queue responsive"
+            )
+            self._queue_cleanup_hint.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        else:
+            self._queue_cleanup_hint.grid_forget()
 
     def _update_footer(self, message: Optional[str] = None) -> None:
         """Update the footer status message and counters."""
@@ -1669,37 +1774,90 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except Exception as exc:
             self._update_footer(f"Export error: {exc}")
 
-    def _on_export_all(self) -> None:
-        """Export artifacts for all successfully processed documents in the queue."""
+    def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
+        """Export artifacts for all successfully processed documents in the queue (P8)."""
+        if self._is_exporting:
+            return None
+
         completed_items = [
             it
             for it in self._queue_items.values()
             if it.status == QueueItemStatus.SUCCESS and it.result is not None
         ]
         if not completed_items:
-            return
+            return None
 
         out_dir = filedialog.askdirectory(title="Select Output Directory for All Results")
         if not out_dir:
-            return
+            return None
 
         out_path = Path(out_dir)
-        total_saved = 0
-        used_stems: Set[str] = set()
-        config = JobConfig(output_format=OutputFormat.BOTH)
+        self._is_exporting = True
+        self._btn_export_all.configure(text="Exporting...", state="disabled")
+        self._update_footer(f"Exporting 0/{len(completed_items)} documents...")
 
+        def _do_export() -> None:
+            total_saved = 0
+            used_stems: Set[str] = set()
+            config = JobConfig(output_format=OutputFormat.BOTH)
+            total_docs = len(completed_items)
+            try:
+                for idx, it in enumerate(completed_items, start=1):
+                    if self._is_shutting_down or self._shutdown_event.is_set():
+                        return
+                    assert it.result is not None
+                    unique_stem = self._resolve_unique_stem(it.file_path.stem, used_stems, out_path)
+                    saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
+                    total_saved += len(saved)
+                    self._safe_after(
+                        0,
+                        lambda i=idx, n=total_docs: self._update_footer(f"Exporting {i}/{n} documents..."),
+                    )
+
+                def _on_success() -> None:
+                    self._update_footer(f"Exported {total_docs} documents ({total_saved} files) to {out_path.name}")
+                    self._btn_export_all.configure(text="Exported All!")
+                    self.after(1200, self._reset_export_all_button)
+
+                self._safe_after(0, _on_success)
+            except Exception as exc:
+                logger.warning("Export All error: %s", exc)
+                self._safe_after(0, lambda e=exc: self._update_footer(f"Export All error: {e}"))
+                self._safe_after(0, self._reset_export_all_button)
+            finally:
+                self._is_exporting = False
+
+        if sync:
+            _do_export()
+            return None
+
+        thread = threading.Thread(target=_do_export, name="ExportAllWorker", daemon=True)
+        self._export_thread = thread
+        thread.start()
+        return thread
+
+    def _reset_export_all_button(self) -> None:
+        """Reset the Export All button text and enabled state after export completes."""
+        if self._is_shutting_down:
+            return
+        completed_count = sum(
+            1 for it in self._queue_items.values()
+            if it.status == QueueItemStatus.SUCCESS and it.result is not None
+        )
+        self._btn_export_all.configure(
+            text="Export All",
+            state="normal" if completed_count > 0 else "disabled",
+        )
+
+    def wait_for_export(self, timeout: float = 3.0) -> None:
+        """Wait for any active background export thread to complete and drain main loop callbacks."""
+        if self._export_thread and self._export_thread.is_alive():
+            self._export_thread.join(timeout=timeout)
+        self._drain_ui_callbacks()
         try:
-            for it in completed_items:
-                assert it.result is not None
-                unique_stem = self._resolve_unique_stem(it.file_path.stem, used_stems, out_path)
-                saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
-                total_saved += len(saved)
-
-            self._update_footer(f"Exported {len(completed_items)} documents ({total_saved} files) to {out_path.name}")
-            self._btn_export_all.configure(text="Exported All!")
-            self.after(1200, lambda: self._btn_export_all.configure(text="Export All"))
-        except Exception as exc:
-            self._update_footer(f"Export All error: {exc}")
+            self.update()
+        except Exception:
+            pass
 
     def _on_clear_finished(self) -> None:
         """Remove completed and failed items from the queue, keeping pending/active ones."""
@@ -1932,7 +2090,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 pass
 
     def _process_result_queue(self) -> None:
-        """Periodic timer callback running on the main thread to drain worker events."""
+        """Periodic timer callback running on the main thread to drain worker events (P5)."""
+        self._drain_ui_callbacks()
         while True:
             try:
                 event = self._result_queue.get_nowait()
@@ -1942,7 +2101,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._handle_worker_event(event)
 
         if not self._is_shutting_down:
-            self._poll_id = self.after(50, self._process_result_queue)
+            is_active = (not self._task_queue.empty()) or (self._current_cancel_event is not None)
+            poll_interval_ms = 50 if is_active else 250
+            self._poll_id = self.after(poll_interval_ms, self._process_result_queue)
 
     _poll_result_queue = _process_result_queue
 
@@ -2069,16 +2230,32 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     # Server Lifecycle & Preferences Management
     # ==========================================================================
 
-    def _safe_after(self, ms: int, func: Any, *args: Any) -> None:
-        """Safely schedule a callback on Tk main loop if window is not closing."""
-        if not self._is_shutting_down and not self._shutdown_event.is_set():
+    def _drain_ui_callbacks(self) -> None:
+        """Drain and execute callbacks queued from background threads on the main UI thread."""
+        while not self._ui_callback_queue.empty():
+            try:
+                func, args, kwargs = self._ui_callback_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                func(*args, **kwargs)
+            except Exception as exc:
+                logger.warning("Error executing UI callback: %s", exc)
+
+    def _safe_after(self, ms: int, func: Any, *args: Any, **kwargs: Any) -> None:
+        """Safely schedule a callback on Tk main loop or queue if window is not closing."""
+        if self._is_shutting_down or self._shutdown_event.is_set():
+            return
+        if threading.current_thread() is threading.main_thread():
             try:
                 self.after(ms, func, *args)
             except Exception:
                 pass
+        else:
+            self._ui_callback_queue.put((func, args, kwargs))
 
     def _start_server_poller(self) -> None:
-        """Start background daemon thread periodically querying server health."""
+        """Start background daemon thread periodically querying server health (P5)."""
         try:
             self._apply_server_status_update(self.server_manager.get_status_info())
         except Exception:
@@ -2086,28 +2263,36 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         def _poller_worker() -> None:
             while not self._shutdown_event.is_set():
+                poll_interval = 10.0
                 try:
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
+                    if info.status == ServerStatus.STARTING:
+                        poll_interval = 2.0
+                    else:
+                        poll_interval = 10.0
                 except Exception as exc:
                     logger.debug("Server status poll error: %s", exc)
+                    poll_interval = 10.0
 
-                for _ in range(20):
-                    if self._shutdown_event.is_set():
-                        break
-                    time.sleep(0.1)
+                if self._shutdown_event.wait(timeout=poll_interval):
+                    break
 
         thread = threading.Thread(target=_poller_worker, name="ServerPollerThread", daemon=True)
         thread.start()
         self._server_poller_thread = thread
 
     def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
-        """Update header status pill and action button from ServerStatusInfo."""
+        """Update header status pill and action button from ServerStatusInfo (P5)."""
         if self._is_shutting_down:
             return
 
         status = info.status
         ownership = info.ownership
+
+        if self._last_applied_server_status == (status, ownership):
+            return
+        self._last_applied_server_status = (status, ownership)
 
         if status == ServerStatus.READY:
             ownership_lbl = " (Managed)" if ownership == ServerOwnership.MANAGED else " (Ext)"
@@ -2332,6 +2517,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # 4. Join worker thread to exit cleanly
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.0)
+
+        # 4b. Join export thread if running
+        if hasattr(self, "_export_thread") and self._export_thread is not None and self._export_thread.is_alive():
+            self._export_thread.join(timeout=1.0)
+
+        # 4c. Join ingest threads if running
+        if hasattr(self, "_ingest_threads"):
+            for t in self._ingest_threads:
+                if t.is_alive():
+                    t.join(timeout=0.5)
 
         # 5. Join server poller thread
         if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:

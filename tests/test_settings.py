@@ -36,8 +36,8 @@ def test_settings_ocr_prefixed_env(monkeypatch):
     assert s.max_retries == 5
 
 
-def test_settings_bare_env_fallback(monkeypatch):
-    """Verify fallback to bare environment variable names from phase-1-core spec."""
+def test_settings_bare_names_fallback(monkeypatch, caplog):
+    """Verify fallback to bare environment variable names and deprecation warning."""
     monkeypatch.delenv("OCR_BACKEND", raising=False)
     monkeypatch.delenv("OCR_ENDPOINT", raising=False)
     monkeypatch.delenv("OCR_TIMEOUT", raising=False)
@@ -48,11 +48,14 @@ def test_settings_bare_env_fallback(monkeypatch):
     monkeypatch.setenv("TIMEOUT", "45.5")
     monkeypatch.setenv("MAX_RETRIES", "3")
 
-    s = Settings.from_env()
+    import logging
+    with caplog.at_level(logging.WARNING):
+        s = Settings.from_env()
     assert s.backend == "vllm"
     assert s.local_endpoint == "http://127.0.0.1:8000/v1"
     assert s.timeout == 45.5
     assert s.max_retries == 3
+    assert "Legacy environment variable 'BACKEND' is deprecated" in caplog.text
 
 
 def test_settings_ocr_prefix_precedence(monkeypatch):

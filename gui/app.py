@@ -1536,25 +1536,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._current_image_page_idx = max(0, min(self._current_image_page_idx, total_img_pages - 1))
         target_page = item.result.pages[self._current_image_page_idx]
 
-        pil_img: Optional[Image.Image] = None
-        err_msg: Optional[str] = None
-
-        # Prefer retained image_b64 if present (e.g. from mock tests or explicit retain_images=True)
-        if target_page.image_b64:
-            try:
-                b64_str = target_page.image_b64
-                if "," in b64_str:
-                    b64_str = b64_str.split(",", 1)[1]
-                pil_img = Image.open(io.BytesIO(base64.b64decode(b64_str)))
-            except Exception as exc:
-                logger.warning("Failed to decode retained base64 image: %s", exc)
-
-        # Otherwise load & rasterize on-demand from source file on disk
-        if pil_img is None:
-            pil_img, err_msg = self._load_image_page_on_demand(
-                item.file_path,
-                page_index=self._current_image_page_idx,
-            )
+        pil_img, err_msg = self._load_image_page_on_demand(
+            item.file_path,
+            page_index=self._current_image_page_idx,
+        )
 
         if err_msg or pil_img is None:
             self._current_ctk_image = None
@@ -2033,7 +2018,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 try:
                     # Apply any pending settings updates at document boundary (SEC-3.1)
                     self._apply_pending_engine_settings()
-                    job_cfg = JobConfig(retain_images=False)
+                    job_cfg = JobConfig()
                     result = self.engine.process_document(
                         file_path_str,
                         config=job_cfg,

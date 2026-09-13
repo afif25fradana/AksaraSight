@@ -85,64 +85,52 @@ class ExtractedPage:
 # Pre-Flight and Format Verification
 # ==============================================================================
 
-def check_preflight(source: Union[str, Path, bytes, bytearray, memoryview]) -> None:
+def check_preflight(source: Union[str, Path]) -> None:
     """Verify source existence, read permissions, and non-empty status.
 
     Args:
-        source: File path (str or Path) or raw byte buffer.
+        source: File path (str or Path).
 
     Raises:
         FilePreflightError: If target is missing, not a file, unreadable, or 0 bytes.
-        TypeError: If input is not a path or bytes-like object.
+        TypeError: If input is not a path (str or Path).
     """
-    if isinstance(source, (str, Path)):
-        p = Path(source).expanduser().resolve()
-        if not p.exists():
-            raise FilePreflightError(f"File not found: '{p}'")
-        if not p.is_file():
-            raise FilePreflightError(f"Target is not a regular file: '{p}'")
-        if not os.access(p, os.R_OK):
-            raise FilePreflightError(f"Permission denied: cannot read '{p}'")
-        if p.stat().st_size == 0:
-            raise FilePreflightError(f"File is empty (0 bytes): '{p}'")
-        return
+    if not isinstance(source, (str, Path)):
+        raise TypeError(
+            f"Unsupported input type '{type(source).__name__}'. Expected str or Path."
+        )
 
-    if isinstance(source, (bytes, bytearray, memoryview)):
-        if len(source) == 0:
-            raise FilePreflightError("Input byte buffer is empty (0 bytes)")
-        return
-
-    raise TypeError(
-        f"Unsupported input type '{type(source).__name__}'. Expected str, Path, or bytes."
-    )
+    p = Path(source).expanduser().resolve()
+    if not p.exists():
+        raise FilePreflightError(f"File not found: '{p}'")
+    if not p.is_file():
+        raise FilePreflightError(f"Target is not a regular file: '{p}'")
+    if not os.access(p, os.R_OK):
+        raise FilePreflightError(f"Permission denied: cannot read '{p}'")
+    if p.stat().st_size == 0:
+        raise FilePreflightError(f"File is empty (0 bytes): '{p}'")
 
 
-def is_pdf(source: Union[str, Path, bytes, bytearray, memoryview]) -> bool:
+def is_pdf(source: Union[str, Path]) -> bool:
     """Determine whether the source represents a PDF document.
 
     Checks file suffix and inspecting header magic bytes (%PDF).
 
     Args:
-        source: File path or raw bytes.
+        source: File path (str or Path).
 
     Returns:
         bool: True if PDF signature or extension is detected.
     """
-    if isinstance(source, (str, Path)):
-        p = Path(source)
-        if p.suffix.lower() == ".pdf":
-            return True
-        try:
-            with open(p, "rb") as f:
-                header = f.read(1024)
-                return b"%PDF" in header
-        except Exception:
-            return False
-
-    if isinstance(source, (bytes, bytearray, memoryview)):
-        return b"%PDF" in bytes(source[:1024])
-
-    return False
+    p = Path(source)
+    if p.suffix.lower() == ".pdf":
+        return True
+    try:
+        with open(p, "rb") as f:
+            header = f.read(1024)
+            return b"%PDF" in header
+    except Exception:
+        return False
 
 
 def image_to_base64_url(image: Image.Image, quality: int = DEFAULT_JPEG_QUALITY) -> str:
@@ -171,7 +159,7 @@ def image_to_base64_url(image: Image.Image, quality: int = DEFAULT_JPEG_QUALITY)
 # ==============================================================================
 
 def _process_image(
-    source: Union[str, Path, bytes, bytearray, memoryview],
+    source: Union[str, Path],
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Validate and extract image frames via Pillow using two-stage validation.
@@ -181,7 +169,7 @@ def _process_image(
              detect mid-stream truncation.
 
     Args:
-        source: Image file path or byte buffer.
+        source: Image file path (str or Path).
         max_image_dimension: Upper limit in pixels on longest image edge (default: 2048).
 
     Yields:
@@ -191,12 +179,6 @@ def _process_image(
         UnsupportedFormatError: If file is not an image Pillow recognizes.
         CorruptDocumentError: If headers are corrupt or raster data is truncated.
     """
-    # Helper to open a fresh image stream
-    def open_fresh_img() -> Image.Image:
-        if isinstance(source, (bytes, bytearray, memoryview)):
-            return Image.open(io.BytesIO(source))
-        return Image.open(source)
-
     def _downscale_if_needed(image: Image.Image, max_dim: int) -> Image.Image:
         w, h = image.size
         if max(w, h) > max_dim:
@@ -208,10 +190,10 @@ def _process_image(
 
     # Stage 1: Header verification
     try:
-        with open_fresh_img() as img_verify:
+        with Image.open(source) as img_verify:
             img_verify.verify()
     except UnidentifiedImageError as e:
-        filename = getattr(source, "name", str(source)) if not isinstance(source, (bytes, bytearray, memoryview)) else "<bytes>"
+        filename = getattr(source, "name", str(source))
         raise UnsupportedFormatError(
             f"Unsupported file format for '{filename}': neither a recognized image nor a PDF ({e})"
         ) from e
@@ -220,7 +202,7 @@ def _process_image(
 
     # Stage 2: Re-open and decode raster data to catch mid-stream truncation
     try:
-        with open_fresh_img() as img:
+        with Image.open(source) as img:
             n_frames = getattr(img, "n_frames", 1)
             for page_num, frame in enumerate(ImageSequence.Iterator(img), start=1):
                 try:
@@ -257,7 +239,7 @@ def _process_image(
 
 
 def _process_pdf(
-    source: Union[str, Path, bytes, bytearray, memoryview],
+    source: Union[str, Path],
     dpi: int = 100,
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
@@ -295,7 +277,7 @@ def _process_pdf(
 
     try:
         with _PDFIUM_LOCK:
-            doc = pdfium.PdfDocument(source)
+            doc = pdfium.PdfDocument(str(source))
     except pdfium.PdfiumError as e:
         err_code = getattr(e, "err_code", None)
 
@@ -391,7 +373,7 @@ def _process_pdf(
 # ==============================================================================
 
 def ingest(
-    source: Union[str, Path, bytes, bytearray, memoryview],
+    source: Union[str, Path],
     dpi: int = 100,
     max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
@@ -402,7 +384,7 @@ def ingest(
     pypdfium2 C API calls).
 
     Args:
-        source: File path (str | Path) or in-memory byte buffer.
+        source: File path (str | Path).
         dpi: PDF rasterization resolution (default: 100, recommended for GLM-OCR).
         max_image_dimension: Longest edge resolution cap for standalone images (default: 2048).
 

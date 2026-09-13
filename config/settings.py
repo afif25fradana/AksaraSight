@@ -1,11 +1,14 @@
 """Runtime configuration loader for local OCR inference."""
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 from typing import Any, Optional, Set
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 VALID_BACKENDS: Set[str] = {"llama-cpp", "ollama", "vllm"}
 LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
@@ -14,6 +17,22 @@ LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 def _to_bool(val: Any) -> bool:
     """Normalize boolean or string representation to a boolean."""
     return val.strip().lower() in ("1", "true", "yes", "on") if isinstance(val, str) else bool(val)
+
+
+def _get_env_with_fallback(canonical_key: str, legacy_key: str, default: Optional[str] = None) -> Optional[str]:
+    """Retrieve environment variable, logging deprecation warning if legacy key is used."""
+    val = os.getenv(canonical_key)
+    if val is not None and val != "":
+        return val
+    legacy_val = os.getenv(legacy_key)
+    if legacy_val is not None and legacy_val != "":
+        logger.warning(
+            "Legacy environment variable '%s' is deprecated; please use '%s'",
+            legacy_key,
+            canonical_key,
+        )
+        return legacy_val
+    return default
 
 
 @dataclass(frozen=True)
@@ -173,21 +192,21 @@ class Settings:
         else:
             load_dotenv()
 
-        backend = os.getenv("OCR_BACKEND") or os.getenv("BACKEND", "llama-cpp")
-        endpoint = os.getenv("OCR_ENDPOINT") or os.getenv("LOCAL_ENDPOINT", "http://localhost:8080/v1")
-        raw_timeout = os.getenv("OCR_TIMEOUT") or os.getenv("TIMEOUT", "60.0")
-        raw_retries = os.getenv("OCR_MAX_RETRIES") or os.getenv("MAX_RETRIES", "2")
-        allow_remote = _to_bool(os.getenv("OCR_ALLOW_REMOTE") or os.getenv("ALLOW_REMOTE", "false"))
+        backend = _get_env_with_fallback("OCR_BACKEND", "BACKEND", "llama-cpp")
+        endpoint = _get_env_with_fallback("OCR_ENDPOINT", "LOCAL_ENDPOINT", "http://localhost:8080/v1")
+        raw_timeout = _get_env_with_fallback("OCR_TIMEOUT", "TIMEOUT", "60.0")
+        raw_retries = _get_env_with_fallback("OCR_MAX_RETRIES", "MAX_RETRIES", "2")
+        allow_remote = _to_bool(_get_env_with_fallback("OCR_ALLOW_REMOTE", "ALLOW_REMOTE", "false"))
 
-        raw_llama_path = os.getenv("OCR_LLAMA_SERVER_PATH") or os.getenv("LLAMA_SERVER_PATH")
-        model_repo = os.getenv("OCR_MODEL_REPO") or os.getenv("MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
-        auto_start = _to_bool(os.getenv("OCR_AUTO_START_SERVER") or os.getenv("AUTO_START_SERVER", "false"))
+        raw_llama_path = _get_env_with_fallback("OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH")
+        model_repo = _get_env_with_fallback("OCR_MODEL_REPO", "MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
+        auto_start = _to_bool(_get_env_with_fallback("OCR_AUTO_START_SERVER", "AUTO_START_SERVER", "false"))
 
-        raw_dpi = os.getenv("OCR_DPI") or os.getenv("DPI", "100")
-        raw_max_pages = os.getenv("OCR_MAX_PAGES") or os.getenv("MAX_PAGES")
+        raw_dpi = _get_env_with_fallback("OCR_DPI", "DPI", "100")
+        raw_max_pages = _get_env_with_fallback("OCR_MAX_PAGES", "MAX_PAGES")
         max_pages = int(raw_max_pages.strip()) if raw_max_pages and str(raw_max_pages).strip() else None
 
-        raw_max_dim = os.getenv("OCR_MAX_IMAGE_DIMENSION") or os.getenv("MAX_IMAGE_DIMENSION", "2048")
+        raw_max_dim = _get_env_with_fallback("OCR_MAX_IMAGE_DIMENSION", "MAX_IMAGE_DIMENSION", "2048")
 
         return cls(
             backend=backend,

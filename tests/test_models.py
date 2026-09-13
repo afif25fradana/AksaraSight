@@ -198,3 +198,40 @@ def test_ocr_result_cancelled_resolution():
     assert parsed["cancelled"] is True
 
 
+def test_job_config_retain_images_default():
+    """Verify JobConfig retain_images defaults to False and can be enabled."""
+    cfg_default = JobConfig()
+    assert cfg_default.retain_images is False
+
+    cfg_custom = JobConfig(retain_images=True)
+    assert cfg_custom.retain_images is True
+
+
+def test_page_result_image_b64_default():
+    """Verify PageResult image_b64 defaults to None and accepts base64 URL strings."""
+    page = PageResult(page_num=1)
+    assert page.image_b64 is None
+
+    page_with_img = PageResult(page_num=1, image_b64="data:image/jpeg;base64,abc123xyz")
+    assert page_with_img.image_b64 == "data:image/jpeg;base64,abc123xyz"
+
+
+def test_ocr_result_to_dict_and_to_json_excludes_image_b64():
+    """Verify to_dict and to_json exclude image_b64 to avoid bloating serialized outputs."""
+    p1 = PageResult(
+        page_num=1,
+        markdown="Text 1",
+        image_b64="data:image/jpeg;base64,very_large_base64_string",
+    )
+    result = OCRResult(file_path="sample.pdf", pages=[p1])
+
+    dict_out = result.to_dict()
+    assert "image_b64" not in dict_out
+    assert "image_b64" not in dict_out["pages"][0]
+
+    json_str = result.to_json()
+    assert "image_b64" not in json_str
+    assert "very_large_base64_string" not in json_str
+
+
+

@@ -410,3 +410,44 @@ def test_oversized_pdf_page_with_mocked_huge_size(tmp_path: Path) -> None:
         mock_render.assert_not_called()
 
 
+def test_ingest_image_sets_total_pages(tmp_path: Path) -> None:
+    """Verify single-frame and multi-frame images correctly set total_pages."""
+    # Single frame PNG
+    img_path = tmp_path / "single.png"
+    Image.new("RGB", (50, 50), color="red").save(img_path)
+    pages = list(ingest(img_path))
+    assert len(pages) == 1
+    assert pages[0].page_num == 1
+    assert pages[0].total_pages == 1
+
+    # Multi-frame TIFF
+    tiff_path = tmp_path / "multi.tiff"
+    img1 = Image.new("RGB", (50, 50), color="red")
+    img2 = Image.new("RGB", (50, 50), color="blue")
+    img1.save(tiff_path, save_all=True, append_images=[img2])
+    tiff_pages = list(ingest(tiff_path))
+    assert len(tiff_pages) == 2
+    assert tiff_pages[0].page_num == 1
+    assert tiff_pages[0].total_pages == 2
+    assert tiff_pages[1].page_num == 2
+    assert tiff_pages[1].total_pages == 2
+
+
+def test_ingest_pdf_sets_total_pages(tmp_path: Path) -> None:
+    """Verify PDF ingestion correctly propagates document total_pages to all pages."""
+    pdf_path = tmp_path / "three_page.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.new_page(100, 100)
+    doc.new_page(100, 100)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    pages = list(ingest(pdf_path))
+    assert len(pages) == 3
+    for idx, p in enumerate(pages, start=1):
+        assert p.page_num == idx
+        assert p.total_pages == 3
+
+
+

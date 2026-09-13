@@ -3,7 +3,7 @@
 from pathlib import Path
 import threading
 import time
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
@@ -28,35 +28,33 @@ class OCREngine:
         settings: Optional[Settings] = None,
         client: Optional[VisionClient] = None,
     ) -> None:
-        """Initialize the OCR Engine.
+        """Initialize the OCR engine with runtime settings and inference client.
 
         Args:
-            settings: Runtime configuration settings. Defaults to Settings() if omitted.
-            client: VisionClient instance. Created automatically if omitted.
+            settings: Optional Settings instance (defaults to Settings()).
+            client: Optional VisionClient instance (defaults to new client configured from settings).
         """
         self.settings = settings or Settings()
-        self.client = client or VisionClient(self.settings)
+        self.client = client or VisionClient(settings=self.settings)
 
 
     def process_document(
         self,
-        source: Union[str, Path, bytes, bytearray, memoryview],
+        source: Union[str, Path, bytes],
         config: Optional[JobConfig] = None,
         file_name: Optional[str] = None,
         cancel_token: Optional[threading.Event] = None,
+        progress_callback: Optional[Callable[[int, int, PageResult], None]] = None,
     ) -> OCRResult:
-        """Process an entire document (image or PDF) and return an aggregated OCRResult.
+        """Process a single document file or byte stream through the OCR pipeline.
 
-        Orchestration steps:
-        1. Pre-flight & Ingestion: Ingests pages as a stream from core.pipeline.ingest.
-           PipelineError instances (missing file, zero-byte, encrypted, corrupt header)
-           are caught at the document level, producing a failed OCRResult without crashing.
-        2. Per-Page Inference: Pages are rendered to RGB base64 Data URLs and dispatched
-           to the vision client with the effective prompt configured in JobConfig.
-        3. Fault Isolation: Transient client/inference errors on one page record a failed
-           PageResult for that page without aborting the remaining document.
-        4. Fail-Fast Short-Circuit: If ServerOfflineError is encountered, the engine aborts
-           immediately to avoid grinding through remaining pages against a dead server,
+        Execution Lifecycle:
+        1. Ingestion: Reads the document via core.pipeline.ingest() generator.
+        2. Per-Page Rasterization: PDF pages and multi-frame images are converted to base64 Data URLs.
+        3. Inference Dispatch: Each page is sent to the local vision model via self.client.complete().
+        4. Error Isolation: Failures on individual pages (timeout, 400/5xx, parsing) are recorded in
+           PageResult with JobStatus.FAILED; processing continues for remaining pages. If the
+           backend server is offline (ServerOfflineError), processing aborts immediately,
            logging the count of skipped pages in result.error.
         5. Cancellation Support: Checked between pages via cancel_token.
         6. Status Resolution: OCRResult.resolve_status() is called explicitly once at the end
@@ -72,6 +70,8 @@ class OCREngine:
                 socket calls are blocking, setting this token while page inference is underway
                 will have a short latency (until the current page response arrives) before
                 processing cleanly halts.
+            progress_callback: Optional callback invoked after each page completes
+                (page_num, total_pages, page_result).
 
         Returns:
             OCRResult: Aggregated document result containing page results, status, and duration.
@@ -101,15 +101,23 @@ class OCREngine:
                     result.error = f"Processing cancelled by user after page {len(result.pages)}"
                     break
 
+                total_pages = getattr(page, "total_pages", 1)
+                img_to_retain = page.image_b64 if cfg.retain_images else None
+
                 # Pipeline-level rasterization failure for this individual page
                 if not page.is_success:
-                    result.pages.append(
-                        PageResult(
-                            page_num=page.page_num,
-                            status=JobStatus.FAILED,
-                            error=page.error or "Unknown rasterization failure",
-                        )
+                    page_res = PageResult(
+                        page_num=page.page_num,
+                        status=JobStatus.FAILED,
+                        error=page.error or "Unknown rasterization failure",
+                        image_b64=img_to_retain,
                     )
+                    result.pages.append(page_res)
+                    if progress_callback:
+                        try:
+                            progress_callback(page.page_num, total_pages, page_res)
+                        except Exception:
+                            pass
                     continue
 
                 # Vision model inference for this page
@@ -118,24 +126,34 @@ class OCREngine:
                         image_b64=page.image_b64,
                         prompt=cfg.effective_prompt,
                     )
-                    result.pages.append(
-                        PageResult(
-                            page_num=page.page_num,
-                            markdown=text,
-                            raw_json=raw_json,
-                            latency=latency,
-                            status=JobStatus.SUCCESS,
-                        )
+                    page_res = PageResult(
+                        page_num=page.page_num,
+                        markdown=text,
+                        raw_json=raw_json,
+                        latency=latency,
+                        status=JobStatus.SUCCESS,
+                        image_b64=img_to_retain,
                     )
+                    result.pages.append(page_res)
+                    if progress_callback:
+                        try:
+                            progress_callback(page.page_num, total_pages, page_res)
+                        except Exception:
+                            pass
                 except ServerOfflineError as exc:
                     # Fail-fast short-circuit: record failure for current page and abort
-                    result.pages.append(
-                        PageResult(
-                            page_num=page.page_num,
-                            status=JobStatus.FAILED,
-                            error=str(exc),
-                        )
+                    page_res = PageResult(
+                        page_num=page.page_num,
+                        status=JobStatus.FAILED,
+                        error=str(exc),
+                        image_b64=img_to_retain,
                     )
+                    result.pages.append(page_res)
+                    if progress_callback:
+                        try:
+                            progress_callback(page.page_num, total_pages, page_res)
+                        except Exception:
+                            pass
 
                     result.aborted = True
                     succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
@@ -151,13 +169,18 @@ class OCREngine:
                     break
                 except ClientError as exc:
                     # Per-page isolation for non-offline errors (timeout, 400, 5xx exhaustion, parsing)
-                    result.pages.append(
-                        PageResult(
-                            page_num=page.page_num,
-                            status=JobStatus.FAILED,
-                            error=str(exc),
-                        )
+                    page_res = PageResult(
+                        page_num=page.page_num,
+                        status=JobStatus.FAILED,
+                        error=str(exc),
+                        image_b64=img_to_retain,
                     )
+                    result.pages.append(page_res)
+                    if progress_callback:
+                        try:
+                            progress_callback(page.page_num, total_pages, page_res)
+                        except Exception:
+                            pass
 
             if not result.pages and not result.error:
                 result.error = "Document produced 0 extractable pages"

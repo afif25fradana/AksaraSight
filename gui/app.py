@@ -1,8 +1,11 @@
 """GUI Application for OCR-LLM-Local desktop studio."""
 
+import base64
 from dataclasses import dataclass, field
 from enum import Enum
+import io
 import json
+import logging
 import os
 from pathlib import Path
 import queue
@@ -14,6 +17,7 @@ import traceback
 from typing import Any, Dict, List, Optional, Set, Union
 
 import customtkinter as ctk
+from PIL import Image
 import tkinterdnd2 as tkdnd
 import tkinterdnd2.TkinterDnD as tdnd
 
@@ -21,12 +25,15 @@ from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS
 from core.engine import OCREngine
 from core.formatter import format_output, resolve_unique_stem, save_artifacts
-from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
+from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerEventType(str, Enum):
     """Event types posted from the background worker thread to the main UI thread."""
     STARTED = "STARTED"
+    PAGE_PROGRESS = "PAGE_PROGRESS"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -49,6 +56,9 @@ class WorkerEvent:
     file_path: str
     result: Optional[OCRResult] = None
     error: Optional[str] = None
+    current_page: int = 0
+    total_pages: int = 0
+    page_result: Optional[PageResult] = None
 
 
 @dataclass
@@ -198,6 +208,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._success_count: int = 0
         self._failed_count: int = 0
         self._current_cancel_event: Optional[threading.Event] = None
+        self._current_image_page_idx: int = 0
+        self._current_ctk_image: Optional[ctk.CTkImage] = None
 
         # Build UI layout
         self._build_layout()
@@ -431,11 +443,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         right_container.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
         right_container.grid_columnconfigure(0, weight=1)
         right_container.grid_rowconfigure(0, weight=1)  # Tabview
-        right_container.grid_rowconfigure(1, weight=0)  # Action Bar
+        right_container.grid_rowconfigure(1, weight=0)  # Progress Bar & Counter
+        right_container.grid_rowconfigure(2, weight=0)  # Action Bar
 
         # Tabview styled as compact segmented control (~30px height, corner radius 6)
-        # Active tab: dark fill + amber text (4.86:1 contrast, WCAG AA verified).
-        # Amber reserved for interactive signals, not static navigation background.
         self._tabview = ctk.CTkTabview(
             right_container,
             corner_radius=6,
@@ -452,10 +463,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLOR_TEXT_PRIMARY,
         )
-        self._tabview.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 8))
+        self._tabview.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 6))
 
         tab_markdown = self._tabview.add("Raw Markdown")
-        tab_preview = self._tabview.add("Preview")
+        tab_preview = self._tabview.add("Text Preview")
+        tab_image = self._tabview.add("Image Preview")
         tab_json = self._tabview.add("JSON Tree")
 
         # Tab 1: Raw Markdown Textbox
@@ -488,7 +500,92 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._tb_preview.pack(fill="both", expand=True, padx=4, pady=4)
 
-        # Tab 3: JSON Tree Textbox
+        # Configure rich markdown tags on underlying Tk text widget
+        tw = self._tb_preview._textbox
+        tw.tag_config("h1", font=("Segoe UI", 15, "bold"), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("h2", font=("Segoe UI", 13, "bold"), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("h3", font=("Segoe UI", 12, "bold"), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("bold", font=("Segoe UI", 12, "bold"), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("italic", font=("Segoe UI", 12, "italic"), foreground=COLOR_TEXT_SECONDARY)
+        tw.tag_config("code_inline", font=("Consolas", 11), foreground=COLOR_ACCENT_TEXT, background=COLOR_SURFACE_1)
+        tw.tag_config("code_block", font=("Consolas", 11), foreground=COLOR_TEXT_PRIMARY, background=COLOR_SURFACE_1)
+        tw.tag_config("table_header", font=("Consolas", 11, "bold"), foreground=COLOR_ACCENT_TEXT, background=COLOR_SURFACE_1)
+        tw.tag_config("table_row", font=("Consolas", 11), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("bullet", font=("Segoe UI", 12), foreground=COLOR_TEXT_PRIMARY)
+        tw.tag_config("divider", foreground=COLOR_SURFACE_BORDER)
+        tw.tag_config("muted", foreground=COLOR_TEXT_MUTED)
+
+        # Tab 3: Image Preview with pagination controls and scrollable container
+        self._img_nav_bar = ctk.CTkFrame(tab_image, fg_color=COLOR_SURFACE_1, height=36, corner_radius=6)
+        self._img_nav_bar.pack(fill="x", padx=4, pady=(4, 6))
+        self._img_nav_bar.grid_columnconfigure(0, weight=0)
+        self._img_nav_bar.grid_columnconfigure(1, weight=0)
+        self._img_nav_bar.grid_columnconfigure(2, weight=0)
+        self._img_nav_bar.grid_columnconfigure(3, weight=1)
+        self._img_nav_bar.grid_columnconfigure(4, weight=0)
+
+        self._btn_img_prev = ctk.CTkButton(
+            self._img_nav_bar,
+            text="◀ Prev",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            width=65,
+            height=26,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            state="disabled",
+            command=self._on_img_prev,
+        )
+        self._btn_img_prev.grid(row=0, column=0, padx=(6, 4), pady=4)
+
+        self._lbl_img_page = ctk.CTkLabel(
+            self._img_nav_bar,
+            text="Page 0 of 0",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_PRIMARY,
+        )
+        self._lbl_img_page.grid(row=0, column=1, padx=6, pady=4)
+
+        self._btn_img_next = ctk.CTkButton(
+            self._img_nav_bar,
+            text="Next ▶",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            width=65,
+            height=26,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            state="disabled",
+            command=self._on_img_next,
+        )
+        self._btn_img_next.grid(row=0, column=2, padx=(4, 6), pady=4)
+
+        self._lbl_img_info = ctk.CTkLabel(
+            self._img_nav_bar,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self._lbl_img_info.grid(row=0, column=4, padx=10, pady=4, sticky="e")
+
+        self._img_scroll = ctk.CTkScrollableFrame(
+            tab_image,
+            corner_radius=6,
+            fg_color=COLOR_SURFACE_2,
+            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
+            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
+        )
+        self._img_scroll.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+
+        self._img_display_label = ctk.CTkLabel(
+            self._img_scroll,
+            text="No image preview available for this document.\nProcess a document to inspect scan raster.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=COLOR_TEXT_MUTED,
+        )
+        self._img_display_label.pack(expand=True, pady=40)
+
+        # Tab 4: JSON Tree Textbox
         self._tb_json = ctk.CTkTextbox(
             tab_json,
             corner_radius=6,
@@ -508,8 +605,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._tb_markdown,
             "<!-- No document selected -->\n<!-- Select an item from the queue on the left to inspect raw Markdown output -->",
         )
-        self._set_textbox_content(
-            self._tb_preview,
+        self._render_markdown_preview(
             "Document Preview\n\nNo document selected. Drop or select a file to run local OCR.",
         )
         self._set_textbox_content(
@@ -517,9 +613,43 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             '{\n  "status": "idle",\n  "message": "Select a document from the queue to inspect structured JSON output."\n}',
         )
 
-        # Action Bar with clear primary (amber) and secondary (neutral with border) weights
+        # Progress Bar & Counter Container
+        progress_container = ctk.CTkFrame(right_container, fg_color="transparent")
+        progress_container.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 6))
+        progress_container.grid_columnconfigure(0, weight=1)
+        progress_container.grid_columnconfigure(1, weight=0)
+
+        self._lbl_progress_info = ctk.CTkLabel(
+            progress_container,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        )
+        self._lbl_progress_info.grid(row=0, column=0, sticky="w", padx=2, pady=(0, 2))
+
+        self._lbl_page_counter = ctk.CTkLabel(
+            progress_container,
+            text="Idle",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_SECONDARY,
+            anchor="e",
+        )
+        self._lbl_page_counter.grid(row=0, column=1, sticky="e", padx=2, pady=(0, 2))
+
+        self._progress_bar = ctk.CTkProgressBar(
+            progress_container,
+            height=6,
+            corner_radius=3,
+            fg_color=COLOR_SURFACE_2,
+            progress_color=COLOR_ACCENT_PRIMARY,
+        )
+        self._progress_bar.grid(row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=0)
+        self._progress_bar.set(0.0)
+
+        # Action Bar with clear primary (slate blue) and secondary (neutral with border) weights
         action_bar = ctk.CTkFrame(right_container, fg_color="transparent")
-        action_bar.grid(row=1, column=0, sticky="ew", padx=0, pady=0)
+        action_bar.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         action_bar.grid_columnconfigure(0, weight=0)
         action_bar.grid_columnconfigure(1, weight=1)
         action_bar.grid_columnconfigure(2, weight=0)
@@ -917,7 +1047,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._render_preview(item)
 
     def _render_preview(self, item: QueueItem) -> None:
-        """Populate the 3-tab preview pane based on the queue item's status and results."""
+        """Populate the 4-tab preview pane based on the queue item's status and results."""
         if item.status == QueueItemStatus.QUEUED:
             md_text = f"[{item.file_path.name} is queued for processing... waiting for worker thread]"
             prev_text = (
@@ -965,10 +1095,199 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             json_text = item.result.to_json()
 
         self._set_textbox_content(self._tb_markdown, md_text)
-        self._set_textbox_content(self._tb_preview, prev_text)
+        self._render_markdown_preview(prev_text)
         self._set_textbox_content(self._tb_json, json_text)
+        self._render_image_preview(item)
 
         self._update_action_buttons()
+
+    def _render_markdown_preview(self, raw_text: str) -> None:
+        """Render markdown in _tb_preview with rich typography tags.
+
+        Gracefully degrades to plain text without crashing if parsing fails or input is malformed.
+        """
+        self._set_textbox_content(self._tb_preview, raw_text)
+
+        try:
+            self._apply_markdown_tags()
+        except Exception as exc:
+            # Graceful degradation fallback: clear tags and retain plain text
+            logger.warning("Markdown tag rendering error, falling back to plain text: %s", exc)
+            self._clear_preview_tags()
+
+    def _clear_preview_tags(self) -> None:
+        """Remove all formatting tags from the preview text widget."""
+        tw = self._tb_preview._textbox
+        for tag in (
+            "h1", "h2", "h3", "bold", "italic", "code_inline",
+            "code_block", "table_header", "table_row", "bullet",
+            "divider", "muted",
+        ):
+            tw.tag_remove(tag, "1.0", "end")
+
+    def _apply_markdown_tags(self) -> None:
+        """Parse text in _tb_preview and apply typography tags."""
+        tw = self._tb_preview._textbox
+        self._clear_preview_tags()
+
+        end_index = tw.index("end-1c")
+        if not end_index or "." not in end_index:
+            return
+        total_lines = int(end_index.split(".")[0])
+        in_code_block = False
+
+        for line_no in range(1, total_lines + 1):
+            start_idx = f"{line_no}.0"
+            end_idx = f"{line_no}.end"
+            line = tw.get(start_idx, end_idx)
+            stripped = line.strip()
+
+            # Fenced code block check
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                tw.tag_add("muted", start_idx, end_idx)
+                continue
+
+            if in_code_block:
+                tw.tag_add("code_block", start_idx, end_idx)
+                continue
+
+            if not stripped:
+                continue
+
+            # Headings
+            if stripped.startswith("# "):
+                tw.tag_add("h1", start_idx, end_idx)
+                continue
+            elif stripped.startswith("## "):
+                tw.tag_add("h2", start_idx, end_idx)
+                continue
+            elif stripped.startswith("### "):
+                tw.tag_add("h3", start_idx, end_idx)
+                continue
+
+            # Horizontal dividers
+            if stripped in ("---", "***", "___") or re.match(r"^[-*_]{3,}$", stripped):
+                tw.tag_add("divider", start_idx, end_idx)
+                continue
+
+            # Table rows
+            if stripped.startswith("|") and stripped.endswith("|"):
+                if re.match(r"^\|[\s\-:|]+\|$", stripped):
+                    tw.tag_add("muted", start_idx, end_idx)
+                else:
+                    prev_line = tw.get(f"{line_no-1}.0", f"{line_no-1}.end").strip() if line_no > 1 else ""
+                    if not (prev_line.startswith("|") and prev_line.endswith("|")):
+                        tw.tag_add("table_header", start_idx, end_idx)
+                    else:
+                        tw.tag_add("table_row", start_idx, end_idx)
+                continue
+
+            # Unordered & ordered list bullets
+            if stripped.startswith(("- ", "* ", "+ ")) or re.match(r"^\d+\.\s", stripped):
+                tw.tag_add("bullet", start_idx, end_idx)
+
+            # Blockquotes
+            if stripped.startswith(">"):
+                tw.tag_add("italic", start_idx, end_idx)
+                continue
+
+            # Inline code: `code`
+            for m in re.finditer(r"`([^`]+)`", line):
+                tw.tag_add("code_inline", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
+
+            # Bold: **bold** or __bold__
+            for m in re.finditer(r"(\*\*|__)(.*?)\1", line):
+                tw.tag_add("bold", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
+
+            # Italic: *text*
+            for m in re.finditer(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", line):
+                tw.tag_add("italic", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
+
+    def _render_image_preview(self, item: QueueItem) -> None:
+        """Render original raster scan image for the active document page."""
+        pages_with_images = (
+            [p for p in item.result.pages if p.image_b64]
+            if item.result and item.result.pages
+            else []
+        )
+
+        if not pages_with_images:
+            self._reset_image_preview()
+            return
+
+        total_img_pages = len(pages_with_images)
+        self._current_image_page_idx = max(0, min(self._current_image_page_idx, total_img_pages - 1))
+        target_page = pages_with_images[self._current_image_page_idx]
+
+        try:
+            b64_str = target_page.image_b64 or ""
+            if "," in b64_str:
+                b64_str = b64_str.split(",", 1)[1]
+            img_bytes = base64.b64decode(b64_str)
+            pil_img = Image.open(io.BytesIO(img_bytes))
+
+            if pil_img.mode not in ("RGB", "RGBA"):
+                pil_img = pil_img.convert("RGB")
+
+            orig_w, orig_h = pil_img.size
+            max_w, max_h = 620, 750
+            scale = min(max_w / orig_w, max_h / orig_h, 1.0)
+            disp_w = max(1, int(orig_w * scale))
+            disp_h = max(1, int(orig_h * scale))
+
+            scaled_img = pil_img.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
+            ctk_img = ctk.CTkImage(light_image=scaled_img, dark_image=scaled_img, size=(disp_w, disp_h))
+            self._current_ctk_image = ctk_img
+
+            self._img_display_label.configure(image=ctk_img, text="")
+            self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
+            self._lbl_img_info.configure(text=f"{orig_w} × {orig_h} px")
+            self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
+            self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
+        except Exception as exc:
+            self._current_ctk_image = None
+            self._img_display_label.configure(
+                image="",
+                text=f"Failed to decode image raster: {exc}",
+            )
+            self._lbl_img_page.configure(text="Page Error")
+            self._lbl_img_info.configure(text="")
+            self._btn_img_prev.configure(state="disabled")
+            self._btn_img_next.configure(state="disabled")
+
+    def _reset_image_preview(self) -> None:
+        """Reset the image preview controls and canvas to empty state."""
+        self._current_image_page_idx = 0
+        self._current_ctk_image = None
+        self._img_display_label.configure(
+            image="",
+            text="No image preview available for this document.\nProcess a document to inspect scan raster.",
+        )
+        self._lbl_img_page.configure(text="Page 0 of 0")
+        self._lbl_img_info.configure(text="")
+        self._btn_img_prev.configure(state="disabled")
+        self._btn_img_next.configure(state="disabled")
+
+    def _on_img_prev(self) -> None:
+        """Navigate to the previous page in Image Preview."""
+        if self._current_image_page_idx > 0:
+            self._current_image_page_idx -= 1
+            if self._selected_item_id and self._selected_item_id in self._queue_items:
+                self._render_image_preview(self._queue_items[self._selected_item_id])
+
+    def _on_img_next(self) -> None:
+        """Navigate to the next page in Image Preview."""
+        if self._selected_item_id and self._selected_item_id in self._queue_items:
+            item = self._queue_items[self._selected_item_id]
+            pages_with_images = (
+                [p for p in item.result.pages if p.image_b64]
+                if item.result and item.result.pages
+                else []
+            )
+            if self._current_image_page_idx < len(pages_with_images) - 1:
+                self._current_image_page_idx += 1
+                self._render_image_preview(item)
 
     def _set_textbox_content(self, textbox: ctk.CTkTextbox, content: str) -> None:
         """Safely update text in a read-only CTkTextbox."""
@@ -1157,14 +1476,17 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self._tb_markdown,
                     "<!-- No document selected -->\n<!-- Select an item from the queue on the left to inspect raw Markdown output -->",
                 )
-                self._set_textbox_content(
-                    self._tb_preview,
+                self._render_markdown_preview(
                     "Document Preview\n\nNo document selected. Drop or select a file to run local OCR.",
                 )
                 self._set_textbox_content(
                     self._tb_json,
                     '{\n  "status": "idle",\n  "message": "Select a document from the queue to inspect structured JSON output."\n}',
                 )
+                self._reset_image_preview()
+                self._progress_bar.set(0.0)
+                self._lbl_page_counter.configure(text="Idle")
+                self._lbl_progress_info.configure(text="")
                 if self._empty_queue_label.winfo_manager() != "pack":
                     self._empty_queue_label.pack(expand=True, pady=24)
 
@@ -1292,8 +1614,25 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 cancel_event = threading.Event()
                 self._current_cancel_event = cancel_event
 
+                def _on_engine_page_progress(cur_page: int, tot_pages: int, p_res: PageResult) -> None:
+                    self._result_queue.put(
+                        WorkerEvent(
+                            event_type=WorkerEventType.PAGE_PROGRESS,
+                            file_path=file_path_str,
+                            current_page=cur_page,
+                            total_pages=tot_pages,
+                            page_result=p_res,
+                        )
+                    )
+
                 try:
-                    result = self.engine.process_document(file_path_str, cancel_token=cancel_event)
+                    job_cfg = JobConfig(retain_images=True)
+                    result = self.engine.process_document(
+                        file_path_str,
+                        config=job_cfg,
+                        cancel_token=cancel_event,
+                        progress_callback=_on_engine_page_progress,
+                    )
                     if result.status == JobStatus.CANCELLED or result.cancelled:
                         event_type = WorkerEventType.CANCELLED
                     elif result.status in (JobStatus.SUCCESS, JobStatus.PARTIAL):
@@ -1359,6 +1698,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         if event.event_type == WorkerEventType.STARTED:
             print(f"[GUI Worker] Started processing: {event.file_path}")
+            self._progress_bar.set(0.0)
+            self._lbl_page_counter.configure(text="0 / ...")
+            self._lbl_progress_info.configure(text=f"Processing {Path(event.file_path).name}...")
             if item:
                 item.status = QueueItemStatus.PROCESSING
                 if item.badge_label:
@@ -1370,11 +1712,35 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     )
             self._update_footer(f"Processing: {Path(event.file_path).name}")
 
+        elif event.event_type == WorkerEventType.PAGE_PROGRESS:
+            cur = event.current_page
+            tot = max(1, event.total_pages)
+            fraction = min(1.0, max(0.0, cur / tot))
+            self._progress_bar.set(fraction)
+            self._lbl_page_counter.configure(text=f"Page {cur} of {tot}")
+            self._lbl_progress_info.configure(text=f"Processing {Path(event.file_path).name} ({int(fraction * 100)}%)")
+            self._update_footer(f"Processing: {Path(event.file_path).name} (Page {cur}/{tot})")
+
+            if item:
+                if item.result is None:
+                    item.result = OCRResult(file_path=item.file_path, status=JobStatus.SUCCESS)
+                if event.page_result:
+                    if not any(p.page_num == event.page_result.page_num for p in item.result.pages):
+                        item.result.pages.append(event.page_result)
+
+                if self._selected_item_id == item.item_id:
+                    self._render_preview(item)
+            return
+
         elif event.event_type == WorkerEventType.COMPLETED:
             duration = event.result.total_duration if event.result else 0.0
             status_val = event.result.status.value if event.result else "SUCCESS"
+            total_pages = len(event.result.pages) if event.result and event.result.pages else 1
             print(f"[GUI Worker] Completed processing: {event.file_path} ({duration:.1f}s)")
             self._success_count += 1
+            self._progress_bar.set(1.0)
+            self._lbl_page_counter.configure(text=f"{total_pages}/{total_pages} done")
+            self._lbl_progress_info.configure(text=f"Completed {Path(event.file_path).name}")
             if item:
                 item.status = QueueItemStatus.SUCCESS
                 item.result = event.result
@@ -1393,6 +1759,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             err_msg = event.error or "Error"
             print(f"[GUI Worker] Failed processing: {event.file_path} ({err_msg})")
             self._failed_count += 1
+            self._progress_bar.set(0.0)
+            self._lbl_page_counter.configure(text="Failed")
+            self._lbl_progress_info.configure(text=f"Failed: {Path(event.file_path).name}")
             if item:
                 item.status = QueueItemStatus.FAILED
                 item.result = event.result
@@ -1409,6 +1778,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         elif event.event_type == WorkerEventType.CANCELLED:
             err_msg = event.error or "Cancelled"
             print(f"[GUI Worker] Cancelled processing: {event.file_path} ({err_msg})")
+            self._progress_bar.set(0.0)
+            self._lbl_page_counter.configure(text="Cancelled")
+            self._lbl_progress_info.configure(text=f"Cancelled: {Path(event.file_path).name}")
             if item:
                 item.status = QueueItemStatus.CANCELLED
                 item.result = event.result
@@ -1427,7 +1799,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         elif event.event_type == WorkerEventType.WORKER_CRASHED:
             print(f"[GUI Worker] FATAL: Worker thread crashed: {event.error}", file=sys.stderr)
             sys.stderr.flush()
-            # TODO (Phase 3 Layout): Surface this to the user visually in the UI / dialog once the queue table exists
+            self._progress_bar.set(0.0)
+            self._lbl_page_counter.configure(text="Error")
             self._update_footer(f"Fatal Worker Error: {event.error}")
 
         # RACE-FREE SELECTION HANDLING:

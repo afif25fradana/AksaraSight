@@ -935,5 +935,231 @@ def test_calm_trust_color_tokens() -> None:
     assert COLOR_CHIP_IMG_BG == "#182c3d"
 
 
+def test_four_tabview_structure() -> None:
+    """Verify preview tabview contains the four Stage C tabs."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        tab_names = [
+            app._tabview._tab_dict[k]._name
+            for k in app._tabview._tab_dict
+        ]
+        # In CTkTabview, tab keys or names correspond to the added tabs
+        assert "Raw Markdown" in app._tabview._tab_dict
+        assert "Text Preview" in app._tabview._tab_dict
+        assert "Image Preview" in app._tabview._tab_dict
+        assert "JSON Tree" in app._tabview._tab_dict
+
+        # Verify widget bindings exist
+        assert hasattr(app, "_tb_markdown")
+        assert hasattr(app, "_tb_preview")
+        assert hasattr(app, "_img_scroll")
+        assert hasattr(app, "_img_display_label")
+        assert hasattr(app, "_tb_json")
+        assert hasattr(app, "_progress_bar")
+        assert hasattr(app, "_lbl_page_counter")
+    finally:
+        app._on_closing()
+
+
+def test_markdown_preview_graceful_fallback() -> None:
+    """Verify malformed markdown (broken tables, unclosed fences/formatting) degrades cleanly to plain text."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # 1. Normal markdown renders with tags
+        valid_md = "# Title\n\nThis is **bold** and *italic* and `code`.\n\n| Col 1 | Col 2 |\n|---|---|\n| Val 1 | Val 2 |\n"
+        app._render_markdown_preview(valid_md)
+        content = app._tb_preview.get("1.0", "end")
+        assert "Title" in content
+        assert "bold" in content
+        assert "Val 1" in content
+
+        # 2. Deliberately broken markdown (unclosed fences, broken table pipes, dangling tokens)
+        malformed_md = (
+            "# Broken Doc\n\n"
+            "```python\n"
+            "unclosed code block without ending fence\n"
+            "| Ragged Table Header | Missing Closing Pipe\n"
+            "|---|---|---\n"
+            "| Cell 1 | Cell 2 | Extra cell\n"
+            "| Incomplete row\n"
+            "**unclosed bold text\n"
+            "*unclosed italic text\n"
+            "`unclosed inline code\n"
+            "--- horizontal divider\n"
+        )
+        # Should not raise exception
+        app._render_markdown_preview(malformed_md)
+        fallback_content = app._tb_preview.get("1.0", "end")
+        assert "Broken Doc" in fallback_content
+        assert "unclosed code block without ending fence" in fallback_content
+        assert "Ragged Table Header" in fallback_content
+        assert fallback_content.strip() != ""
+
+        # 3. Explicit exception in _apply_markdown_tags falls back to plain text
+        with patch.object(app, "_apply_markdown_tags", side_effect=RuntimeError("Simulated tag failure")):
+            app._render_markdown_preview("# Still Works\nEven after a parser crash.")
+            crash_content = app._tb_preview.get("1.0", "end")
+            assert "Still Works" in crash_content
+            assert "Even after a parser crash." in crash_content
+    finally:
+        app._on_closing()
+
+
+def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
+    """Verify PAGE_PROGRESS WorkerEvent updates CTkProgressBar, page counter, and preview incrementally."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        test_file = tmp_path / "multipage.pdf"
+        test_file.write_bytes(b"%PDF-1.4 multipage dummy")
+        app.enqueue_file(test_file)
+        item_id = str(test_file.resolve())
+        item = app._queue_items[item_id]
+
+        # 1. Simulate STARTED event
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.STARTED,
+                file_path=item_id,
+            )
+        )
+        app._process_result_queue()
+        assert app._progress_bar.get() == 0.0
+
+        # 2. Simulate PAGE_PROGRESS event (page 1 of 3)
+        page1_res = PageResult(page_num=1, markdown="# Page 1 Content", status=JobStatus.SUCCESS)
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.PAGE_PROGRESS,
+                file_path=item_id,
+                current_page=1,
+                total_pages=3,
+                page_result=page1_res,
+            )
+        )
+        app._process_result_queue()
+        assert pytest.approx(app._progress_bar.get(), rel=1e-2) == 1.0 / 3.0
+        assert app._lbl_page_counter.cget("text") == "Page 1 of 3"
+        assert "Page 1/3" in app._footer_status.cget("text")
+
+        # 3. Simulate PAGE_PROGRESS event (page 2 of 3)
+        page2_res = PageResult(page_num=2, markdown="# Page 2 Content", status=JobStatus.SUCCESS)
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.PAGE_PROGRESS,
+                file_path=item_id,
+                current_page=2,
+                total_pages=3,
+                page_result=page2_res,
+            )
+        )
+        app._process_result_queue()
+        assert pytest.approx(app._progress_bar.get(), rel=1e-2) == 2.0 / 3.0
+        assert app._lbl_page_counter.cget("text") == "Page 2 of 3"
+
+        # 4. Simulate COMPLETED event
+        complete_result = OCRResult(
+            file_path=item_id,
+            status=JobStatus.SUCCESS,
+            pages=[page1_res, page2_res, PageResult(page_num=3, markdown="# Page 3 Content")],
+        )
+        app._result_queue.put(
+            WorkerEvent(
+                event_type=WorkerEventType.COMPLETED,
+                file_path=item_id,
+                result=complete_result,
+            )
+        )
+        app._process_result_queue()
+        assert app._progress_bar.get() == 1.0
+        assert "done" in app._lbl_page_counter.cget("text")
+    finally:
+        app._on_closing()
+
+
+def test_image_preview_pagination(tmp_path: Path) -> None:
+    """Verify Image Preview displays images and responds to < Prev / Next > pagination."""
+    import base64
+    import io
+    from PIL import Image
+
+    def _make_b64(color: str) -> str:
+        img = Image.new("RGB", (60, 60), color=color)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        test_file = tmp_path / "scan_book.pdf"
+        test_file.write_bytes(b"%PDF-1.4 dummy")
+        app.enqueue_file(test_file)
+        item_id = str(test_file.resolve())
+        item = app._queue_items[item_id]
+
+        # Initial state before processing: no images
+        app._render_preview(item)
+        assert app._lbl_img_page.cget("text") == "Page 0 of 0"
+        assert app._btn_img_prev.cget("state") == "disabled"
+        assert app._btn_img_next.cget("state") == "disabled"
+
+        # Attach result with 3 image pages
+        result = OCRResult(
+            file_path=item_id,
+            status=JobStatus.SUCCESS,
+            pages=[
+                PageResult(page_num=1, markdown="# P1", image_b64=_make_b64("red")),
+                PageResult(page_num=2, markdown="# P2", image_b64=_make_b64("green")),
+                PageResult(page_num=3, markdown="# P3", image_b64=_make_b64("blue")),
+            ],
+        )
+        item.status = QueueItemStatus.SUCCESS
+        item.result = result
+
+        # Render preview: should start on page 1 of 3
+        app._current_image_page_idx = 0
+        app._render_preview(item)
+
+        assert app._lbl_img_page.cget("text") == "Page 1 of 3"
+        assert app._btn_img_prev.cget("state") == "disabled"
+        assert app._btn_img_next.cget("state") == "normal"
+        assert "60 × 60 px" in app._lbl_img_info.cget("text")
+
+        # Next page -> Page 2 of 3
+        app._on_img_next()
+        assert app._current_image_page_idx == 1
+        assert app._lbl_img_page.cget("text") == "Page 2 of 3"
+        assert app._btn_img_prev.cget("state") == "normal"
+        assert app._btn_img_next.cget("state") == "normal"
+
+        # Next page -> Page 3 of 3 (last page)
+        app._on_img_next()
+        assert app._current_image_page_idx == 2
+        assert app._lbl_img_page.cget("text") == "Page 3 of 3"
+        assert app._btn_img_prev.cget("state") == "normal"
+        assert app._btn_img_next.cget("state") == "disabled"
+
+        # Prev page -> Page 2 of 3
+        app._on_img_prev()
+        assert app._current_image_page_idx == 1
+        assert app._lbl_img_page.cget("text") == "Page 2 of 3"
+        assert app._btn_img_prev.cget("state") == "normal"
+        assert app._btn_img_next.cget("state") == "normal"
+    finally:
+        app._on_closing()
+
+
+
 
 

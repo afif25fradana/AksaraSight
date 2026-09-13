@@ -142,15 +142,15 @@ def test_is_pdf_detection(tmp_path):
 
 
 def test_image_to_base64_url():
-    """Verify image conversion to RFC-2397 base64 data URL in RGB mode."""
+    """Verify image conversion to RFC-2397 JPEG base64 data URL in RGB mode."""
     # RGBA image should be converted to RGB for JPEG
     img = Image.new("RGBA", (10, 10), color=(255, 0, 0, 128))
-    url = image_to_base64_url(img, img_format="JPEG", quality=90)
+    url = image_to_base64_url(img, quality=90)
     assert url.startswith("data:image/jpeg;base64,")
 
-    # PNG format
-    url_png = image_to_base64_url(img, img_format="PNG")
-    assert url_png.startswith("data:image/png;base64,")
+    # Default quality
+    url_default = image_to_base64_url(img)
+    assert url_default.startswith("data:image/jpeg;base64,")
 
 
 # ==============================================================================

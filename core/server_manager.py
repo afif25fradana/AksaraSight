@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import requests
@@ -203,7 +203,7 @@ def probe_server_health(
     """
     base_url = resolve_base_url(endpoint)
     health_url = f"{base_url}/health"
-    models_url = f"{base_url}/v1/models" if not base_url.endswith("/v1") else f"{base_url}/models"
+    models_url = f"{base_url}/v1/models"
 
     http_client = session if session is not None else requests
 
@@ -426,7 +426,7 @@ class ServerManager:
             # Resolve executable path
             candidate_path = server_path or self.settings.llama_server_path
             if not candidate_path:
-                which_path = shutil.which("llama-server") or shutil.which("llama-server.exe")
+                which_path = shutil.which("llama-server")
                 candidate_path = which_path
 
             if not candidate_path or not Path(candidate_path).is_file():
@@ -553,8 +553,5 @@ class ServerManager:
         if self._owns_session and self._session is not None:
             self._session.close()
 
-    # Friendly method aliases
-    start_server = start
-    stop_server = stop
-    close = shutdown
+
 

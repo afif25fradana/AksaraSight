@@ -235,15 +235,6 @@ class VisionClient:
             f"Local backend failed after {max_retries} retries (HTTP {last_error_status}): {last_error_text}"
         )
 
-    def predict(
-        self,
-        image_b64: str,
-        prompt: str = "Text Recognition:",
-        **kwargs: Any,
-    ) -> Tuple[str, Dict[str, Any], float]:
-        """Convenience alias for complete() per architecture specification."""
-        return self.complete(image_b64, prompt=prompt, **kwargs)
-
     def _parse_response(
         self,
         response: requests.Response,

@@ -3,12 +3,17 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Optional, Set
+from typing import Any, Optional, Set
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
 VALID_BACKENDS: Set[str] = {"llama-cpp", "ollama", "vllm"}
 LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
+
+
+def _to_bool(val: Any) -> bool:
+    """Normalize boolean or string representation to a boolean."""
+    return val.strip().lower() in ("1", "true", "yes", "on") if isinstance(val, str) else bool(val)
 
 
 @dataclass(frozen=True)
@@ -38,10 +43,7 @@ class Settings:
     def __post_init__(self) -> None:
         """Validate and normalize configuration attributes across all construction paths."""
         # Allow remote validation
-        val_allow_remote = bool(self.allow_remote)
-        if isinstance(self.allow_remote, str):
-            val_allow_remote = self.allow_remote.strip().lower() in ("1", "true", "yes", "on")
-        object.__setattr__(self, "allow_remote", val_allow_remote)
+        object.__setattr__(self, "allow_remote", _to_bool(self.allow_remote))
 
         # Backend validation & normalization
         if not isinstance(self.backend, str):
@@ -71,7 +73,7 @@ class Settings:
         except ValueError:
             raise ValueError(f"Invalid LOCAL_ENDPOINT port: '{clean_endpoint}'. Port must be between 1 and 65535.")
 
-        if not val_allow_remote and hostname not in LOOPBACK_HOSTS:
+        if not self.allow_remote and hostname not in LOOPBACK_HOSTS:
             raise ValueError(
                 f"Security violation: Non-loopback endpoint '{clean_endpoint}' is not permitted by default "
                 "to prevent data exfiltration. Configure a local backend (localhost/127.0.0.1) or explicitly "
@@ -112,10 +114,7 @@ class Settings:
         object.__setattr__(self, "model_repo", clean_repo)
 
         # Auto-start server validation
-        val_auto_start = bool(self.auto_start_server)
-        if isinstance(self.auto_start_server, str):
-            val_auto_start = self.auto_start_server.strip().lower() in ("1", "true", "yes", "on")
-        object.__setattr__(self, "auto_start_server", val_auto_start)
+        object.__setattr__(self, "auto_start_server", _to_bool(self.auto_start_server))
 
         # DPI validation
         try:
@@ -178,13 +177,11 @@ class Settings:
         endpoint = os.getenv("OCR_ENDPOINT") or os.getenv("LOCAL_ENDPOINT", "http://localhost:8080/v1")
         raw_timeout = os.getenv("OCR_TIMEOUT") or os.getenv("TIMEOUT", "60.0")
         raw_retries = os.getenv("OCR_MAX_RETRIES") or os.getenv("MAX_RETRIES", "2")
-        raw_allow_remote = os.getenv("OCR_ALLOW_REMOTE") or os.getenv("ALLOW_REMOTE", "false")
-        allow_remote = raw_allow_remote.strip().lower() in ("1", "true", "yes", "on")
+        allow_remote = _to_bool(os.getenv("OCR_ALLOW_REMOTE") or os.getenv("ALLOW_REMOTE", "false"))
 
         raw_llama_path = os.getenv("OCR_LLAMA_SERVER_PATH") or os.getenv("LLAMA_SERVER_PATH")
         model_repo = os.getenv("OCR_MODEL_REPO") or os.getenv("MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
-        raw_auto_start = os.getenv("OCR_AUTO_START_SERVER") or os.getenv("AUTO_START_SERVER", "false")
-        auto_start = raw_auto_start.strip().lower() in ("1", "true", "yes", "on")
+        auto_start = _to_bool(os.getenv("OCR_AUTO_START_SERVER") or os.getenv("AUTO_START_SERVER", "false"))
 
         raw_dpi = os.getenv("OCR_DPI") or os.getenv("DPI", "100")
         raw_max_pages = os.getenv("OCR_MAX_PAGES") or os.getenv("MAX_PAGES")

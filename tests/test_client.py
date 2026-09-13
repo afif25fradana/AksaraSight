@@ -139,21 +139,6 @@ def test_complete_success_payload_and_return_values() -> None:
     ]
 
 
-def test_predict_alias_matches_complete() -> None:
-    mock_response = MagicMock(spec=requests.Response)
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "choices": [{"message": {"content": "Sample OCR Output"}}]
-    }
-
-    mock_session = MagicMock(spec=requests.Session)
-    mock_session.post.return_value = mock_response
-
-    client = VisionClient(session=mock_session)
-    text, _, _ = client.predict("data:image/png;base64,abc", prompt="Table Recognition:")
-
-    assert text == "Sample OCR Output"
-
 
 # ==============================================================================
 # Network Error & Fail-Fast Tests

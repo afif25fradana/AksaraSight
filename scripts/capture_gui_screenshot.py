@@ -17,7 +17,6 @@ from PIL import Image
 from config.settings import Settings
 from core.models import JobStatus, OCRResult, PageResult
 from gui.app import (
-    COLOR_ACCENT_AMBER,
     COLOR_INTERACTIVE_NEUTRAL,
     COLOR_ROW_SELECTED_BG,
     COLOR_STATUS_FAILED,

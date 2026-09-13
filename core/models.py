@@ -191,9 +191,6 @@ class OCRResult:
         ]
         return "\n\n---\n\n".join(page_mds)
 
-    def to_markdown(self) -> str:
-        """Export aggregate markdown string."""
-        return self.markdown
 
     def to_dict(self) -> Dict[str, Any]:
         """Export structured dictionary representation of the document result.

@@ -13,6 +13,10 @@ from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from gui.app import (
     COLOR_ACCENT_AMBER,
+    COLOR_ACCENT_PRIMARY,
+    COLOR_CANVAS_BG,
+    COLOR_CHIP_IMG_BG,
+    COLOR_CHIP_PDF_BG,
     COLOR_DRAGOVER_BG,
     COLOR_INTERACTIVE_HOVER,
     COLOR_INTERACTIVE_NEUTRAL,
@@ -21,6 +25,7 @@ from gui.app import (
     COLOR_SURFACE_1,
     COLOR_SURFACE_BORDER,
     COLOR_SURFACE_BORDER_HOVER,
+    COLOR_TEXT_PRIMARY,
     OCRApp,
     QueueItem,
     QueueItemStatus,
@@ -245,7 +250,7 @@ def test_selection_race_condition(tmp_path):
         assert item2.status == QueueItemStatus.SUCCESS
         assert item2.duration == 1.5
         assert item2.result is result2
-        assert item2.badge_label.cget("text") == "[✓]"
+        assert item2.badge_label.cget("text") == "●"
         assert "1.5s" in item2.detail_label.cget("text")
 
         # Now when user selects file 2, preview pane updates to file 2's content
@@ -819,7 +824,7 @@ def test_gui_cancellation_flow(tmp_path):
         app._process_result_queue()
 
         assert item.status == QueueItemStatus.CANCELLED
-        assert item.badge_label.cget("text") == "[-]"
+        assert item.badge_label.cget("text") == "●"
         assert item.badge_label.cget("text_color") == COLOR_STATUS_CANCELLED
         assert "Cancelled" in item.detail_label.cget("text")
         assert "Cancelled: long_doc.pdf" in app._footer_status.cget("text")
@@ -878,6 +883,57 @@ def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
         assert len(app._queue_items) == 2
     finally:
         app._on_closing()
+
+
+def test_queue_item_file_type_chips(tmp_path: Path) -> None:
+    """Verify queue items render distinct PDF and IMG file-type chips."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        pdf_file = tmp_path / "invoice.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 dummy")
+        png_file = tmp_path / "diagram.png"
+        png_file.write_bytes(b"\x89PNG dummy")
+
+        app.enqueue_file(pdf_file)
+        app.enqueue_file(png_file)
+
+        pdf_item = app._queue_items[str(pdf_file.resolve())]
+        png_item = app._queue_items[str(png_file.resolve())]
+
+        assert pdf_item.chip_label is not None
+        assert pdf_item.chip_label.cget("text") == "PDF"
+
+        assert png_item.chip_label is not None
+        assert png_item.chip_label.cget("text") == "IMG"
+    finally:
+        app._on_closing()
+
+
+def test_footer_trust_indicator() -> None:
+    """Verify the footer displays the Local Processing trust indicator."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        assert hasattr(app, "_trust_label")
+        assert "Local Processing" in app._trust_label.cget("text")
+        assert "stays on your device" in app._trust_label.cget("text")
+    finally:
+        app._on_closing()
+
+
+def test_calm_trust_color_tokens() -> None:
+    """Verify calm trust palette color token hex values."""
+    assert COLOR_CANVAS_BG == "#121417"
+    assert COLOR_ACCENT_PRIMARY == "#2e6e91"
+    assert COLOR_TEXT_PRIMARY == "#f1f3f5"
+    assert COLOR_CHIP_PDF_BG == "#331e24"
+    assert COLOR_CHIP_IMG_BG == "#182c3d"
+
 
 
 

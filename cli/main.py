@@ -10,6 +10,7 @@ from config.settings import Settings, VALID_BACKENDS
 from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
+from core.hardware import detect_hardware
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
 
 
@@ -22,7 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "input",
         type=Path,
+        nargs="?",
+        default=None,
         help="Path to an input image/PDF file or directory of documents.",
+    )
+    parser.add_argument(
+        "--detect-hardware",
+        action="store_true",
+        help="Detect system GPU/CPU hardware and recommend the optimal local inference runtime backend.",
     )
     parser.add_argument(
         "-o",
@@ -122,6 +130,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Handle --detect-hardware standalone diagnostic action
+    if args.detect_hardware:
+        profile = detect_hardware()
+        sys.stdout.write(profile.format_summary() + "\n")
+        return 0
+
+    # Ensure input argument was supplied
+    if not args.input:
+        parser.print_usage(sys.stderr)
+        sys.stderr.write("ocr-llm: error: the following arguments are required: input\n")
+        return 1
 
     input_path: Path = args.input
 

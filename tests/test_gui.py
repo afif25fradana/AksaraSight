@@ -1409,13 +1409,21 @@ def test_server_status_pill_and_button_rendering():
         assert app._btn_server_action.cget("text") == "Start Server"
         assert str(app._btn_server_action.cget("state")) == "normal"
 
-        # 2. STARTING
+        # 2a. STARTING (External / None)
         app._apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.STARTING, ownership=ServerOwnership.NONE, message="Booting")
         )
         assert app._server_status_pill.cget("text") == "● STARTING"
         assert app._btn_server_action.cget("text") == "Starting..."
         assert str(app._btn_server_action.cget("state")) == "disabled"
+
+        # 2b. STARTING (Managed) -> Cancel Launch
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.STARTING, ownership=ServerOwnership.MANAGED, message="Booting")
+        )
+        assert app._server_status_pill.cget("text") == "● STARTING"
+        assert app._btn_server_action.cget("text") == "Cancel Launch"
+        assert str(app._btn_server_action.cget("state")) == "normal"
 
         # 3. READY (Managed)
         app._apply_server_status_update(
@@ -1474,6 +1482,13 @@ def test_server_action_button_click_dispatches_start_and_stop():
         app._on_server_action_clicked()
         time.sleep(0.1)
         assert mock_sm.stop.call_count == 1
+
+        # Case C: When starting and managed, click also triggers stop() (Cancel Launch)
+        mock_sm.status = ServerStatus.STARTING
+        mock_sm.ownership = ServerOwnership.MANAGED
+        app._on_server_action_clicked()
+        time.sleep(0.1)
+        assert mock_sm.stop.call_count == 2
     finally:
         app._on_closing()
 

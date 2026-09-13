@@ -54,7 +54,7 @@ class Settings:
         # Endpoint validation & normalization
         if not isinstance(self.local_endpoint, str):
             raise ValueError(f"LOCAL_ENDPOINT must be a string, got: '{self.local_endpoint}'")
-        clean_endpoint = self.local_endpoint.strip().rstrip("/")
+        clean_endpoint = self.local_endpoint.strip().replace("\r", "").replace("\n", "").rstrip("/")
         if not (clean_endpoint.startswith("http://") or clean_endpoint.startswith("https://")):
             raise ValueError(f"Invalid LOCAL_ENDPOINT: '{self.local_endpoint}'. Must start with 'http://' or 'https://'")
 
@@ -62,6 +62,13 @@ class Settings:
         hostname = (parsed.hostname or "").lower()
         if not hostname:
             raise ValueError(f"Invalid LOCAL_ENDPOINT: '{self.local_endpoint}'. Missing hostname.")
+
+        try:
+            port = parsed.port
+            if port is not None and not (1 <= port <= 65535):
+                raise ValueError
+        except ValueError:
+            raise ValueError(f"Invalid LOCAL_ENDPOINT port: '{clean_endpoint}'. Port must be between 1 and 65535.")
 
         if not val_allow_remote and hostname not in LOOPBACK_HOSTS:
             raise ValueError(
@@ -92,13 +99,16 @@ class Settings:
 
         # Server binary path normalization
         if self.llama_server_path is not None:
-            clean_path = str(self.llama_server_path).strip()
+            clean_path = str(self.llama_server_path).strip().replace("\r", "").replace("\n", "")
             object.__setattr__(self, "llama_server_path", clean_path if clean_path else None)
 
         # Model repository validation
         if not isinstance(self.model_repo, str) or not self.model_repo.strip():
             raise ValueError(f"MODEL_REPO must be a non-empty string, got: '{self.model_repo}'")
-        object.__setattr__(self, "model_repo", self.model_repo.strip())
+        clean_repo = self.model_repo.strip().replace("\r", "").replace("\n", "")
+        if not clean_repo:
+            raise ValueError(f"MODEL_REPO must not be empty, got: '{self.model_repo}'")
+        object.__setattr__(self, "model_repo", clean_repo)
 
         # Auto-start server validation
         val_auto_start = bool(self.auto_start_server)

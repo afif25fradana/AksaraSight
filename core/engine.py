@@ -1,5 +1,4 @@
-"""Core OCR orchestration engine coordinating document ingestion and vision inference."""
-
+import logging
 from pathlib import Path
 import threading
 import time
@@ -9,6 +8,8 @@ from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
 from core.models import JobConfig, JobStatus, OCRResult, PageResult
 from core.pipeline import PipelineError, ingest
+
+logger = logging.getLogger(__name__)
 
 
 class OCREngine:
@@ -113,74 +114,66 @@ class OCREngine:
                         image_b64=img_to_retain,
                     )
                     result.pages.append(page_res)
-                    if progress_callback:
-                        try:
-                            progress_callback(page.page_num, total_pages, page_res)
-                        except Exception:
-                            pass
-                    continue
-
-                # Vision model inference for this page
-                try:
-                    text, raw_json, latency = self.client.complete(
-                        image_b64=page.image_b64,
-                        prompt=cfg.effective_prompt,
-                    )
-                    page_res = PageResult(
-                        page_num=page.page_num,
-                        markdown=text,
-                        raw_json=raw_json,
-                        latency=latency,
-                        status=JobStatus.SUCCESS,
-                        image_b64=img_to_retain,
-                    )
-                    result.pages.append(page_res)
-                    if progress_callback:
-                        try:
-                            progress_callback(page.page_num, total_pages, page_res)
-                        except Exception:
-                            pass
-                except ServerOfflineError as exc:
-                    # Fail-fast short-circuit: record failure for current page and abort
-                    page_res = PageResult(
-                        page_num=page.page_num,
-                        status=JobStatus.FAILED,
-                        error=str(exc),
-                        image_b64=img_to_retain,
-                    )
-                    result.pages.append(page_res)
-                    if progress_callback:
-                        try:
-                            progress_callback(page.page_num, total_pages, page_res)
-                        except Exception:
-                            pass
-
-                    result.aborted = True
-                    succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
-                    if succeeded > 0:
-                        result.error = (
-                            f"Inference backend offline on page {page.page_num} "
-                            f"(after {succeeded} page(s) succeeded); remaining pages not attempted: {exc}"
+                else:
+                    # Vision model inference for this page
+                    try:
+                        text, raw_json, latency = self.client.complete(
+                            image_b64=page.image_b64,
+                            prompt=cfg.effective_prompt,
                         )
-                    else:
-                        result.error = (
-                            f"Inference backend offline on page 1; remaining pages not attempted: {exc}"
+                        page_res = PageResult(
+                            page_num=page.page_num,
+                            markdown=text,
+                            raw_json=raw_json,
+                            latency=latency,
+                            status=JobStatus.SUCCESS,
+                            image_b64=img_to_retain,
                         )
+                        result.pages.append(page_res)
+                    except ServerOfflineError as exc:
+                        # Fail-fast short-circuit: record failure for current page and abort
+                        page_res = PageResult(
+                            page_num=page.page_num,
+                            status=JobStatus.FAILED,
+                            error=str(exc),
+                            image_b64=img_to_retain,
+                        )
+                        result.pages.append(page_res)
+                        result.aborted = True
+                        succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
+                        if succeeded > 0:
+                            result.error = (
+                                f"Inference backend offline on page {page.page_num} "
+                                f"(after {succeeded} page(s) succeeded); remaining pages not attempted: {exc}"
+                            )
+                        else:
+                            result.error = (
+                                f"Inference backend offline on page 1; remaining pages not attempted: {exc}"
+                            )
+                    except ClientError as exc:
+                        # Per-page isolation for non-offline errors (timeout, 400, 5xx exhaustion, parsing)
+                        page_res = PageResult(
+                            page_num=page.page_num,
+                            status=JobStatus.FAILED,
+                            error=str(exc),
+                            image_b64=img_to_retain,
+                        )
+                        result.pages.append(page_res)
+
+                # Thread-safe progress notification: isolated in its own error boundary so a callback
+                # exception (e.g. GUI bug) can NEVER crash or alter engine document processing.
+                if progress_callback is not None:
+                    try:
+                        progress_callback(page.page_num, total_pages, page_res)
+                    except Exception as cb_exc:
+                        logger.warning(
+                            "OCREngine progress_callback raised an exception on page %d: %s",
+                            page.page_num,
+                            cb_exc,
+                        )
+
+                if result.aborted:
                     break
-                except ClientError as exc:
-                    # Per-page isolation for non-offline errors (timeout, 400, 5xx exhaustion, parsing)
-                    page_res = PageResult(
-                        page_num=page.page_num,
-                        status=JobStatus.FAILED,
-                        error=str(exc),
-                        image_b64=img_to_retain,
-                    )
-                    result.pages.append(page_res)
-                    if progress_callback:
-                        try:
-                            progress_callback(page.page_num, total_pages, page_res)
-                        except Exception:
-                            pass
 
             if not result.pages and not result.error:
                 result.error = "Document produced 0 extractable pages"

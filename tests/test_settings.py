@@ -384,5 +384,31 @@ def test_settings_newline_sanitization():
     assert s.model_repo == "ggml-org/GLM-OCR-GGUF"
 
 
+@pytest.mark.parametrize("bad_dim", [0, -10, 511, 8193, "abc"])
+def test_max_image_dimension_validation(bad_dim):
+    """Verify MAX_IMAGE_DIMENSION must be an integer between 512 and 8192."""
+    with pytest.raises(ValueError, match="MAX_IMAGE_DIMENSION must be an integer between 512 and 8192"):
+        Settings(max_image_dimension=bad_dim)
 
 
+@pytest.mark.parametrize("valid_dim", [512, 1024, 2048, 4096, 8192, "4096"])
+def test_max_image_dimension_valid(valid_dim):
+    """Verify valid dimension values are cast to int."""
+    s = Settings(max_image_dimension=valid_dim)
+    assert s.max_image_dimension == int(valid_dim)
+
+
+def test_max_image_dimension_env_round_trip(tmp_path, monkeypatch):
+    """Verify max_image_dimension loads from env and saves to .env file."""
+    env_file = tmp_path / "dim.env"
+    s = Settings(max_image_dimension=3072)
+    s.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "OCR_MAX_IMAGE_DIMENSION='3072'" in content
+
+    for k in ["OCR_MAX_IMAGE_DIMENSION", "MAX_IMAGE_DIMENSION"]:
+        monkeypatch.delenv(k, raising=False)
+
+    loaded = Settings.from_env(env_file)
+    assert loaded.max_image_dimension == 3072

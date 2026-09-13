@@ -255,7 +255,7 @@ def test_engine_handles_pipeline_rasterization_failure(mock_client: MagicMock) -
 
     # Mock pipeline.ingest
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("core.engine.ingest", lambda src: iter([bad_page, good_page]))
+        mp.setattr("core.engine.ingest", lambda *args, **kwargs: iter([bad_page, good_page]))
         result = engine.process_document("mock_multipage.pdf")
 
     assert result.status == JobStatus.PARTIAL
@@ -361,3 +361,20 @@ def test_engine_progress_callback_exception_does_not_crash_pipeline(
     assert len(result.pages) == 3
 
 
+def test_engine_forwards_dpi_and_max_image_dimension(mock_client: MagicMock) -> None:
+    """Verify OCREngine resolves and forwards dpi and max_image_dimension to ingest()."""
+    from unittest.mock import patch
+
+    settings = Settings(dpi=150, max_image_dimension=1024)
+    engine = OCREngine(settings=settings, client=mock_client)
+
+    with patch("core.engine.ingest", return_value=iter([])) as mock_ingest:
+        # Default config: reads from settings
+        engine.process_document("dummy.pdf")
+        mock_ingest.assert_called_with("dummy.pdf", dpi=150, max_image_dimension=1024)
+
+    with patch("core.engine.ingest", return_value=iter([])) as mock_ingest:
+        # Explicit JobConfig override
+        custom_cfg = JobConfig(dpi=200, max_image_dimension=4096)
+        engine.process_document("dummy.pdf", config=custom_cfg)
+        mock_ingest.assert_called_with("dummy.pdf", dpi=200, max_image_dimension=4096)

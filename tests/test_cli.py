@@ -416,4 +416,77 @@ def test_cli_max_pages_flag_invalid(
     assert "Error: --max-pages must be a positive integer" in captured.err
 
 
+@patch("cli.main.OCREngine")
+def test_cli_dpi_flag_forwarded(
+    mock_engine_cls: MagicMock,
+    dummy_pdf: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify --dpi flag forwards positive int to JobConfig."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
 
+    exit_code = main([str(dummy_pdf), "--dpi", "150"])
+
+    assert exit_code == 0
+    assert mock_engine.process_document.call_count == 1
+    _, kwargs = mock_engine.process_document.call_args
+    assert kwargs["config"].dpi == 150
+
+
+def test_cli_dpi_flag_invalid(
+    dummy_pdf: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify non-positive --dpi flag triggers fatal error."""
+    exit_code = main([str(dummy_pdf), "--dpi", "0"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error: --dpi must be a positive integer" in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_streaming_exit_codes(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify batch processing correctly resolves exit codes without accumulating results."""
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "doc1.png"
+    f2 = in_dir / "doc2.png"
+    f1.write_bytes(b"data1")
+    f2.write_bytes(b"data2")
+
+    mock_engine = MagicMock()
+    # 1. All success -> exit code 0
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS),
+        OCRResult(file_path=str(f2), status=JobStatus.SUCCESS),
+    ]
+    mock_engine_cls.return_value = mock_engine
+
+    exit_0 = main([str(in_dir), "-o", str(out_dir), "-q"])
+    assert exit_0 == 0
+
+    # 2. One partial/failed -> exit code 2
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS),
+        OCRResult(file_path=str(f2), status=JobStatus.FAILED),
+    ]
+    exit_2 = main([str(in_dir), "-o", str(out_dir), "-q"])
+    assert exit_2 == 2
+
+    # 3. One aborted -> exit code 1
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS),
+        OCRResult(file_path=str(f2), status=JobStatus.FAILED, aborted=True),
+    ]
+    exit_1 = main([str(in_dir), "-o", str(out_dir), "-q"])
+    assert exit_1 == 1

@@ -80,6 +80,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of pages to process per document.",
     )
     parser.add_argument(
+        "--dpi",
+        type=int,
+        default=None,
+        help="Rasterization DPI for PDF documents (default: 100).",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -149,12 +155,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write("Error: --max-pages must be a positive integer.\n")
         return 1
 
+    if args.dpi is not None and args.dpi <= 0:
+        sys.stderr.write("Error: --dpi must be a positive integer.\n")
+        return 1
+
     output_fmt = OutputFormat(args.format.lower())
     job_config = JobConfig(
         output_format=output_fmt,
         prompt_mode=args.prompt_mode,
         custom_prompt=args.prompt,
         max_pages=args.max_pages,
+        dpi=args.dpi or settings.dpi,
+        max_image_dimension=settings.max_image_dimension,
     )
 
     # 4. Resolve files to process
@@ -169,9 +181,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         file_list = [input_path.resolve()]
 
-    # 5. Initialize Engine and process documents
+    # 5. Initialize Engine and process documents (streaming mode to prevent unbounded memory growth)
     engine = OCREngine(settings=settings)
-    results: List[OCRResult] = []
+    has_aborted = False
+    all_success = True
     total_files = len(file_list)
     used_stems: Set[str] = set()
 
@@ -181,7 +194,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stdout.flush()
 
         result = engine.process_document(doc_path, config=job_config)
-        results.append(result)
+        if result.aborted:
+            has_aborted = True
+        if result.status != JobStatus.SUCCESS:
+            all_success = False
 
         # Save to disk if -o is specified
         if args.output is not None:
@@ -220,10 +236,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 1
 
     # 6. Exit code calculation
-    if any(r.aborted for r in results):
+    if has_aborted:
         return 1
 
-    if all(r.status == JobStatus.SUCCESS for r in results):
+    if all_success:
         return 0
 
     return 2

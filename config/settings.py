@@ -33,6 +33,7 @@ class Settings:
     auto_start_server: bool = False
     dpi: int = 100
     max_pages: Optional[int] = None
+    max_image_dimension: int = 2048
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration attributes across all construction paths."""
@@ -135,6 +136,17 @@ class Settings:
                 raise ValueError(f"MAX_PAGES must be a positive integer or None, got: '{self.max_pages}'")
             object.__setattr__(self, "max_pages", val_max_pages)
 
+        # Max image dimension validation
+        try:
+            val_dim = int(self.max_image_dimension)
+            if not (512 <= val_dim <= 8192):
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"MAX_IMAGE_DIMENSION must be an integer between 512 and 8192, got: '{self.max_image_dimension}'"
+            )
+        object.__setattr__(self, "max_image_dimension", val_dim)
+
     @property
     def is_loopback(self) -> bool:
         """Determine whether the configured endpoint targets a local loopback address."""
@@ -178,6 +190,8 @@ class Settings:
         raw_max_pages = os.getenv("OCR_MAX_PAGES") or os.getenv("MAX_PAGES")
         max_pages = int(raw_max_pages.strip()) if raw_max_pages and str(raw_max_pages).strip() else None
 
+        raw_max_dim = os.getenv("OCR_MAX_IMAGE_DIMENSION") or os.getenv("MAX_IMAGE_DIMENSION", "2048")
+
         return cls(
             backend=backend,
             local_endpoint=endpoint,
@@ -189,6 +203,7 @@ class Settings:
             auto_start_server=auto_start,
             dpi=raw_dpi,  # type: ignore[arg-type]
             max_pages=max_pages,
+            max_image_dimension=raw_max_dim,  # type: ignore[arg-type]
         )
 
     def save_to_env(self, env_path: Optional[str | Path] = None) -> Path:
@@ -211,6 +226,7 @@ class Settings:
             "OCR_ALLOW_REMOTE": "true" if self.allow_remote else "false",
             "OCR_DPI": str(self.dpi),
             "OCR_MAX_PAGES": str(self.max_pages) if self.max_pages is not None else "",
+            "OCR_MAX_IMAGE_DIMENSION": str(self.max_image_dimension),
             "OCR_LLAMA_SERVER_PATH": self.llama_server_path or "",
             "OCR_MODEL_REPO": self.model_repo,
             "OCR_AUTO_START_SERVER": "true" if self.auto_start_server else "false",
@@ -225,6 +241,7 @@ class Settings:
             "ALLOW_REMOTE": "OCR_ALLOW_REMOTE",
             "DPI": "OCR_DPI",
             "MAX_PAGES": "OCR_MAX_PAGES",
+            "MAX_IMAGE_DIMENSION": "OCR_MAX_IMAGE_DIMENSION",
             "LLAMA_SERVER_PATH": "OCR_LLAMA_SERVER_PATH",
             "MODEL_REPO": "OCR_MODEL_REPO",
             "AUTO_START_SERVER": "OCR_AUTO_START_SERVER",

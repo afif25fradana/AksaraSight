@@ -182,6 +182,7 @@ def _process_image(
     source: Union[str, Path, bytes, bytearray, memoryview],
     image_format: str = "JPEG",
     jpeg_quality: int = 95,
+    max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Validate and extract image frames via Pillow using two-stage validation.
 
@@ -193,6 +194,7 @@ def _process_image(
         source: Image file path or byte buffer.
         image_format: Target format for base64 output ('JPEG' or 'PNG').
         jpeg_quality: Quality for JPEG encoding.
+        max_image_dimension: Upper limit in pixels on longest image edge (default: 2048).
 
     Yields:
         ExtractedPage: Page results for each valid frame.
@@ -206,6 +208,15 @@ def _process_image(
         if isinstance(source, (bytes, bytearray, memoryview)):
             return Image.open(io.BytesIO(source))
         return Image.open(source)
+
+    def _downscale_if_needed(image: Image.Image, max_dim: int) -> Image.Image:
+        w, h = image.size
+        if max(w, h) > max_dim:
+            scale = max_dim / max(w, h)
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        return image
 
     # Stage 1: Header verification
     try:
@@ -229,13 +240,14 @@ def _process_image(
                     try:
                         frame.load()
                         rgb_frame = frame.convert("RGB")
-                        b64 = image_to_base64_url(rgb_frame, img_format=image_format, quality=jpeg_quality)
+                        scaled_frame = _downscale_if_needed(rgb_frame, max_image_dimension)
+                        b64 = image_to_base64_url(scaled_frame, img_format=image_format, quality=jpeg_quality)
                         yield ExtractedPage(
                             page_num=page_num,
                             total_pages=n_frames,
                             image_b64=b64,
-                            width=rgb_frame.width,
-                            height=rgb_frame.height,
+                            width=scaled_frame.width,
+                            height=scaled_frame.height,
                         )
                     except Exception as frame_err:
                         yield ExtractedPage(
@@ -246,13 +258,14 @@ def _process_image(
             else:
                 img.load()
                 rgb_img = img.convert("RGB")
-                b64 = image_to_base64_url(rgb_img, img_format=image_format, quality=jpeg_quality)
+                scaled_img = _downscale_if_needed(rgb_img, max_image_dimension)
+                b64 = image_to_base64_url(scaled_img, img_format=image_format, quality=jpeg_quality)
                 yield ExtractedPage(
                     page_num=1,
                     total_pages=1,
                     image_b64=b64,
-                    width=rgb_img.width,
-                    height=rgb_img.height,
+                    width=scaled_img.width,
+                    height=scaled_img.height,
                 )
     except (OSError, SyntaxError, ValueError) as e:
         raise CorruptDocumentError(f"Corrupt or truncated image raster stream: {e}") from e
@@ -263,6 +276,7 @@ def _process_pdf(
     dpi: int = 100,
     image_format: str = "JPEG",
     jpeg_quality: int = 95,
+    max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Render PDF pages to base64 images via pypdfium2.
 
@@ -281,9 +295,10 @@ def _process_pdf(
 
     Args:
         source: PDF file path or byte buffer.
-        dpi: Target rasterization resolution (default: 150).
+        dpi: Target rasterization resolution (default: 100).
         image_format: Target format for base64 output ('JPEG' or 'PNG').
         jpeg_quality: Quality for JPEG encoding.
+        max_image_dimension: Longest edge cap forwarded to image fallback if applicable.
 
     Yields:
         ExtractedPage: Page results for each rendered page.
@@ -319,7 +334,12 @@ def _process_pdf(
             # Attempt to process via Pillow before declaring corrupt PDF.
             # Runs outside _PDFIUM_LOCK since it invokes Pillow, not pypdfium2.
             try:
-                yield from _process_image(source, image_format=image_format, jpeg_quality=jpeg_quality)
+                yield from _process_image(
+                    source,
+                    image_format=image_format,
+                    jpeg_quality=jpeg_quality,
+                    max_image_dimension=max_image_dimension,
+                )
                 return
             except (UnsupportedFormatError, CorruptDocumentError):
                 raise CorruptDocumentError(
@@ -394,6 +414,7 @@ def ingest(
     dpi: int = 100,
     image_format: str = "JPEG",
     jpeg_quality: int = 95,
+    max_image_dimension: int = 2048,
 ) -> Iterator[ExtractedPage]:
     """Ingest, validate, and rasterize a document into base64 vision API pages.
 
@@ -403,9 +424,10 @@ def ingest(
 
     Args:
         source: File path (str | Path) or in-memory byte buffer.
-        dpi: PDF rasterization resolution (default: 150, recommended for GLM-OCR).
+        dpi: PDF rasterization resolution (default: 100, recommended for GLM-OCR).
         image_format: Vision API image encoding format ('JPEG' or 'PNG').
         jpeg_quality: JPEG compression quality (default: 95).
+        max_image_dimension: Longest edge resolution cap for standalone images (default: 2048).
 
     Yields:
         ExtractedPage: Validated, RGB base64-encoded page objects.
@@ -425,10 +447,12 @@ def ingest(
             dpi=dpi,
             image_format=image_format,
             jpeg_quality=jpeg_quality,
+            max_image_dimension=max_image_dimension,
         )
     else:
         yield from _process_image(
             source,
             image_format=image_format,
             jpeg_quality=jpeg_quality,
+            max_image_dimension=max_image_dimension,
         )

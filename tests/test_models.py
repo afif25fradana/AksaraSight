@@ -234,4 +234,29 @@ def test_ocr_result_to_dict_and_to_json_excludes_image_b64():
     assert "very_large_base64_string" not in json_str
 
 
+def test_job_config_dpi_and_max_image_dimension_defaults():
+    """Verify JobConfig defaults dpi and max_image_dimension to None."""
+    cfg = JobConfig()
+    assert cfg.dpi is None
+    assert cfg.max_image_dimension is None
 
+
+def test_job_config_dpi_and_max_image_dimension_valid():
+    """Verify JobConfig accepts valid dpi and max_image_dimension."""
+    cfg = JobConfig(dpi=150, max_image_dimension=1024)
+    assert cfg.dpi == 150
+    assert cfg.max_image_dimension == 1024
+
+
+@pytest.mark.parametrize("bad_dpi", [0, -5, "bad"])
+def test_job_config_bad_dpi_raises(bad_dpi):
+    """Verify JobConfig raises ValueError on invalid dpi."""
+    with pytest.raises(ValueError, match="dpi must be a positive integer"):
+        JobConfig(dpi=bad_dpi)
+
+
+@pytest.mark.parametrize("bad_dim", [0, 500, 9000, "bad"])
+def test_job_config_bad_max_image_dimension_raises(bad_dim):
+    """Verify JobConfig raises ValueError on invalid max_image_dimension."""
+    with pytest.raises(ValueError, match="max_image_dimension must be an integer between 512 and 8192"):
+        JobConfig(max_image_dimension=bad_dim)

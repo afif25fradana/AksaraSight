@@ -86,12 +86,22 @@ class OCREngine:
             file_path = file_name or "<in-memory>"
 
         result = OCRResult(file_path=file_path)
+        effective_dpi = cfg.dpi if cfg.dpi is not None else getattr(self.settings, "dpi", 100)
+        effective_max_dim = (
+            cfg.max_image_dimension
+            if cfg.max_image_dimension is not None
+            else getattr(self.settings, "max_image_dimension", 2048)
+        )
 
         try:
             # Note: ingest() is a generator; validation and pre-flight execute
             # once iteration begins (on the first next() call). Wrapping the iteration
             # loop ensures all PipelineErrors are caught cleanly.
-            for page in ingest(source):
+            for page in ingest(
+                source,
+                dpi=effective_dpi,
+                max_image_dimension=effective_max_dim,
+            ):
                 # Page limit safeguard (Finding 3.1)
                 if cfg.max_pages is not None and page.page_num > cfg.max_pages:
                     break

@@ -1163,7 +1163,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         else:  # SUCCESS / PARTIAL
             assert item.result is not None
             md_text = item.result.to_markdown()
-            prev_text = item.result.to_markdown()
+            prev_text = md_text
             json_text = item.result.to_json()
 
         self._set_textbox_content(self._tb_markdown, md_text)

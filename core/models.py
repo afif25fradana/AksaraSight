@@ -46,6 +46,8 @@ class JobConfig:
     custom_prompt: Optional[str] = None
     max_pages: Optional[int] = None
     retain_images: bool = False
+    dpi: Optional[int] = None
+    max_image_dimension: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
@@ -57,6 +59,26 @@ class JobConfig:
                 object.__setattr__(self, "max_pages", val)
             except (ValueError, TypeError):
                 raise ValueError(f"max_pages must be a positive integer, got: {self.max_pages}")
+
+        if self.dpi is not None:
+            try:
+                val_dpi = int(self.dpi)
+                if val_dpi <= 0:
+                    raise ValueError
+                object.__setattr__(self, "dpi", val_dpi)
+            except (ValueError, TypeError):
+                raise ValueError(f"dpi must be a positive integer, got: {self.dpi}")
+
+        if self.max_image_dimension is not None:
+            try:
+                val_dim = int(self.max_image_dimension)
+                if not (512 <= val_dim <= 8192):
+                    raise ValueError
+                object.__setattr__(self, "max_image_dimension", val_dim)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"max_image_dimension must be an integer between 512 and 8192, got: {self.max_image_dimension}"
+                )
 
     @property
     def effective_prompt(self) -> str:

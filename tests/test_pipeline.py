@@ -450,4 +450,40 @@ def test_ingest_pdf_sets_total_pages(tmp_path: Path) -> None:
         assert p.total_pages == 3
 
 
+def test_ingest_image_downscales_oversized_image(tmp_path: Path) -> None:
+    """Verify standalone images exceeding max_image_dimension are downscaled with aspect ratio."""
+    img_path = tmp_path / "oversized.png"
+    Image.new("RGB", (3000, 4000), color="green").save(img_path)
 
+    pages = list(ingest(img_path, max_image_dimension=2048))
+    assert len(pages) == 1
+    assert pages[0].width == 1536
+    assert pages[0].height == 2048
+
+
+def test_ingest_image_preserves_smaller_image(tmp_path: Path) -> None:
+    """Verify standalone images within max_image_dimension are not resized."""
+    img_path = tmp_path / "small.png"
+    Image.new("RGB", (800, 600), color="blue").save(img_path)
+
+    pages = list(ingest(img_path, max_image_dimension=2048))
+    assert len(pages) == 1
+    assert pages[0].width == 800
+    assert pages[0].height == 600
+
+
+def test_ingest_pdf_respects_custom_dpi(tmp_path: Path) -> None:
+    """Verify PDF rasterization scales dimensions proportionally to passed dpi."""
+    pdf_path = tmp_path / "dpi_test.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(72, 72)  # 72 points = 1 inch
+    doc.save(str(pdf_path))
+    doc.close()
+
+    pages_72 = list(ingest(pdf_path, dpi=72))
+    assert pages_72[0].width == 72
+    assert pages_72[0].height == 72
+
+    pages_144 = list(ingest(pdf_path, dpi=144))
+    assert pages_144[0].width == 144
+    assert pages_144[0].height == 144

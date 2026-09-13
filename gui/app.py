@@ -687,14 +687,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
 
-        # Primary Button: Slate blue accent fill (starts disabled with muted tint)
+        # Primary Button: Slate blue accent fill (starts disabled with neutral dark surface and border)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
             text="Export Selected",
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color=COLOR_ACCENT_DISABLED,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
             hover_color=COLOR_ACCENT_HOVER,
-            text_color=COLOR_ACCENT_DISABLED_TEXT,
+            text_color=COLOR_TEXT_SUBTLE,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
             corner_radius=6,
             height=30,
             state="disabled",
@@ -1336,12 +1338,15 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 state="normal",
                 fg_color=COLOR_ACCENT_PRIMARY,
                 text_color="#ffffff",
+                border_width=0,
             )
         else:
             self._btn_export_selected.configure(
                 state="disabled",
-                fg_color=COLOR_ACCENT_DISABLED,
-                text_color=COLOR_ACCENT_DISABLED_TEXT,
+                fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                text_color=COLOR_TEXT_SUBTLE,
+                border_width=1,
+                border_color=COLOR_SURFACE_BORDER,
             )
 
         self._btn_export_all.configure(

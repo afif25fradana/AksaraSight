@@ -215,6 +215,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._success_count: int = 0
         self._failed_count: int = 0
         self._current_cancel_event: Optional[threading.Event] = None
+        self._pending_engine_settings: Optional[Settings] = None
         self._current_image_page_idx: int = 0
         self._current_ctk_image: Optional[ctk.CTkImage] = None
 
@@ -1700,6 +1701,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     )
 
                 try:
+                    # Apply any pending settings updates at document boundary (SEC-3.1)
+                    self._apply_pending_engine_settings()
                     job_cfg = JobConfig(retain_images=True)
                     result = self.engine.process_document(
                         file_path_str,
@@ -2068,21 +2071,27 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._settings_window = win
 
+    def _apply_pending_engine_settings(self) -> None:
+        """Apply pending settings updates to engine and vision client at safe document boundary."""
+        pending_s = getattr(self, "_pending_engine_settings", None)
+        if pending_s is not None:
+            self._pending_engine_settings = None
+            if hasattr(self.engine, "client") and self.engine.client is not None:
+                from core.client import resolve_chat_endpoint
+                self.engine.client.endpoint = resolve_chat_endpoint(pending_s.local_endpoint)
+                self.engine.client.settings = pending_s
+            if hasattr(self.engine, "settings"):
+                self.engine.settings = pending_s
+
     def _on_settings_saved(self, new_settings: Settings) -> None:
         """Callback invoked when preferences are updated and saved in SettingsWindow."""
         self.settings = new_settings
         self.server_manager.settings = new_settings
 
-        # Update engine settings and vision client parameters
-        if hasattr(self.engine, "settings"):
-            self.engine.settings = new_settings
-        if hasattr(self.engine, "client") and self.engine.client is not None:
-            try:
-                self.engine.client.base_url = new_settings.local_endpoint
-                self.engine.client.timeout = new_settings.timeout
-                self.engine.client.max_retries = new_settings.max_retries
-            except Exception as client_err:
-                logger.warning("Error updating engine client parameters: %s", client_err)
+        # Queue settings for safe inter-document update (SEC-3.1)
+        self._pending_engine_settings = new_settings
+        if self._current_cancel_event is None:
+            self._apply_pending_engine_settings()
 
         # Update header backend badge
         if not self.settings.is_loopback:

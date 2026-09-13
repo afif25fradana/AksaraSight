@@ -240,6 +240,40 @@ def test_server_manager_registers_atexit():
         mgr.shutdown()
 
 
+def test_server_manager_job_object_lifecycle(tmp_path):
+    """Verify ServerManager creates a Windows Job Object upon process spawn and releases it on stop (SEC-4.1)."""
+    import sys
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        model_repo="test/model",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc._handle = 1234
+    mock_proc.stdout = iter([])
+
+    with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch("core.server_manager._create_kill_on_close_job", return_value=999) as mock_create_job:
+                with patch("core.server_manager._assign_process_to_job", return_value=True) as mock_assign:
+                    with patch("core.server_manager._close_job_handle") as mock_close_job:
+                        mgr.start()
+                        if sys.platform == "win32":
+                            assert mock_create_job.called
+                            assert mock_assign.called
+                            assert mgr._job_handle == 999
+
+                        mgr.stop()
+                        if sys.platform == "win32":
+                            assert mock_close_job.called
+                            assert mgr._job_handle is None
+
+
 def test_server_manager_stop_external_is_noop():
     """Verify stop() does NOT kill an external server."""
     mgr = ServerManager()

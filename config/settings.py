@@ -230,6 +230,12 @@ class Settings:
             "AUTO_START_SERVER": "OCR_AUTO_START_SERVER",
         }
 
+        def _quote_val(v: str) -> str:
+            # Single-quote strings to preserve whitespace, '#' symbols, and special characters
+            # without triggering backslash escape expansion on Windows paths.
+            escaped = v.replace("'", "\\'")
+            return f"'{escaped}'"
+
         written_keys: Set[str] = set()
         new_lines: list[str] = []
 
@@ -246,7 +252,7 @@ class Settings:
                     key = key_part.strip()
                     canonical_key = aliases.get(key, key)
                     if canonical_key in managed:
-                        new_lines.append(f"{key}={managed[canonical_key]}")
+                        new_lines.append(f"{key}={_quote_val(managed[canonical_key])}")
                         written_keys.add(canonical_key)
                         continue
 
@@ -258,7 +264,7 @@ class Settings:
             if new_lines and new_lines[-1].strip():
                 new_lines.append("")
             for k in unwritten:
-                new_lines.append(f"{k}={managed[k]}")
+                new_lines.append(f"{k}={_quote_val(managed[k])}")
 
         # Atomic write
         temp_file = target.with_suffix(".env.tmp")

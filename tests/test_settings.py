@@ -323,9 +323,25 @@ def test_save_to_env_preserves_comments_and_unrelated_vars(tmp_path):
     result_content = env_file.read_text(encoding="utf-8")
     assert "# Custom Application Configuration" in result_content
     assert "MY_CUSTOM_VAR=keep_me" in result_content
-    assert "OCR_ENDPOINT=http://localhost:9000/v1" in result_content
-    assert "OCR_TIMEOUT=90.0" in result_content
-    assert "OCR_DPI=120" in result_content
+    assert "OCR_ENDPOINT='http://localhost:9000/v1'" in result_content
+    assert "OCR_TIMEOUT='90.0'" in result_content
+    assert "OCR_DPI='120'" in result_content
+
+
+def test_save_to_env_preserves_path_with_hash_and_spaces(tmp_path):
+    """Verify paths containing '#' and spaces are quoted and reload accurately without truncation (SEC-2.1)."""
+    env_file = tmp_path / "quoted.env"
+    path_with_hash = r"C:\tools\build#1 with spaces\llama-server.exe"
+
+    s1 = Settings(llama_server_path=path_with_hash, model_repo="custom/ocr-model")
+    s1.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert f"OCR_LLAMA_SERVER_PATH='{path_with_hash}'" in content
+
+    # Reload from env in a fresh load
+    s2 = Settings.from_env(env_file)
+    assert s2.llama_server_path == path_with_hash
 
 
 @pytest.mark.parametrize("bad_port_url", [

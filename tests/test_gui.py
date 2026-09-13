@@ -2,6 +2,7 @@ import inspect
 import json
 from pathlib import Path
 import queue
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
@@ -1572,10 +1573,30 @@ def test_settings_dialog_opening_and_runtime_sync():
         assert app.settings.backend == "ollama"
         assert app.server_manager.settings.backend == "ollama"
         assert app.engine.settings.backend == "ollama"
-        assert app.engine.client.base_url == "http://127.0.0.1:11434/v1"
-        assert app.engine.client.timeout == 40.0
-        assert app.engine.client.max_retries == 3
+        assert app.engine.client.endpoint == "http://127.0.0.1:11434/v1/chat/completions"
+        assert app.engine.client.settings.timeout == 40.0
+        assert app.engine.client.settings.max_retries == 3
         assert "Backend: ollama" in app._backend_badge.cget("text")
+
+        # 3. Settings update deferred during active processing (SEC-3.1)
+        fake_cancel = threading.Event()
+        app._current_cancel_event = fake_cancel
+        in_flight_settings = Settings(
+            backend="vllm",
+            local_endpoint="http://127.0.0.1:8000/v1",
+            timeout=25.0,
+        )
+        app._on_settings_saved(in_flight_settings)
+        # Should be queued in _pending_engine_settings, not immediately applied to client
+        assert app._pending_engine_settings == in_flight_settings
+        assert app.engine.client.endpoint == "http://127.0.0.1:11434/v1/chat/completions"
+
+        # Simulating document completion and next document start
+        app._current_cancel_event = None
+        app._apply_pending_engine_settings()
+        assert app._pending_engine_settings is None
+        assert app.engine.client.endpoint == "http://127.0.0.1:8000/v1/chat/completions"
+        assert app.engine.settings.backend == "vllm"
     finally:
         app._on_closing()
 

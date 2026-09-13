@@ -1384,6 +1384,188 @@ def test_settings_window_cancel_and_close_discards_changes(tmp_path: Path):
         parent.destroy()
 
 
+def test_server_status_pill_and_button_rendering():
+    """Verify header status pill and server action button update for all status states."""
+    from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+    mock_sm.get_status_info.return_value = ServerStatusInfo(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+        endpoint="http://127.0.0.1:8080/v1",
+    )
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        # 1. OFFLINE
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE, message="Offline")
+        )
+        assert app._server_status_pill.cget("text") == "● OFFLINE"
+        assert app._btn_server_action.cget("text") == "Start Server"
+        assert str(app._btn_server_action.cget("state")) == "normal"
+
+        # 2. STARTING
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.STARTING, ownership=ServerOwnership.NONE, message="Booting")
+        )
+        assert app._server_status_pill.cget("text") == "● STARTING"
+        assert app._btn_server_action.cget("text") == "Starting..."
+        assert str(app._btn_server_action.cget("state")) == "disabled"
+
+        # 3. READY (Managed)
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.MANAGED, message="Ready")
+        )
+        assert app._server_status_pill.cget("text") == "● READY (Managed)"
+        assert app._btn_server_action.cget("text") == "Stop Server"
+        assert str(app._btn_server_action.cget("state")) == "normal"
+
+        # 4. READY (External)
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.EXTERNAL, message="Ready")
+        )
+        assert app._server_status_pill.cget("text") == "● READY (Ext)"
+        assert app._btn_server_action.cget("text") == "External"
+        assert str(app._btn_server_action.cget("state")) == "disabled"
+
+        # 5. ERROR
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.ERROR, ownership=ServerOwnership.NONE, message="Failed")
+        )
+        assert app._server_status_pill.cget("text") == "● ERROR"
+        assert app._btn_server_action.cget("text") == "Start Server"
+        assert str(app._btn_server_action.cget("state")) == "normal"
+
+    finally:
+        app._on_closing()
+
+
+def test_server_action_button_click_dispatches_start_and_stop():
+    """Verify clicking the server action button dispatches start() or stop() as appropriate."""
+    from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+    mock_sm.get_status_info.return_value = ServerStatusInfo(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+    )
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        # Case A: When offline, click triggers start()
+        mock_sm.status = ServerStatus.OFFLINE
+        mock_sm.ownership = ServerOwnership.NONE
+        app._on_server_action_clicked()
+        time.sleep(0.1)
+        assert mock_sm.start.call_count == 1
+
+        # Case B: When ready and managed, click triggers stop()
+        mock_sm.status = ServerStatus.READY
+        mock_sm.ownership = ServerOwnership.MANAGED
+        app._on_server_action_clicked()
+        time.sleep(0.1)
+        assert mock_sm.stop.call_count == 1
+    finally:
+        app._on_closing()
+
+
+def test_server_auto_start_on_launch():
+    """Verify auto_start_server=True triggers start() on launch if server is offline."""
+    from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+
+    mock_engine = MagicMock()
+
+    # 1. auto_start_server = False -> start() not called
+    mock_sm_no_auto = MagicMock()
+    mock_sm_no_auto.poll_status.return_value = ServerStatusInfo(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+    )
+    s_false = Settings(auto_start_server=False)
+    app_false = OCRApp(settings=s_false, engine=mock_engine, server_manager=mock_sm_no_auto)
+    app_false.withdraw()
+    try:
+        mock_sm_no_auto.start.assert_not_called()
+    finally:
+        app_false._on_closing()
+
+    # 2. auto_start_server = True -> start() called if offline
+    mock_sm_auto = MagicMock()
+    mock_sm_auto.poll_status.return_value = ServerStatusInfo(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+    )
+    s_true = Settings(auto_start_server=True)
+    app_true = OCRApp(settings=s_true, engine=mock_engine, server_manager=mock_sm_auto)
+    app_true.withdraw()
+    try:
+        mock_sm_auto.start.assert_called_once()
+    finally:
+        app_true._on_closing()
+
+
+def test_server_manager_cleanup_on_closing():
+    """Verify _on_closing terminates managed server and closes sessions."""
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+    mock_sm.is_managed = True
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    app._on_closing()
+
+    assert mock_sm.stop.call_count == 1
+    assert mock_sm.close.call_count == 1
+
+
+def test_settings_dialog_opening_and_runtime_sync():
+    """Verify clicking Settings button opens SettingsWindow and saving synchronizes engine/server state."""
+    mock_engine = MagicMock()
+    mock_engine.client = MagicMock()
+    mock_sm = MagicMock()
+
+    app = OCRApp(settings=Settings(), engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        # 1. Open settings window
+        app._open_settings_dialog()
+        assert app._settings_window is not None
+        assert app._settings_window.winfo_exists()
+
+        # 2. Saving new settings synchronizes app, server_manager, and engine
+        new_settings = Settings(
+            backend="ollama",
+            local_endpoint="http://127.0.0.1:11434/v1",
+            timeout=40.0,
+            max_retries=3,
+        )
+        app._on_settings_saved(new_settings)
+
+        assert app.settings.backend == "ollama"
+        assert app.server_manager.settings.backend == "ollama"
+        assert app.engine.settings.backend == "ollama"
+        assert app.engine.client.base_url == "http://127.0.0.1:11434/v1"
+        assert app.engine.client.timeout == 40.0
+        assert app.engine.client.max_retries == 3
+        assert "Backend: ollama" in app._backend_badge.cget("text")
+    finally:
+        app._on_closing()
+
+
+
 
 
 

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PIL import Image
 
+from config.settings import Settings
 from core.models import JobStatus, OCRResult, PageResult
 from gui.app import (
     COLOR_ACCENT_AMBER,
@@ -103,7 +104,7 @@ def main() -> None:
         f_queued.write_bytes(b"x" * (5_200_000))
 
         mock_engine = MagicMock()
-        app = OCRApp(engine=mock_engine)
+        app = OCRApp(settings=Settings(), engine=mock_engine)
         app.geometry("1020x640+20+10")
 
         # Prevent background worker from consuming demo queue items
@@ -197,7 +198,7 @@ def main() -> None:
 
         # Select the success item to display full preview, markdown, JSON, and enabled export buttons
         app._select_queue_item(id_success)
-        app._tabview.set("Preview")
+        app._tabview.set("Text Preview")
 
         # Allow layout calculations and animations to stabilize
         app.update()

@@ -12,6 +12,7 @@ import queue
 import re
 import sys
 import threading
+import time
 from tkinter import filedialog
 import traceback
 from typing import Any, Dict, List, Optional, Set, Union
@@ -26,6 +27,8 @@ from core.constants import SUPPORTED_EXTENSIONS
 from core.engine import OCREngine
 from core.formatter import format_output, resolve_unique_stem, save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
+from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
+from gui.settings_window import SettingsWindow
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +178,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self,
         settings: Optional[Settings] = None,
         engine: Optional[OCREngine] = None,
+        server_manager: Optional[ServerManager] = None,
     ) -> None:
         """Initialize the GUI application window, layout, and worker thread."""
         super().__init__()
@@ -186,6 +190,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         self.settings = settings or getattr(engine, "settings", None) or Settings.from_env()
         self.engine = engine or OCREngine(self.settings)
+        self.server_manager = server_manager or ServerManager(settings=self.settings)
+        self._settings_window: Optional[SettingsWindow] = None
+        self._server_poller_thread: Optional[threading.Thread] = None
 
         # Window appearance and geometry
         ctk.set_appearance_mode("dark")
@@ -213,6 +220,19 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Build UI layout
         self._build_layout()
+
+        # Auto-start managed server if enabled in settings and offline
+        if self.settings.auto_start_server:
+            try:
+                init_info = self.server_manager.poll_status()
+                if init_info.status == ServerStatus.OFFLINE:
+                    logger.info("auto_start_server enabled; starting backend server process...")
+                    self.server_manager.start()
+            except Exception as auto_start_err:
+                logger.warning("Failed to auto-start backend server on launch: %s", auto_start_err)
+
+        # Start periodic server health poller
+        self._start_server_poller()
 
         # Protocol handlers
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -270,7 +290,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         version_badge.pack(side="left", padx=(8, 0), pady=(3, 0))
 
-        # Backend indicator badge
+        # Header Right Controls Container
+        controls_box = ctk.CTkFrame(header_frame, fg_color="transparent")
+        controls_box.grid(row=0, column=1, sticky="e", padx=16, pady=8)
+
+        # 1. Backend indicator badge
         if not self.settings.is_loopback:
             backend_str = f"REMOTE BACKEND: {self.settings.backend} ({self.settings.local_endpoint})"
             badge_fg = "#3d2a00"
@@ -281,7 +305,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             badge_text = COLOR_TEXT_MUTED
 
         self._backend_badge = ctk.CTkLabel(
-            header_frame,
+            controls_box,
             text=backend_str,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=badge_fg,
@@ -290,7 +314,52 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             padx=10,
             pady=4,
         )
-        self._backend_badge.grid(row=0, column=1, sticky="e", padx=16, pady=8)
+        self._backend_badge.pack(side="left", padx=(0, 8))
+
+        # 2. Server Status Pill
+        self._server_status_pill = ctk.CTkLabel(
+            controls_box,
+            text="● OFFLINE",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            text_color=COLOR_TEXT_MUTED,
+            corner_radius=6,
+            padx=10,
+            pady=4,
+        )
+        self._server_status_pill.pack(side="left", padx=(0, 8))
+
+        # 3. Server Action Button (Start / Stop)
+        self._btn_server_action = ctk.CTkButton(
+            controls_box,
+            text="Start Server",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            width=90,
+            height=28,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            command=self._on_server_action_clicked,
+        )
+        self._btn_server_action.pack(side="left", padx=(0, 8))
+
+        # 4. Preferences / Settings Button
+        self._btn_settings = ctk.CTkButton(
+            controls_box,
+            text="⚙ Preferences",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            width=105,
+            height=28,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            command=self._open_settings_dialog,
+        )
+        self._btn_settings.pack(side="left", padx=(0, 0))
 
     def _build_body(self) -> None:
         """Build the 2-column main body area."""
@@ -1815,6 +1884,222 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         else:
             self._update_action_buttons()
 
+    # ==========================================================================
+    # Server Lifecycle & Preferences Management
+    # ==========================================================================
+
+    def _safe_after(self, ms: int, func: Any, *args: Any) -> None:
+        """Safely schedule a callback on Tk main loop if window is not closing."""
+        if not self._is_shutting_down and not self._shutdown_event.is_set():
+            try:
+                self.after(ms, func, *args)
+            except Exception:
+                pass
+
+    def _start_server_poller(self) -> None:
+        """Start background daemon thread periodically querying server health."""
+        try:
+            self._apply_server_status_update(self.server_manager.get_status_info())
+        except Exception:
+            pass
+
+        def _poller_worker() -> None:
+            while not self._shutdown_event.is_set():
+                try:
+                    info = self.server_manager.poll_status()
+                    self._safe_after(0, self._apply_server_status_update, info)
+                except Exception as exc:
+                    logger.debug("Server status poll error: %s", exc)
+
+                for _ in range(20):
+                    if self._shutdown_event.is_set():
+                        break
+                    time.sleep(0.1)
+
+        thread = threading.Thread(target=_poller_worker, name="ServerPollerThread", daemon=True)
+        thread.start()
+        self._server_poller_thread = thread
+
+    def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
+        """Update header status pill and action button from ServerStatusInfo."""
+        if self._is_shutting_down:
+            return
+
+        status = info.status
+        ownership = info.ownership
+
+        if status == ServerStatus.READY:
+            ownership_lbl = " (Managed)" if ownership == ServerOwnership.MANAGED else " (Ext)"
+            self._server_status_pill.configure(
+                text=f"● READY{ownership_lbl}",
+                fg_color="#0f3322",
+                text_color="#34d399",
+            )
+            if ownership == ServerOwnership.MANAGED:
+                self._btn_server_action.configure(
+                    text="Stop Server",
+                    state="normal",
+                    fg_color="#3d1419",
+                    hover_color="#541b22",
+                    text_color="#fb7185",
+                    border_color="#732531",
+                )
+            else:
+                self._btn_server_action.configure(
+                    text="External",
+                    state="disabled",
+                    fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                    text_color=COLOR_TEXT_MUTED,
+                    border_color=COLOR_SURFACE_BORDER,
+                )
+
+        elif status == ServerStatus.STARTING:
+            self._server_status_pill.configure(
+                text="● STARTING",
+                fg_color="#3d2a00",
+                text_color="#fbbf24",
+            )
+            self._btn_server_action.configure(
+                text="Starting...",
+                state="disabled",
+                fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                text_color=COLOR_TEXT_MUTED,
+                border_color=COLOR_SURFACE_BORDER,
+            )
+
+        elif status == ServerStatus.ERROR:
+            self._server_status_pill.configure(
+                text="● ERROR",
+                fg_color="#3d1419",
+                text_color="#fb7185",
+            )
+            self._btn_server_action.configure(
+                text="Start Server",
+                state="normal",
+                fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                hover_color=COLOR_INTERACTIVE_HOVER,
+                text_color=COLOR_TEXT_PRIMARY,
+                border_color=COLOR_SURFACE_BORDER,
+            )
+
+        else:  # OFFLINE
+            self._server_status_pill.configure(
+                text="● OFFLINE",
+                fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                text_color=COLOR_TEXT_MUTED,
+            )
+            self._btn_server_action.configure(
+                text="Start Server",
+                state="normal",
+                fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                hover_color=COLOR_INTERACTIVE_HOVER,
+                text_color=COLOR_TEXT_PRIMARY,
+                border_color=COLOR_SURFACE_BORDER,
+            )
+
+    def _on_server_action_clicked(self) -> None:
+        """Handle user clicks on the server Start/Stop action button."""
+        status = self.server_manager.status
+        ownership = self.server_manager.ownership
+
+        if status == ServerStatus.READY and ownership == ServerOwnership.MANAGED:
+            self._btn_server_action.configure(text="Stopping...", state="disabled")
+
+            def _stop_worker() -> None:
+                try:
+                    self.server_manager.stop()
+                except Exception as stop_err:
+                    logger.warning("Error stopping server: %s", stop_err)
+                    self._safe_after(0, lambda: self._update_footer(f"Server stop failed: {stop_err}"))
+                finally:
+                    info = self.server_manager.poll_status()
+                    self._safe_after(0, self._apply_server_status_update, info)
+
+            threading.Thread(target=_stop_worker, daemon=True).start()
+
+        elif status in (ServerStatus.OFFLINE, ServerStatus.ERROR):
+            self._btn_server_action.configure(text="Starting...", state="disabled")
+            self._server_status_pill.configure(
+                text="● STARTING",
+                fg_color="#3d2a00",
+                text_color="#fbbf24",
+            )
+
+            def _start_worker() -> None:
+                try:
+                    self.server_manager.start()
+                except Exception as start_err:
+                    logger.warning("Error starting server: %s", start_err)
+                    self._safe_after(0, lambda: self._update_footer(f"Server start failed: {start_err}"))
+                finally:
+                    info = self.server_manager.poll_status()
+                    self._safe_after(0, self._apply_server_status_update, info)
+
+            threading.Thread(target=_start_worker, daemon=True).start()
+
+    def _open_settings_dialog(self) -> None:
+        """Open the modal Preferences and Serving Configuration dialog."""
+        if self._settings_window is not None:
+            try:
+                if self._settings_window.winfo_exists():
+                    self._settings_window.focus()
+                    return
+            except Exception:
+                pass
+
+        win = SettingsWindow(
+            self,
+            settings=self.settings,
+            server_manager=self.server_manager,
+            on_save_callback=self._on_settings_saved,
+        )
+        self._settings_window = win
+
+    def _on_settings_saved(self, new_settings: Settings) -> None:
+        """Callback invoked when preferences are updated and saved in SettingsWindow."""
+        self.settings = new_settings
+        self.server_manager.settings = new_settings
+
+        # Update engine settings and vision client parameters
+        if hasattr(self.engine, "settings"):
+            self.engine.settings = new_settings
+        if hasattr(self.engine, "client") and self.engine.client is not None:
+            try:
+                self.engine.client.base_url = new_settings.local_endpoint
+                self.engine.client.timeout = new_settings.timeout
+                self.engine.client.max_retries = new_settings.max_retries
+            except Exception as client_err:
+                logger.warning("Error updating engine client parameters: %s", client_err)
+
+        # Update header backend badge
+        if not self.settings.is_loopback:
+            backend_str = f"REMOTE BACKEND: {self.settings.backend} ({self.settings.local_endpoint})"
+            badge_fg = "#3d2a00"
+            badge_text = COLOR_STATUS_PARTIAL
+        else:
+            backend_str = f"Backend: {self.settings.backend} ({self.settings.local_endpoint})"
+            badge_fg = COLOR_INTERACTIVE_NEUTRAL
+            badge_text = COLOR_TEXT_MUTED
+
+        self._backend_badge.configure(
+            text=backend_str,
+            fg_color=badge_fg,
+            text_color=badge_text,
+        )
+
+        self._update_footer("Preferences saved.")
+
+        # Immediate status poll to reflect any endpoint or server changes
+        def _poll_now():
+            info = self.server_manager.poll_status()
+            self._safe_after(0, self._apply_server_status_update, info)
+
+        threading.Thread(target=_poll_now, daemon=True).start()
+
+    def show_restart_required_banner(self) -> None:
+        """Display notice that server configuration changed and requires restart."""
+        self._update_footer("⚠ Server settings changed. Stop and Start the server to apply changes.")
+
     def _on_closing(self) -> None:
         """Cleanly terminate background worker, network sessions, and destroy window."""
         if self._is_shutting_down:
@@ -1829,7 +2114,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 pass
             self._poll_id = None
 
-        # 2. Signal worker thread to stop
+        # 2. Signal worker thread and server poller to stop
         self._shutdown_event.set()
 
         # 3. Drain unstarted tasks from queue and enqueue termination sentinel
@@ -1845,11 +2130,27 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except (queue.Full, ValueError):
             pass
 
-        # 4. Join to allow worker to finish and exit cleanly
+        # 4. Join worker thread to exit cleanly
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.0)
 
-        # 5. Explicitly close VisionClient / network sessions
+        # 5. Join server poller thread
+        if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:
+            if self._server_poller_thread.is_alive():
+                self._server_poller_thread.join(timeout=1.0)
+
+        # 6. Stop managed server and close server manager
+        try:
+            if hasattr(self, "server_manager") and self.server_manager is not None:
+                if getattr(self.server_manager, "is_managed", False):
+                    logger.info("Stopping managed server process on application exit...")
+                    self.server_manager.stop()
+                if hasattr(self.server_manager, "close"):
+                    self.server_manager.close()
+        except Exception as sm_exc:
+            sys.stderr.write(f"Warning: error shutting down server manager: {sm_exc}\n")
+
+        # 7. Explicitly close VisionClient / network sessions
         try:
             if hasattr(self.engine, "close"):
                 self.engine.close()
@@ -1858,7 +2159,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except Exception as close_exc:
             sys.stderr.write(f"Warning: error closing engine client: {close_exc}\n")
 
-        # 6. Flush pending idle tasks and destroy window
+        # 8. Destroy modal settings window if open
+        if hasattr(self, "_settings_window") and self._settings_window is not None:
+            try:
+                self._settings_window.destroy()
+            except Exception:
+                pass
+
+        # 9. Flush pending idle tasks and destroy window
         try:
             self.update_idletasks()
         except Exception:

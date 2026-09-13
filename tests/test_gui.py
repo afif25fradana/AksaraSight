@@ -467,6 +467,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
              patch("gui.app.save_artifacts", return_value=[export_target / "doc.md"]) as mock_save_all:
             app._on_export_all()
+            app.wait_for_export()
             assert mock_save_all.call_count == 2
             mock_save_all.assert_has_calls([
                 call(res1, config=JobConfig(output_format=OutputFormat.BOTH), output_dir=export_target, base_name="doc1"),
@@ -568,6 +569,7 @@ def test_export_all_disambiguates_filename_collisions_end_to_end(tmp_path):
         # Execute Export All with real save_artifacts
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)):
             app._on_export_all()
+            app.wait_for_export()
 
         # Verify all 3 documents were preserved with unique non-colliding filenames
         file1_md = export_target / "invoice.md"
@@ -876,6 +878,7 @@ def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
 
         # Enqueue the directory
         app.enqueue_file(drop_folder)
+        app.wait_for_ingest()
 
         # The folder itself must NOT be queued
         assert str(drop_folder.resolve()) not in app._queue_items
@@ -892,6 +895,7 @@ def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
         empty_folder = tmp_path / "empty_folder"
         empty_folder.mkdir()
         app.enqueue_file(empty_folder)
+        app.wait_for_ingest()
         assert "No supported documents in empty_folder" in app._footer_status.cget("text")
         assert len(app._queue_items) == 2
     finally:
@@ -1934,6 +1938,228 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
         app.select_tab("JSON Tree")
         assert "Content from Item B" in app._tb_json.get("1.0", "end")
         assert "Content from Item A" not in app._tb_json.get("1.0", "end")
+    finally:
+        app._on_closing()
+
+
+def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
+    """Verify adaptive polling backoff for queue poller, server poller, and status widget caching (P5)."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # 1. Queue Poller Backoff
+        # Drain result queue
+        while not app._result_queue.empty():
+            app._result_queue.get_nowait()
+
+        scheduled_intervals = []
+        orig_after = app.after
+
+        def mock_after(ms, func, *args):
+            if func == app._process_result_queue:
+                scheduled_intervals.append(ms)
+                return "mock_timer_id"
+            return orig_after(ms, func, *args)
+
+        monkeypatch.setattr(app, "after", mock_after)
+
+        # Case A: Idle (empty task queue, not processing) -> 250ms
+        scheduled_intervals.clear()
+        app._process_result_queue()
+        assert scheduled_intervals[-1] == 250
+
+        # Case B: Pending items in task queue -> 50ms
+        app._task_queue.put(Path("test.pdf"))
+        scheduled_intervals.clear()
+        app._process_result_queue()
+        assert scheduled_intervals[-1] == 50
+
+        # Drain task queue
+        app._task_queue.get_nowait()
+
+        # Case C: Worker actively processing (cancel event set) -> 50ms
+        app._current_cancel_event = threading.Event()
+        scheduled_intervals.clear()
+        app._process_result_queue()
+        assert scheduled_intervals[-1] == 50
+        app._current_cancel_event = None
+
+        # 2. Server status update caching (no redundant widget reconfiguration)
+        from core.server_manager import ServerStatusInfo, ServerStatus, ServerOwnership
+        pill_config_calls = []
+        orig_pill_config = app._server_status_pill.configure
+
+        def mock_pill_config(**kwargs):
+            pill_config_calls.append(kwargs)
+            return orig_pill_config(**kwargs)
+
+        monkeypatch.setattr(app._server_status_pill, "configure", mock_pill_config)
+
+        # First call: applies and configures widget
+        pill_config_calls.clear()
+        info1 = ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.MANAGED, message="Running")
+        app._apply_server_status_update(info1)
+        assert len(pill_config_calls) == 1
+
+        # Second call with identical status & ownership: skips reconfiguration
+        pill_config_calls.clear()
+        app._apply_server_status_update(info1)
+        assert len(pill_config_calls) == 0
+
+        # Third call with changed status: applies reconfiguration
+        info2 = ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.MANAGED, message="Offline")
+        app._apply_server_status_update(info2)
+        assert len(pill_config_calls) == 1
+    finally:
+        app._on_closing()
+
+
+def test_batch3_batch_folder_drop_and_validation(tmp_path: Path) -> None:
+    """Verify background directory scanning, chunked row insertion, and per-file validation (P6)."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        drop_dir = tmp_path / "batch_drop"
+        drop_dir.mkdir()
+
+        # Create 30 valid PDFs and 5 unsupported files
+        valid_files = []
+        for i in range(30):
+            p = drop_dir / f"doc_{i:02d}.pdf"
+            p.write_bytes(f"%PDF-1.4 dummy {i}".encode("utf-8"))
+            valid_files.append(p)
+
+        for i in range(5):
+            p = drop_dir / f"ignore_{i}.txt"
+            p.write_bytes(b"some text")
+
+        # Enqueue directory
+        thread = app.enqueue_file(drop_dir)
+        assert thread is not None
+        app.wait_for_ingest(timeout=5.0)
+
+        # All 30 valid files must be in queue
+        assert len(app._queue_items) == 30
+        for p in valid_files:
+            assert str(p.resolve()) in app._queue_items
+
+        # Unsupported files must not be in queue
+        assert str((drop_dir / "ignore_0.txt").resolve()) not in app._queue_items
+
+        # Verify UI header and footer were updated
+        assert app._queue_title.cget("text") == "Queue (30)"
+        assert "30" in app._lbl_total_val.cget("text")
+        assert app._total_count == 30
+
+        # Re-dropping same folder must not create duplicates
+        app.enqueue_file(drop_dir)
+        app.wait_for_ingest(timeout=5.0)
+        assert len(app._queue_items) == 30
+    finally:
+        app._on_closing()
+
+
+def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
+    """Verify soft cleanup prompt appears when finished queue items exceed 100 and clears properly (P7)."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # Initially empty
+        assert app._queue_cleanup_hint.winfo_manager() == ""
+
+        # Populate with 101 finished items
+        for i in range(101):
+            p = tmp_path / f"finished_{i}.pdf"
+            p.write_bytes(b"%PDF dummy")
+            item = QueueItem(
+                item_id=str(p.resolve()),
+                file_path=p,
+                status=QueueItemStatus.SUCCESS,
+                result=OCRResult(file_path=str(p.resolve()), status=JobStatus.SUCCESS),
+            )
+            app._queue_items[item.item_id] = item
+
+        app._update_queue_header()
+
+        # Verify cleanup prompt is now displayed
+        assert app._queue_cleanup_hint.winfo_manager() == "grid"
+        assert "101 finished items" in app._queue_cleanup_hint.cget("text")
+        assert "Clear Finished" in app._queue_cleanup_hint.cget("text")
+
+        # Clear finished items
+        app._on_clear_finished()
+
+        # Verify queue is emptied and hint is hidden
+        assert len(app._queue_items) == 0
+        assert app._queue_cleanup_hint.winfo_manager() == ""
+    finally:
+        app._on_closing()
+
+
+def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> None:
+    """Verify Export All runs on background daemon thread and prevents concurrent duplicate exports (P8)."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        # Add 2 completed items
+        p1 = tmp_path / "item1.pdf"
+        p1.write_bytes(b"%PDF dummy 1")
+        res1 = OCRResult(file_path=str(p1.resolve()), status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Item 1")])
+
+        p2 = tmp_path / "item2.pdf"
+        p2.write_bytes(b"%PDF dummy 2")
+        res2 = OCRResult(file_path=str(p2.resolve()), status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Item 2")])
+
+        app._queue_items[str(p1.resolve())] = QueueItem(item_id=str(p1.resolve()), file_path=p1, status=QueueItemStatus.SUCCESS, result=res1)
+        app._queue_items[str(p2.resolve())] = QueueItem(item_id=str(p2.resolve()), file_path=p2, status=QueueItemStatus.SUCCESS, result=res2)
+        app._update_action_buttons()
+
+        export_target = tmp_path / "export_out"
+        export_target.mkdir()
+
+        export_start_event = threading.Event()
+        export_finish_event = threading.Event()
+
+        def slow_save_artifacts(result, **kwargs):
+            export_start_event.set()
+            export_finish_event.wait(timeout=2.0)
+            return [export_target / f"{Path(result.file_path).stem}.md"]
+
+        with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
+             patch("gui.app.save_artifacts", side_effect=slow_save_artifacts):
+
+            thread1 = app._on_export_all()
+            assert thread1 is not None
+            assert thread1.is_alive()
+            assert thread1.daemon is True
+
+            # Wait until export worker enters save loop
+            assert export_start_event.wait(timeout=1.0) is True
+
+            # Verify exporting lock and UI state
+            assert app._is_exporting is True
+            assert app._btn_export_all.cget("text") == "Exporting..."
+            assert app._btn_export_all.cget("state") == "disabled"
+
+            # Attempt a concurrent second Export All call -> must be rejected
+            thread2 = app._on_export_all()
+            assert thread2 is None
+
+            # Let export finish
+            export_finish_event.set()
+            app.wait_for_export(timeout=3.0)
+
+        # After export completion
+        assert app._is_exporting is False
+        assert "Exported 2 documents" in app._footer_status.cget("text")
     finally:
         app._on_closing()
 

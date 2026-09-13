@@ -45,7 +45,7 @@ class ServerStatusInfo:
     status: ServerStatus
     ownership: ServerOwnership
     message: str
-    endpoint: str
+    endpoint: str = "http://127.0.0.1:8080/v1"
     recent_logs: List[str] = field(default_factory=list)
 
 
@@ -426,3 +426,9 @@ class ServerManager:
         self.stop()
         if self._owns_session and self._session is not None:
             self._session.close()
+
+    # Friendly method aliases
+    start_server = start
+    stop_server = stop
+    close = shutdown
+

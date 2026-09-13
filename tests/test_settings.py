@@ -328,4 +328,29 @@ def test_save_to_env_preserves_comments_and_unrelated_vars(tmp_path):
     assert "OCR_DPI=120" in result_content
 
 
+@pytest.mark.parametrize("bad_port_url", [
+    "http://localhost:0/v1",
+    "http://localhost:65536/v1",
+    "http://localhost:99999/v1",
+    "http://localhost:-1/v1",
+])
+def test_endpoint_port_validation(bad_port_url):
+    """Verify endpoints with invalid port numbers raise ValueError."""
+    with pytest.raises(ValueError, match="Invalid LOCAL_ENDPOINT port"):
+        Settings(local_endpoint=bad_port_url)
+
+
+def test_settings_newline_sanitization():
+    """Verify newlines are stripped from endpoint, path, and model_repo inputs."""
+    s = Settings(
+        local_endpoint="http://localhost:8080/v1\r\n",
+        llama_server_path="C:\\tools\\llama-server.exe\n",
+        model_repo="ggml-org/GLM-OCR-GGUF\r\n",
+    )
+    assert s.local_endpoint == "http://localhost:8080/v1"
+    assert s.llama_server_path == "C:\\tools\\llama-server.exe"
+    assert s.model_repo == "ggml-org/GLM-OCR-GGUF"
+
+
+
 

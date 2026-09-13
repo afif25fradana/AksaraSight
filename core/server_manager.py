@@ -4,6 +4,7 @@ Provides process supervision, health status probing, and diagnostic log streamin
 for local serving engines (such as llama-server.exe) without GUI dependencies.
 """
 
+import atexit
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -162,6 +163,7 @@ class ServerManager:
         self._log_buffer: deque[str] = deque(maxlen=200)
         self._reader_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._atexit_hook = atexit.register(self.shutdown)
 
     @property
     def status(self) -> ServerStatus:
@@ -328,10 +330,13 @@ class ServerManager:
             parsed = urlsplit(active_ep)
             port = parsed.port or 8080
 
+            # Determine model flag: -m for local GGUF file, -hf for Hugging Face repo
+            model_flag = "-m" if (Path(repo).is_file() or repo.lower().endswith(".gguf")) else "-hf"
+
             # Verified optimal hardware arguments
             cmd = [
                 resolved_path,
-                "-hf", repo,
+                model_flag, repo,
                 "--port", str(port),
                 "-ngl", "99",
                 "-c", "8192",

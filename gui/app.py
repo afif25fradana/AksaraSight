@@ -1723,8 +1723,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                         )
                     )
                 except Exception as exc:
-                    sys.stderr.write(f"Unexpected error processing {file_path_str}: {exc}\n")
-                    traceback.print_exc(file=sys.stderr)
+                    if not self._shutdown_event.is_set():
+                        sys.stderr.write(f"Unexpected error processing {file_path_str}: {exc}\n")
+                        traceback.print_exc(file=sys.stderr)
                     self._result_queue.put(
                         WorkerEvent(
                             event_type=WorkerEventType.FAILED,
@@ -1959,13 +1960,23 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 fg_color="#3d2a00",
                 text_color="#fbbf24",
             )
-            self._btn_server_action.configure(
-                text="Starting...",
-                state="disabled",
-                fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                text_color=COLOR_TEXT_MUTED,
-                border_color=COLOR_SURFACE_BORDER,
-            )
+            if ownership == ServerOwnership.MANAGED:
+                self._btn_server_action.configure(
+                    text="Cancel Launch",
+                    state="normal",
+                    fg_color="#3d1419",
+                    hover_color="#541b22",
+                    text_color="#fb7185",
+                    border_color="#732531",
+                )
+            else:
+                self._btn_server_action.configure(
+                    text="Starting...",
+                    state="disabled",
+                    fg_color=COLOR_INTERACTIVE_NEUTRAL,
+                    text_color=COLOR_TEXT_MUTED,
+                    border_color=COLOR_SURFACE_BORDER,
+                )
 
         elif status == ServerStatus.ERROR:
             self._server_status_pill.configure(
@@ -2002,7 +2013,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         status = self.server_manager.status
         ownership = self.server_manager.ownership
 
-        if status == ServerStatus.READY and ownership == ServerOwnership.MANAGED:
+        if (status in (ServerStatus.READY, ServerStatus.STARTING)) and ownership == ServerOwnership.MANAGED:
             self._btn_server_action.configure(text="Stopping...", state="disabled")
 
             def _stop_worker() -> None:
@@ -2015,7 +2026,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
 
-            threading.Thread(target=_stop_worker, daemon=True).start()
+            stop_thread = threading.Thread(target=_stop_worker, name="ServerStopWorker", daemon=True)
+            self._server_stop_thread = stop_thread
+            stop_thread.start()
 
         elif status in (ServerStatus.OFFLINE, ServerStatus.ERROR):
             self._btn_server_action.configure(text="Starting...", state="disabled")
@@ -2141,6 +2154,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # 6. Stop managed server and close server manager
         try:
+            if hasattr(self, "_server_stop_thread") and self._server_stop_thread is not None:
+                if self._server_stop_thread.is_alive():
+                    self._server_stop_thread.join(timeout=1.0)
             if hasattr(self, "server_manager") and self.server_manager is not None:
                 if getattr(self.server_manager, "is_managed", False):
                     logger.info("Stopping managed server process on application exit...")
@@ -2181,7 +2197,10 @@ def main() -> None:
         print("Usage: python -m gui.app")
         return
     app = OCRApp()
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        app._on_closing()
 
 
 if __name__ == "__main__":

@@ -1565,6 +1565,77 @@ def test_settings_dialog_opening_and_runtime_sync():
         app._on_closing()
 
 
+def test_queue_item_badges_use_dots_never_brackets(tmp_path):
+    """Regression test asserting queue items use colored dots (●) and NEVER bracket badges ([✓], [>], [✗], [ ])."""
+    p_queued = tmp_path / "queued_doc.pdf"
+    p_proc = tmp_path / "processing_doc.pdf"
+    p_success = tmp_path / "success_doc.pdf"
+    p_failed = tmp_path / "failed_doc.pdf"
+    p_cancelled = tmp_path / "cancelled_doc.pdf"
+
+    for p in (p_queued, p_proc, p_success, p_failed, p_cancelled):
+        p.write_bytes(b"dummy content")
+
+    mock_engine = MagicMock()
+    app = OCRApp(settings=Settings(), engine=mock_engine)
+    app.withdraw()
+
+    # Prevent background thread execution during deterministic event testing
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    try:
+        app.enqueue_file(p_queued)
+        app.enqueue_file(p_proc)
+        app.enqueue_file(p_success)
+        app.enqueue_file(p_failed)
+        app.enqueue_file(p_cancelled)
+
+        id_queued = str(p_queued.resolve())
+        id_proc = str(p_proc.resolve())
+        id_success = str(p_success.resolve())
+        id_failed = str(p_failed.resolve())
+        id_cancelled = str(p_cancelled.resolve())
+
+        # Transition items to their distinct statuses
+        app._handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=id_proc))
+        app._handle_worker_event(
+            WorkerEvent(
+                WorkerEventType.COMPLETED,
+                file_path=id_success,
+                result=OCRResult(
+                    file_path=id_success,
+                    status=JobStatus.SUCCESS,
+                    pages=[PageResult(page_num=1, markdown="text", latency=0.1)],
+                ),
+            )
+        )
+        app._handle_worker_event(WorkerEvent(WorkerEventType.FAILED, file_path=id_failed, error="Mock decode failure"))
+        app._handle_worker_event(WorkerEvent(WorkerEventType.CANCELLED, file_path=id_cancelled, error="User cancelled"))
+
+        # Verify all lifecycle states
+        bracket_literals = ("[✓]", "[>]", "[✗]", "[ ]", "[-]")
+        for item_id, item in app._queue_items.items():
+            badge_text = item.badge_label.cget("text")
+            detail_text = item.detail_label.cget("text")
+
+            # 1. Badge must strictly be the solid dot indicator (●)
+            assert badge_text == "●", f"Item {item_id} badge text was {badge_text!r}, expected '●'"
+
+            # 2. No bracket badge literals anywhere in row labels
+            assert not any(b in badge_text for b in bracket_literals)
+            assert not any(b in detail_text for b in bracket_literals)
+            assert "[" not in badge_text and "]" not in badge_text
+
+            # 3. Check all child labels inside the row widget
+            for child in item.row_frame.winfo_children():
+                if isinstance(child, ctk.CTkLabel):
+                    lbl_text = child.cget("text")
+                    assert not any(b in lbl_text for b in bracket_literals)
+    finally:
+        app._on_closing()
+
+
+
 
 
 

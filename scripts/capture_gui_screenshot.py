@@ -167,26 +167,26 @@ def main() -> None:
         item_success.status = QueueItemStatus.SUCCESS
         item_success.duration = 1.4
         item_success.result = res_success
-        item_success.badge_label.configure(text="[✓]", text_color=COLOR_STATUS_SUCCESS)
+        item_success.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
         item_success.detail_label.configure(text=app._format_queue_item_meta(item_success))
 
         # 2. Processing item
         item_proc = app._queue_items[id_proc]
         item_proc.status = QueueItemStatus.PROCESSING
-        item_proc.badge_label.configure(text="[>]", text_color=COLOR_STATUS_PROCESSING)
+        item_proc.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
         item_proc.detail_label.configure(text=app._format_queue_item_meta(item_proc))
 
         # 3. Failed item
         item_failed = app._queue_items[id_failed]
         item_failed.status = QueueItemStatus.FAILED
         item_failed.error = "Corrupted xref table in document header"
-        item_failed.badge_label.configure(text="[✗]", text_color=COLOR_STATUS_FAILED)
+        item_failed.badge_label.configure(text="●", text_color=COLOR_STATUS_FAILED)
         item_failed.detail_label.configure(text=app._format_queue_item_meta(item_failed))
 
         # 4. Queued item
         item_queued = app._queue_items[id_queued]
         item_queued.status = QueueItemStatus.QUEUED
-        item_queued.badge_label.configure(text="[ ]", text_color=COLOR_STATUS_QUEUED)
+        item_queued.badge_label.configure(text="●", text_color=COLOR_STATUS_QUEUED)
         item_queued.detail_label.configure(text=app._format_queue_item_meta(item_queued))
 
         # Update queue counter header & footer

@@ -66,6 +66,7 @@ class ExtractedPage:
     """
 
     page_num: int
+    total_pages: int = 1
     image_b64: Optional[str] = None
     width: int = 0
     height: int = 0
@@ -231,6 +232,7 @@ def _process_image(
                         b64 = image_to_base64_url(rgb_frame, img_format=image_format, quality=jpeg_quality)
                         yield ExtractedPage(
                             page_num=page_num,
+                            total_pages=n_frames,
                             image_b64=b64,
                             width=rgb_frame.width,
                             height=rgb_frame.height,
@@ -238,6 +240,7 @@ def _process_image(
                     except Exception as frame_err:
                         yield ExtractedPage(
                             page_num=page_num,
+                            total_pages=n_frames,
                             error=f"Failed to rasterize frame {page_num}: {frame_err}",
                         )
             else:
@@ -246,6 +249,7 @@ def _process_image(
                 b64 = image_to_base64_url(rgb_img, img_format=image_format, quality=jpeg_quality)
                 yield ExtractedPage(
                     page_num=1,
+                    total_pages=1,
                     image_b64=b64,
                     width=rgb_img.width,
                     height=rgb_img.height,
@@ -360,6 +364,7 @@ def _process_pdf(
             if render_error:
                 yield ExtractedPage(
                     page_num=page_num,
+                    total_pages=total_pages,
                     error=render_error,
                 )
                 continue
@@ -370,6 +375,7 @@ def _process_pdf(
             b64 = image_to_base64_url(pil_img, img_format=image_format, quality=jpeg_quality)
             yield ExtractedPage(
                 page_num=page_num,
+                total_pages=total_pages,
                 image_b64=b64,
                 width=pil_img.width,
                 height=pil_img.height,

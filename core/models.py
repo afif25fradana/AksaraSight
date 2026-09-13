@@ -45,6 +45,7 @@ class JobConfig:
     prompt_mode: str = "text"
     custom_prompt: Optional[str] = None
     max_pages: Optional[int] = None
+    retain_images: bool = False
 
     def __post_init__(self) -> None:
         """Validate configuration parameters."""
@@ -91,6 +92,7 @@ class PageResult:
         latency: Time in seconds taken to process this page.
         status: Page processing outcome (SUCCESS or FAILED).
         error: Descriptive error message if processing failed.
+        image_b64: Optional base64 Data URL string of the rasterized original page image.
     """
 
     page_num: int
@@ -99,6 +101,7 @@ class PageResult:
     latency: float = 0.0
     status: JobStatus = JobStatus.SUCCESS
     error: Optional[str] = None
+    image_b64: Optional[str] = None
 
 
 @dataclass

@@ -92,12 +92,6 @@ def test_preflight_zero_byte_path(tmp_path):
         check_preflight(empty_file)
 
 
-def test_preflight_zero_byte_buffer():
-    """Verify preflight rejects 0-byte in-memory buffer."""
-    with pytest.raises(FilePreflightError, match="Input byte buffer is empty"):
-        check_preflight(b"")
-
-
 def test_preflight_invalid_input_type():
     """Verify preflight rejects unsupported types."""
     with pytest.raises(TypeError, match="Unsupported input type"):
@@ -109,11 +103,6 @@ def test_preflight_valid_path(tmp_path):
     valid_file = tmp_path / "valid.txt"
     valid_file.write_text("content", encoding="utf-8")
     check_preflight(valid_file)  # No exception raised
-
-
-def test_preflight_valid_bytes():
-    """Verify preflight passes on non-empty byte buffer."""
-    check_preflight(b"non-empty bytes")  # No exception raised
 
 
 # ==============================================================================
@@ -135,10 +124,6 @@ def test_is_pdf_detection(tmp_path):
     img_path = tmp_path / "photo.png"
     img_path.write_bytes(b"\x89PNG\r\n\x1a\n")
     assert is_pdf(img_path) is False
-
-    # Bytes input
-    assert is_pdf(b"%PDF-1.4 content") is True
-    assert is_pdf(b"\xff\xd8\xff\xe0") is False
 
 
 def test_image_to_base64_url():
@@ -170,21 +155,6 @@ def test_ingest_valid_png(tmp_path):
     assert pages[0].width == 100
     assert pages[0].height == 80
     assert pages[0].image_b64.startswith("data:image/jpeg;base64,")
-
-
-def test_ingest_valid_jpeg_from_bytes():
-    """Verify ingestion of JPEG from in-memory bytes."""
-    img = Image.new("RGB", (60, 40), color="yellow")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    raw_bytes = buf.getvalue()
-
-    pages = list(ingest(raw_bytes))
-    assert len(pages) == 1
-    assert pages[0].page_num == 1
-    assert pages[0].is_success is True
-    assert pages[0].width == 60
-    assert pages[0].height == 40
 
 
 def test_ingest_truncated_jpeg(tmp_path):

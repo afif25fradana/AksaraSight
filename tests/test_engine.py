@@ -132,23 +132,6 @@ def test_engine_process_document_success(sample_pdf_path: Path, mock_client: Mag
     assert result.total_duration > 0.0
 
 
-def test_engine_process_in_memory_image(sample_image_bytes: bytes, mock_client: MagicMock) -> None:
-    engine = OCREngine(client=mock_client)
-    config = JobConfig(custom_prompt="Transcribe receipt:")
-
-    result = engine.process_document(
-        sample_image_bytes,
-        config=config,
-        file_name="receipt.png",
-    )
-
-    assert result.status == JobStatus.SUCCESS
-    assert result.file_path == "receipt.png"
-    assert len(result.pages) == 1
-    assert result.pages[0].page_num == 1
-    mock_client.complete.assert_called_once()
-    _, kwargs = mock_client.complete.call_args
-    assert kwargs["prompt"] == "Transcribe receipt:"
 
 
 # ==============================================================================
@@ -328,22 +311,6 @@ def test_engine_progress_callback_invoked(sample_pdf_path: Path, mock_client: Ma
         (3, 3, 3, JobStatus.SUCCESS),
     ]
 
-
-def test_engine_retain_images_flag(sample_pdf_path: Path, mock_client: MagicMock) -> None:
-    """Verify retain_images attaches image_b64 to PageResult when True, and leaves None when False."""
-    engine = OCREngine(client=mock_client)
-
-    # Default (retain_images=False)
-    res_default = engine.process_document(sample_pdf_path)
-    assert res_default.status == JobStatus.SUCCESS
-    assert all(p.image_b64 is None for p in res_default.pages)
-
-    # retain_images=True
-    cfg_retained = JobConfig(retain_images=True)
-    res_retained = engine.process_document(sample_pdf_path, config=cfg_retained)
-    assert res_retained.status == JobStatus.SUCCESS
-    assert all(p.image_b64 is not None for p in res_retained.pages)
-    assert all(p.image_b64.startswith("data:image/") for p in res_retained.pages)
 
 
 def test_engine_progress_callback_exception_does_not_crash_pipeline(

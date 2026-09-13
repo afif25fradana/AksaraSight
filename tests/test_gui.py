@@ -1103,23 +1103,18 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
 
 def test_image_preview_pagination(tmp_path: Path) -> None:
     """Verify Image Preview displays images and responds to < Prev / Next > pagination."""
-    import base64
-    import io
     from PIL import Image
-
-    def _make_b64(color: str) -> str:
-        img = Image.new("RGB", (60, 60), color=color)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
 
     try:
-        test_file = tmp_path / "scan_book.pdf"
-        test_file.write_bytes(b"%PDF-1.4 dummy")
+        test_file = tmp_path / "scan_book.tiff"
+        frame1 = Image.new("RGB", (60, 60), color="red")
+        frame2 = Image.new("RGB", (60, 60), color="green")
+        frame3 = Image.new("RGB", (60, 60), color="blue")
+        frame1.save(test_file, format="TIFF", save_all=True, append_images=[frame2, frame3])
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
         item = app._queue_items[item_id]
@@ -1135,9 +1130,9 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
             file_path=item_id,
             status=JobStatus.SUCCESS,
             pages=[
-                PageResult(page_num=1, markdown="# P1", image_b64=_make_b64("red")),
-                PageResult(page_num=2, markdown="# P2", image_b64=_make_b64("green")),
-                PageResult(page_num=3, markdown="# P3", image_b64=_make_b64("blue")),
+                PageResult(page_num=1, markdown="# P1"),
+                PageResult(page_num=2, markdown="# P2"),
+                PageResult(page_num=3, markdown="# P3"),
             ],
         )
         item.status = QueueItemStatus.SUCCESS
@@ -1767,8 +1762,8 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
             file_path=item_id,
             status=JobStatus.SUCCESS,
             pages=[
-                PageResult(page_num=1, markdown="Page 1 text", image_b64=None),
-                PageResult(page_num=2, markdown="Page 2 text", image_b64=None),
+                PageResult(page_num=1, markdown="Page 1 text"),
+                PageResult(page_num=2, markdown="Page 2 text"),
             ],
         )
         app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
@@ -1797,7 +1792,7 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
         png_res = OCRResult(
             file_path=png_id,
             status=JobStatus.SUCCESS,
-            pages=[PageResult(page_num=1, markdown="PNG text", image_b64=None)],
+            pages=[PageResult(page_num=1, markdown="PNG text")],
         )
         app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=png_id, result=png_res))
 

@@ -41,13 +41,12 @@ class OCREngine:
 
     def process_document(
         self,
-        source: Union[str, Path, bytes],
+        source: Union[str, Path],
         config: Optional[JobConfig] = None,
-        file_name: Optional[str] = None,
         cancel_token: Optional[threading.Event] = None,
         progress_callback: Optional[Callable[[int, int, PageResult], None]] = None,
     ) -> OCRResult:
-        """Process a single document file or byte stream through the OCR pipeline.
+        """Process a single document file through the OCR pipeline.
 
         Execution Lifecycle:
         1. Ingestion: Reads the document via core.pipeline.ingest() generator.
@@ -62,9 +61,8 @@ class OCREngine:
            of document processing (CQS compliance).
 
         Args:
-            source: Document file path (str | Path) or raw byte buffer.
+            source: Document file path (str | Path).
             config: Job configuration containing prompt mode, overrides, and target format.
-            file_name: Optional display filename when source is provided as raw bytes.
             cancel_token: Optional threading.Event instance checked between document pages.
                 NOTE ON IN-FLIGHT LATENCY: Cancellation is evaluated strictly between pages,
                 not during an in-flight VisionClient.complete() HTTP request. Because network
@@ -79,11 +77,7 @@ class OCREngine:
         """
         start_time = time.perf_counter()
         cfg = config or JobConfig()
-
-        if isinstance(source, (str, Path)):
-            file_path = str(source)
-        else:
-            file_path = file_name or "<in-memory>"
+        file_path = str(source)
 
         result = OCRResult(file_path=file_path)
         effective_dpi = cfg.dpi if cfg.dpi is not None else getattr(self.settings, "dpi", 100)
@@ -106,14 +100,13 @@ class OCREngine:
                 if cfg.max_pages is not None and page.page_num > cfg.max_pages:
                     break
 
-                # Inter-page cancellation check (Finding 3.1)
+                # Cooperative cancellation check between pages
                 if cancel_token is not None and cancel_token.is_set():
                     result.cancelled = True
                     result.error = f"Processing cancelled by user after page {len(result.pages)}"
                     break
 
                 total_pages = getattr(page, "total_pages", 1)
-                img_to_retain = page.image_b64 if cfg.retain_images else None
 
                 # Pipeline-level rasterization failure for this individual page
                 if not page.is_success:
@@ -121,7 +114,6 @@ class OCREngine:
                         page_num=page.page_num,
                         status=JobStatus.FAILED,
                         error=page.error or "Unknown rasterization failure",
-                        image_b64=img_to_retain,
                     )
                     result.pages.append(page_res)
                 else:
@@ -137,7 +129,6 @@ class OCREngine:
                             raw_json=raw_json,
                             latency=latency,
                             status=JobStatus.SUCCESS,
-                            image_b64=img_to_retain,
                         )
                         result.pages.append(page_res)
                     except ServerOfflineError as exc:
@@ -146,7 +137,6 @@ class OCREngine:
                             page_num=page.page_num,
                             status=JobStatus.FAILED,
                             error=str(exc),
-                            image_b64=img_to_retain,
                         )
                         result.pages.append(page_res)
                         result.aborted = True
@@ -166,7 +156,6 @@ class OCREngine:
                             page_num=page.page_num,
                             status=JobStatus.FAILED,
                             error=str(exc),
-                            image_b64=img_to_retain,
                         )
                         result.pages.append(page_res)
 

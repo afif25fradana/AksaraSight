@@ -292,6 +292,7 @@ def test_preview_placeholders_for_unprocessed_items(tmp_path):
         assert '"status": "PROCESSING"' in app._tb_json.get("1.0", "end")
         assert app._btn_copy.cget("state") == "disabled"
         assert app._btn_export_selected.cget("state") == "disabled"
+        assert app._btn_export_selected.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
         # 3. FAILED state
         item.status = QueueItemStatus.FAILED
@@ -434,6 +435,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
 
         app._select_queue_item(id1)
         assert app._btn_export_selected.cget("state") == "normal"
+        assert app._btn_export_selected.cget("fg_color") == COLOR_ACCENT_PRIMARY
         assert app._btn_export_all.cget("state") == "normal"
 
         export_target = tmp_path / "export_output"

@@ -1268,13 +1268,13 @@ def test_settings_window_allow_remote_confirmation_flow():
     try:
         # 1. User toggles ON but clicks CANCEL in confirmation modal -> reverts to 0
         win._sw_allow_remote.select()
-        with patch("tkinter.messagebox.askyesno", return_value=False):
+        with patch("gui.settings_window.SecurityConfirmationDialog.ask_confirmation", return_value=False):
             win._on_toggle_allow_remote()
             assert win._sw_allow_remote.get() == 0
 
         # 2. User toggles ON and clicks CONFIRM -> stays 1
         win._sw_allow_remote.select()
-        with patch("tkinter.messagebox.askyesno", return_value=True):
+        with patch("gui.settings_window.SecurityConfirmationDialog.ask_confirmation", return_value=True):
             win._on_toggle_allow_remote()
             assert win._sw_allow_remote.get() == 1
     finally:
@@ -1316,6 +1316,73 @@ def test_settings_window_successful_save(tmp_path):
         except Exception:
             pass
         parent.destroy()
+
+
+def test_settings_window_cancel_and_close_discards_changes(tmp_path: Path):
+    """Verify Cancel and window close discard unsaved form edits without touching .env or os.environ."""
+    import os
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings(
+        backend="llama-cpp",
+        local_endpoint="http://127.0.0.1:8080/v1",
+        timeout=30.0,
+        max_retries=1,
+        dpi=100,
+    )
+    mock_callback = MagicMock()
+
+    # Create dummy .env file
+    env_file = tmp_path / ".env"
+    initial.save_to_env(env_path=env_file)
+    initial_env_content = env_file.read_text(encoding="utf-8")
+    initial_os_timeout = os.environ.get("OCR_TIMEOUT")
+
+    # 1. Test _on_cancel() discard
+    win = SettingsWindow(parent, settings=initial, on_save_callback=mock_callback)
+    try:
+        # User makes edits in the form
+        win._ent_timeout.delete(0, "end")
+        win._ent_timeout.insert(0, "120.0")
+        win._slider_dpi.set(200)
+        win._ent_endpoint.delete(0, "end")
+        win._ent_endpoint.insert(0, "http://127.0.0.1:9999/v1")
+
+        # User clicks Cancel
+        win._on_cancel()
+
+        # Verify nothing touched
+        mock_callback.assert_not_called()
+        assert env_file.read_text(encoding="utf-8") == initial_env_content
+        assert os.environ.get("OCR_TIMEOUT") == initial_os_timeout
+    finally:
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    # 2. Test WM_DELETE_WINDOW (window 'X' button protocol) discard
+    win2 = SettingsWindow(parent, settings=initial, on_save_callback=mock_callback)
+    try:
+        win2._ent_timeout.delete(0, "end")
+        win2._ent_timeout.insert(0, "999.0")
+
+        # Simulate clicking the 'X' button (invokes WM_DELETE_WINDOW handler)
+        win2._on_cancel()
+
+        mock_callback.assert_not_called()
+        assert env_file.read_text(encoding="utf-8") == initial_env_content
+        assert os.environ.get("OCR_TIMEOUT") == initial_os_timeout
+    finally:
+        try:
+            win2.destroy()
+        except Exception:
+            pass
+        parent.destroy()
+
 
 
 

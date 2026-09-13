@@ -6,6 +6,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 import pytest
+import customtkinter as ctk
 
 from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS
@@ -1160,6 +1161,162 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
         assert app._btn_img_next.cget("state") == "normal"
     finally:
         app._on_closing()
+
+
+def test_settings_window_initialization_and_population():
+    """Verify SettingsWindow initializes and accurately populates from Settings."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings(
+        backend="ollama",
+        local_endpoint="http://localhost:11434/v1",
+        timeout=45.0,
+        max_retries=3,
+        allow_remote=False,
+        llama_server_path=r"C:\bin\llama-server.exe",
+        model_repo="custom/repo",
+        auto_start_server=True,
+        dpi=120,
+        max_pages=15,
+    )
+
+    win = SettingsWindow(parent, settings=initial)
+    try:
+        assert win._seg_backend.get() == "ollama"
+        assert win._ent_endpoint.get() == "http://localhost:11434/v1"
+        assert win._sw_allow_remote.get() == 0
+        assert win._ent_timeout.get() == "45.0"
+        assert win._ent_retries.get() == "3"
+        assert int(win._slider_dpi.get()) == 120
+        assert win._ent_max_pages.get() == "15"
+        assert win._ent_server_path.get() == r"C:\bin\llama-server.exe"
+        assert win._ent_model_repo.get() == "custom/repo"
+        assert win._sw_auto_start.get() == 1
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_validation_rejection_bad_timeout():
+    """Verify entering an invalid timeout surfaces a validation error and aborts save."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings()
+    mock_callback = MagicMock()
+    win = SettingsWindow(parent, settings=initial, on_save_callback=mock_callback)
+
+    try:
+        win._ent_timeout.delete(0, "end")
+        win._ent_timeout.insert(0, "-5.0")  # Invalid negative timeout
+
+        win._on_save()
+
+        # Error banner shown
+        error_text = win._lbl_error_banner.cget("text")
+        assert "Validation Error" in error_text
+        assert "TIMEOUT must be a positive number" in error_text
+
+        # Callback must NOT be invoked
+        mock_callback.assert_not_called()
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_validation_rejection_remote_endpoint():
+    """Verify non-loopback endpoint without allow_remote is rejected by __post_init__."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings()
+    mock_callback = MagicMock()
+    win = SettingsWindow(parent, settings=initial, on_save_callback=mock_callback)
+
+    try:
+        win._ent_endpoint.delete(0, "end")
+        win._ent_endpoint.insert(0, "http://192.168.1.200:8080/v1")  # Remote IP
+
+        win._on_save()
+
+        error_text = win._lbl_error_banner.cget("text")
+        assert "Validation Error" in error_text
+        assert "Security violation: Non-loopback endpoint" in error_text
+        mock_callback.assert_not_called()
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_allow_remote_confirmation_flow():
+    """Verify toggling allow_remote asks for confirmation and reverts on cancel."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings()
+    win = SettingsWindow(parent, settings=initial)
+
+    try:
+        # 1. User toggles ON but clicks CANCEL in confirmation modal -> reverts to 0
+        win._sw_allow_remote.select()
+        with patch("tkinter.messagebox.askyesno", return_value=False):
+            win._on_toggle_allow_remote()
+            assert win._sw_allow_remote.get() == 0
+
+        # 2. User toggles ON and clicks CONFIRM -> stays 1
+        win._sw_allow_remote.select()
+        with patch("tkinter.messagebox.askyesno", return_value=True):
+            win._on_toggle_allow_remote()
+            assert win._sw_allow_remote.get() == 1
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_successful_save(tmp_path):
+    """Verify valid settings save to .env and invoke the on_save_callback."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial = Settings()
+    saved_instances = []
+
+    def _on_save(s: Settings):
+        saved_instances.append(s)
+
+    win = SettingsWindow(parent, settings=initial, on_save_callback=_on_save)
+
+    try:
+        win._ent_timeout.delete(0, "end")
+        win._ent_timeout.insert(0, "90.0")
+
+        win._slider_dpi.set(150)
+
+        with patch("config.settings.Settings.save_to_env") as mock_save_env:
+            win._on_save()
+            mock_save_env.assert_called_once()
+
+        assert len(saved_instances) == 1
+        assert saved_instances[0].timeout == 90.0
+        assert saved_instances[0].dpi == 150
+    finally:
+        try:
+            win.destroy()
+        except Exception:
+            pass
+        parent.destroy()
+
 
 
 

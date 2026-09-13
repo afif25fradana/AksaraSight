@@ -22,11 +22,14 @@ from PIL import Image
 import tkinterdnd2 as tkdnd
 import tkinterdnd2.TkinterDnD as tdnd
 
+import pypdfium2 as pdfium
+
 from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS
 from core.engine import OCREngine
 from core.formatter import format_output, resolve_unique_stem, save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
+from core.pipeline import _PDFIUM_LOCK
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
 from gui.settings_window import SettingsWindow
 
@@ -73,6 +76,7 @@ class QueueItem:
     duration: float = 0.0
     result: Optional[OCRResult] = None
     error: Optional[str] = None
+    file_size_str: Optional[str] = None
     # UI references
     row_frame: Optional[ctk.CTkFrame] = None
     indicator_bar: Optional[ctk.CTkFrame] = None
@@ -526,6 +530,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             segmented_button_fg_color=COLOR_SURFACE_2,
             segmented_button_unselected_color=COLOR_SURFACE_2,
             segmented_button_unselected_hover_color=COLOR_INTERACTIVE_HOVER,
+            command=self._on_tab_changed,
         )
         self._tabview._segmented_button.configure(
             height=30,
@@ -933,8 +938,25 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         ):
             return
 
+        # Compute formatted file size once at creation time (P10)
+        try:
+            size_bytes = path.stat().st_size
+            if size_bytes < 1024:
+                file_size_str = f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                file_size_str = f"{size_bytes / 1024:.1f} KB"
+            else:
+                file_size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+        except Exception:
+            file_size_str = "0 B"
+
         # Create queue item model
-        item = QueueItem(item_id=item_id, file_path=path, status=QueueItemStatus.QUEUED)
+        item = QueueItem(
+            item_id=item_id,
+            file_path=path,
+            status=QueueItemStatus.QUEUED,
+            file_size_str=file_size_str,
+        )
         self._queue_items[item_id] = item
         self._total_count += 1
 
@@ -963,16 +985,20 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         - FAILED: Indicates failure state.
         """
         ext = item.file_path.suffix.lstrip(".").upper() or "DOC"
-        try:
-            size_bytes = item.file_path.stat().st_size
-            if size_bytes < 1024:
-                size_str = f"{size_bytes} B"
-            elif size_bytes < 1024 * 1024:
-                size_str = f"{size_bytes / 1024:.1f} KB"
-            else:
-                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
-        except Exception:
-            size_str = "0 B"
+        size_str = item.file_size_str
+        if size_str is None:
+            # Fallback/caching if QueueItem was instantiated without file_size_str
+            try:
+                size_bytes = item.file_path.stat().st_size
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes} B"
+                elif size_bytes < 1024 * 1024:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                else:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+            except Exception:
+                size_str = "0 B"
+            item.file_size_str = size_str
 
         base_meta = f"{ext} · {size_str}"
 
@@ -1106,6 +1132,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if prev_item.indicator_bar:
                 prev_item.indicator_bar.configure(fg_color="transparent")
 
+        if self._selected_item_id != item_id:
+            self._current_image_page_idx = 0
+
         self._selected_item_id = item_id
         item = self._queue_items[item_id]
 
@@ -1118,58 +1147,111 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Render preview content for this item
         self._render_preview(item)
 
-    def _render_preview(self, item: QueueItem) -> None:
-        """Populate the 4-tab preview pane based on the queue item's status and results."""
+    def _on_tab_changed(self) -> None:
+        """Render the newly active tab on-demand for the currently selected item."""
+        if self._selected_item_id and self._selected_item_id in self._queue_items:
+            self._render_preview(self._queue_items[self._selected_item_id])
+
+    def select_tab(self, tab_name: str) -> None:
+        """Select a preview tab programmatically and trigger on-demand rendering."""
+        self._tabview.set(tab_name)
+        self._on_tab_changed()
+
+    def _render_preview(self, item: QueueItem, tab_name: Optional[str] = None) -> None:
+        """Populate the active preview tab based on the queue item's status and results (P1 Lazy Tab Rendering)."""
+        target_tab = tab_name or self._tabview.get()
+
+        if target_tab == "Image Preview":
+            self._render_image_preview(item)
+            self._update_action_buttons()
+            return
+
         if item.status == QueueItemStatus.QUEUED:
-            md_text = f"[{item.file_path.name} is queued for processing... waiting for worker thread]"
-            prev_text = (
-                f"Document Queued: {item.file_path.name}\n\n"
-                "This document is waiting in the queue. Processing will begin automatically."
-            )
-            json_text = json.dumps(
-                {"status": "QUEUED", "file": item.file_path.name},
-                indent=2,
-            )
+            if target_tab == "Raw Markdown":
+                md_text = f"[{item.file_path.name} is queued for processing... waiting for worker thread]"
+                self._set_textbox_content(self._tb_markdown, md_text)
+            elif target_tab == "Text Preview":
+                prev_text = (
+                    f"Document Queued: {item.file_path.name}\n\n"
+                    "This document is waiting in the queue. Processing will begin automatically."
+                )
+                self._render_markdown_preview(prev_text)
+            elif target_tab == "JSON Tree":
+                json_text = json.dumps(
+                    {"status": "QUEUED", "file": item.file_path.name},
+                    indent=2,
+                )
+                self._set_textbox_content(self._tb_json, json_text)
+
         elif item.status == QueueItemStatus.PROCESSING:
-            md_text = f"[{item.file_path.name} is currently being processed by GLM-OCR vision engine...]"
-            prev_text = (
-                f"Processing Document: {item.file_path.name}\n\n"
-                "Extracting and rasterizing pages, dispatching inference requests to local backend."
-            )
-            json_text = json.dumps(
-                {"status": "PROCESSING", "file": item.file_path.name},
-                indent=2,
-            )
+            if item.result and item.result.pages:
+                if target_tab == "Raw Markdown":
+                    self._set_textbox_content(self._tb_markdown, item.result.to_markdown())
+                elif target_tab == "Text Preview":
+                    self._render_markdown_preview(item.result.to_markdown())
+                elif target_tab == "JSON Tree":
+                    self._set_textbox_content(self._tb_json, item.result.to_json())
+            else:
+                if target_tab == "Raw Markdown":
+                    md_text = f"[{item.file_path.name} is currently being processed by GLM-OCR vision engine...]"
+                    self._set_textbox_content(self._tb_markdown, md_text)
+                elif target_tab == "Text Preview":
+                    prev_text = (
+                        f"Processing Document: {item.file_path.name}\n\n"
+                        "Extracting and rasterizing pages, dispatching inference requests to local backend."
+                    )
+                    self._render_markdown_preview(prev_text)
+                elif target_tab == "JSON Tree":
+                    json_text = json.dumps(
+                        {"status": "PROCESSING", "file": item.file_path.name},
+                        indent=2,
+                    )
+                    self._set_textbox_content(self._tb_json, json_text)
+
         elif item.status == QueueItemStatus.FAILED:
             err_msg = item.error or (item.result.error if item.result else "Unknown processing failure")
-            md_text = f"Error processing {item.file_path.name}:\n\n{err_msg}"
-            prev_text = f"Processing Failed: {item.file_path.name}\n\nError:\n{err_msg}"
-            json_text = item.result.to_json() if item.result else json.dumps(
-                {"status": "FAILED", "file": item.file_path.name, "error": err_msg},
-                indent=2,
-            )
+            if target_tab == "Raw Markdown":
+                md_text = f"Error processing {item.file_path.name}:\n\n{err_msg}"
+                self._set_textbox_content(self._tb_markdown, md_text)
+            elif target_tab == "Text Preview":
+                prev_text = f"Processing Failed: {item.file_path.name}\n\nError:\n{err_msg}"
+                self._render_markdown_preview(prev_text)
+            elif target_tab == "JSON Tree":
+                json_text = item.result.to_json() if item.result else json.dumps(
+                    {"status": "FAILED", "file": item.file_path.name, "error": err_msg},
+                    indent=2,
+                )
+                self._set_textbox_content(self._tb_json, json_text)
+
         elif item.status == QueueItemStatus.CANCELLED:
             cancel_msg = item.error or (item.result.error if item.result else "Processing cancelled by user")
-            if item.result and item.result.pages:
-                md_text = f"<!-- Cancelled: {cancel_msg} -->\n\n" + item.result.to_markdown()
-                prev_text = f"Processing Cancelled: {item.file_path.name}\n({cancel_msg})\n\nPartial Output:\n" + item.result.to_markdown()
-            else:
-                md_text = f"<!-- Processing cancelled before pages completed -->\n\n{cancel_msg}"
-                prev_text = f"Processing Cancelled: {item.file_path.name}\n\n{cancel_msg}"
-            json_text = item.result.to_json() if item.result else json.dumps(
-                {"status": "CANCELLED", "file": item.file_path.name, "error": cancel_msg},
-                indent=2,
-            )
+            if target_tab == "Raw Markdown":
+                if item.result and item.result.pages:
+                    md_text = f"<!-- Cancelled: {cancel_msg} -->\n\n" + item.result.to_markdown()
+                else:
+                    md_text = f"<!-- Processing cancelled before pages completed -->\n\n{cancel_msg}"
+                self._set_textbox_content(self._tb_markdown, md_text)
+            elif target_tab == "Text Preview":
+                if item.result and item.result.pages:
+                    prev_text = f"Processing Cancelled: {item.file_path.name}\n({cancel_msg})\n\nPartial Output:\n" + item.result.to_markdown()
+                else:
+                    prev_text = f"Processing Cancelled: {item.file_path.name}\n\n{cancel_msg}"
+                self._render_markdown_preview(prev_text)
+            elif target_tab == "JSON Tree":
+                json_text = item.result.to_json() if item.result else json.dumps(
+                    {"status": "CANCELLED", "file": item.file_path.name, "error": cancel_msg},
+                    indent=2,
+                )
+                self._set_textbox_content(self._tb_json, json_text)
+
         else:  # SUCCESS / PARTIAL
             assert item.result is not None
-            md_text = item.result.to_markdown()
-            prev_text = md_text
-            json_text = item.result.to_json()
-
-        self._set_textbox_content(self._tb_markdown, md_text)
-        self._render_markdown_preview(prev_text)
-        self._set_textbox_content(self._tb_json, json_text)
-        self._render_image_preview(item)
+            if target_tab == "Raw Markdown":
+                self._set_textbox_content(self._tb_markdown, item.result.to_markdown())
+            elif target_tab == "Text Preview":
+                self._render_markdown_preview(item.result.to_markdown())
+            elif target_tab == "JSON Tree":
+                self._set_textbox_content(self._tb_json, item.result.to_json())
 
         self._update_action_buttons()
 
@@ -1276,29 +1358,127 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             for m in re.finditer(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", line):
                 tw.tag_add("italic", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
 
-    def _render_image_preview(self, item: QueueItem) -> None:
-        """Render original raster scan image for the active document page."""
-        pages_with_images = (
-            [p for p in item.result.pages if p.image_b64]
-            if item.result and item.result.pages
-            else []
-        )
+    def _load_image_page_on_demand(
+        self,
+        file_path: Path,
+        page_index: int,
+    ) -> Tuple[Optional[Image.Image], Optional[str]]:
+        """Load and rasterize a single page on-demand from disk without holding base64 strings in memory (P2).
 
-        if not pages_with_images:
+        If the source file no longer exists (moved or deleted after enqueue), returns a clean
+        descriptive error message without raising exceptions.
+        """
+        if not file_path.is_file():
+            return None, f"Source file unavailable:\n{file_path.name}\n\n(File was moved or deleted after enqueue)"
+
+        suffix = file_path.suffix.lower()
+        effective_dpi = getattr(self.settings, "dpi", 100) or 100
+        scale = effective_dpi / 72.0
+
+        if suffix == ".pdf":
+            try:
+                with _PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(str(file_path))
+                    try:
+                        n_pages = len(doc)
+                        if n_pages == 0:
+                            return None, f"PDF contains 0 pages: {file_path.name}"
+                        idx = max(0, min(page_index, n_pages - 1))
+                        page = doc[idx]
+                        try:
+                            pil_img = page.render(scale=scale).to_pil()
+                            return pil_img, None
+                        finally:
+                            page.close()
+                    finally:
+                        doc.close()
+            except pdfium.PdfiumError:
+                # Mislabeled extension fallback (e.g. JPEG renamed to .pdf)
+                try:
+                    with Image.open(file_path) as img:
+                        n_frames = getattr(img, "n_frames", 1)
+                        idx = max(0, min(page_index, n_frames - 1))
+                        img.seek(idx)
+                        return img.convert("RGB"), None
+                except Exception as fallback_exc:
+                    return None, f"Failed to rasterize PDF page: {fallback_exc}"
+            except Exception as exc:
+                return None, f"Failed to rasterize PDF page: {exc}"
+
+        # Standalone images (PNG, JPG, TIFF, etc.)
+        try:
+            with Image.open(file_path) as img:
+                n_frames = getattr(img, "n_frames", 1)
+                idx = max(0, min(page_index, n_frames - 1))
+                img.seek(idx)
+                return img.convert("RGB"), None
+        except Exception as exc:
+            # Fallback if image extension was actually a mislabeled PDF
+            try:
+                with _PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(str(file_path))
+                    try:
+                        n_pages = len(doc)
+                        if n_pages > 0:
+                            idx = max(0, min(page_index, n_pages - 1))
+                            page = doc[idx]
+                            try:
+                                return page.render(scale=scale).to_pil(), None
+                            finally:
+                                page.close()
+                    finally:
+                        doc.close()
+            except Exception:
+                pass
+            return None, f"Failed to load image: {exc}"
+
+    def _render_image_preview(self, item: QueueItem) -> None:
+        """Render original raster scan image for the active document page on-demand (P2)."""
+        if not (item.result and item.result.pages):
             self._reset_image_preview()
             return
 
-        total_img_pages = len(pages_with_images)
+        total_img_pages = len(item.result.pages)
+        if total_img_pages == 0:
+            self._reset_image_preview()
+            return
+
         self._current_image_page_idx = max(0, min(self._current_image_page_idx, total_img_pages - 1))
-        target_page = pages_with_images[self._current_image_page_idx]
+        target_page = item.result.pages[self._current_image_page_idx]
+
+        pil_img: Optional[Image.Image] = None
+        err_msg: Optional[str] = None
+
+        # Prefer retained image_b64 if present (e.g. from mock tests or explicit retain_images=True)
+        if target_page.image_b64:
+            try:
+                b64_str = target_page.image_b64
+                if "," in b64_str:
+                    b64_str = b64_str.split(",", 1)[1]
+                pil_img = Image.open(io.BytesIO(base64.b64decode(b64_str)))
+            except Exception as exc:
+                logger.warning("Failed to decode retained base64 image: %s", exc)
+
+        # Otherwise load & rasterize on-demand from source file on disk
+        if pil_img is None:
+            pil_img, err_msg = self._load_image_page_on_demand(
+                item.file_path,
+                page_index=self._current_image_page_idx,
+            )
+
+        if err_msg or pil_img is None:
+            self._current_ctk_image = None
+            self._img_display_label.configure(
+                image="",
+                text=err_msg or "Failed to load image preview",
+            )
+            self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
+            self._lbl_img_info.configure(text="")
+            self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
+            self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
+            return
 
         try:
-            b64_str = target_page.image_b64 or ""
-            if "," in b64_str:
-                b64_str = b64_str.split(",", 1)[1]
-            img_bytes = base64.b64decode(b64_str)
-            pil_img = Image.open(io.BytesIO(img_bytes))
-
             if pil_img.mode not in ("RGB", "RGBA"):
                 pil_img = pil_img.convert("RGB")
 
@@ -1321,7 +1501,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._current_ctk_image = None
             self._img_display_label.configure(
                 image="",
-                text=f"Failed to decode image raster: {exc}",
+                text=f"Failed to display image raster: {exc}",
             )
             self._lbl_img_page.configure(text="Page Error")
             self._lbl_img_info.configure(text="")
@@ -1352,12 +1532,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Navigate to the next page in Image Preview."""
         if self._selected_item_id and self._selected_item_id in self._queue_items:
             item = self._queue_items[self._selected_item_id]
-            pages_with_images = (
-                [p for p in item.result.pages if p.image_b64]
-                if item.result and item.result.pages
-                else []
-            )
-            if self._current_image_page_idx < len(pages_with_images) - 1:
+            total_pages = len(item.result.pages) if item.result and item.result.pages else 0
+            if self._current_image_page_idx < total_pages - 1:
                 self._current_image_page_idx += 1
                 self._render_image_preview(item)
 
@@ -1703,7 +1879,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 try:
                     # Apply any pending settings updates at document boundary (SEC-3.1)
                     self._apply_pending_engine_settings()
-                    job_cfg = JobConfig(retain_images=True)
+                    job_cfg = JobConfig(retain_images=False)
                     result = self.engine.process_document(
                         file_path_str,
                         config=job_cfg,
@@ -1800,6 +1976,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Processing: {Path(event.file_path).name} (Page {cur}/{tot})")
 
             if item:
+                item.status = QueueItemStatus.PROCESSING
                 if item.result is None:
                     item.result = OCRResult(file_path=item.file_path, status=JobStatus.SUCCESS)
                 if event.page_result:

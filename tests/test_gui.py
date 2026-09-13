@@ -215,9 +215,10 @@ def test_selection_race_condition(tmp_path):
         file1_id = str(file1.resolve())
         file2_id = str(file2.resolve())
 
-        # Select file 1 explicitly
+        # Select file 1 explicitly and switch to Text Preview
         app._select_queue_item(file1_id)
         assert app._selected_item_id == file1_id
+        app.select_tab("Text Preview")
 
         # Verify preview pane currently reflects file 1
         initial_preview = app._tb_preview.get("1.0", "end")
@@ -259,6 +260,7 @@ def test_selection_race_condition(tmp_path):
         app._select_queue_item(file2_id)
         assert app._selected_item_id == file2_id
         assert "Page 2 Extracted Heading" in app._tb_preview.get("1.0", "end")
+        app.select_tab("Raw Markdown")
         assert "Page 2 Extracted Heading" in app._tb_markdown.get("1.0", "end")
     finally:
         app._on_closing()
@@ -281,16 +283,20 @@ def test_preview_placeholders_for_unprocessed_items(tmp_path):
         # 1. QUEUED state
         app._select_queue_item(file1_id)
         assert "is queued for processing" in app._tb_markdown.get("1.0", "end")
+        app.select_tab("Text Preview")
         assert "Document Queued: sample.pdf" in app._tb_preview.get("1.0", "end")
+        app.select_tab("JSON Tree")
         assert '"status": "QUEUED"' in app._tb_json.get("1.0", "end")
         assert app._btn_copy.cget("state") == "disabled"
         assert app._btn_export_selected.cget("state") == "disabled"
 
         # 2. PROCESSING state
         item.status = QueueItemStatus.PROCESSING
-        app._render_preview(item)
+        app.select_tab("Raw Markdown")
         assert "is currently being processed" in app._tb_markdown.get("1.0", "end")
+        app.select_tab("Text Preview")
         assert "Processing Document: sample.pdf" in app._tb_preview.get("1.0", "end")
+        app.select_tab("JSON Tree")
         assert '"status": "PROCESSING"' in app._tb_json.get("1.0", "end")
         assert app._btn_copy.cget("state") == "disabled"
         assert app._btn_export_selected.cget("state") == "disabled"
@@ -299,9 +305,11 @@ def test_preview_placeholders_for_unprocessed_items(tmp_path):
         # 3. FAILED state
         item.status = QueueItemStatus.FAILED
         item.error = "Connection timeout to local backend"
-        app._render_preview(item)
+        app.select_tab("Raw Markdown")
         assert "Error processing sample.pdf" in app._tb_markdown.get("1.0", "end")
+        app.select_tab("Text Preview")
         assert "Connection timeout to local backend" in app._tb_preview.get("1.0", "end")
+        app.select_tab("JSON Tree")
         assert '"status": "FAILED"' in app._tb_json.get("1.0", "end")
         assert app._btn_copy.cget("state") == "disabled"
         assert app._btn_export_selected.cget("state") == "disabled"
@@ -834,6 +842,7 @@ def test_gui_cancellation_flow(tmp_path):
         assert "Cancelled: long_doc.pdf" in app._footer_status.cget("text")
 
         # Active selection preview rendered
+        app.select_tab("Text Preview")
         tb_content = app._tb_preview.get("1.0", "end")
         assert "Processing Cancelled: long_doc.pdf" in tb_content
         assert "# Page 1 Done" in tb_content
@@ -1113,7 +1122,7 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
         item = app._queue_items[item_id]
 
         # Initial state before processing: no images
-        app._render_preview(item)
+        app.select_tab("Image Preview")
         assert app._lbl_img_page.cget("text") == "Page 0 of 0"
         assert app._btn_img_prev.cget("state") == "disabled"
         assert app._btn_img_next.cget("state") == "disabled"
@@ -1133,7 +1142,7 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
 
         # Render preview: should start on page 1 of 3
         app._current_image_page_idx = 0
-        app._render_preview(item)
+        app.select_tab("Image Preview")
 
         assert app._lbl_img_page.cget("text") == "Page 1 of 3"
         assert app._btn_img_prev.cget("state") == "disabled"
@@ -1669,6 +1678,265 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
                     assert not any(b in lbl_text for b in bracket_literals)
     finally:
         app._on_closing()
+
+
+def test_batch2_lazy_tab_rendering_lifecycle(tmp_path):
+    """P1: Verify that on progress/render events only the active tab is updated,
+    and switching tabs renders the inactive tab on-demand."""
+    p = tmp_path / "sample.pdf"
+    p.write_bytes(b"%PDF-1.4 mock")
+    app = OCRApp(settings=Settings(), engine=MagicMock())
+    app.withdraw()
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    try:
+        app.enqueue_file(p)
+        item_id = str(p.resolve())
+        item = app._queue_items[item_id]
+        app._select_queue_item(item_id)
+
+        # Tabview defaults to "Raw Markdown"
+        assert app._tabview.get() == "Raw Markdown"
+
+        # Fire page progress
+        app._handle_worker_event(
+            WorkerEvent(
+                WorkerEventType.PAGE_PROGRESS,
+                file_path=item_id,
+                current_page=1,
+                total_pages=1,
+                page_result=PageResult(page_num=1, markdown="# Markdown Content Heading"),
+            )
+        )
+
+        # 1. Raw Markdown tab must be updated
+        raw_text = app._tb_markdown.get("1.0", "end").strip()
+        assert "# Markdown Content Heading" in raw_text
+
+        # 2. Inactive tabs must NOT have been rendered yet
+        rich_text = app._tb_preview.get("1.0", "end").strip()
+        assert rich_text == "" or "Markdown Content Heading" not in rich_text
+
+        # 3. Switching tabs triggers on-demand rendering
+        app.select_tab("Text Preview")
+        assert app._tabview.get() == "Text Preview"
+        rich_text_after = app._tb_preview.get("1.0", "end").strip()
+        assert "Markdown Content Heading" in rich_text_after
+
+        # 4. JSON Tree tab still not rendered until switched
+        json_text = app._tb_json.get("1.0", "end").strip()
+        assert json_text == "" or "Markdown Content Heading" not in json_text
+
+        app.select_tab("JSON Tree")
+        assert app._tabview.get() == "JSON Tree"
+        json_text_after = app._tb_json.get("1.0", "end").strip()
+        assert "pages" in json_text_after or "Markdown Content Heading" in json_text_after
+    finally:
+        app._on_closing()
+
+
+def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
+    """P2: Verify on-demand image loading from disk when image_b64 is None (both PDF and PNG),
+    and verify missing source file displays 'Source file unavailable' gracefully."""
+    from PIL import Image
+    import pypdfium2 as pdfium
+
+    # 1. Create a 2-page PDF
+    pdf_path = tmp_path / "multipage.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 200)
+    doc.new_page(200, 200)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    app = OCRApp(settings=Settings(), engine=MagicMock())
+    app.withdraw()
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    try:
+        app.enqueue_file(pdf_path)
+        item_id = str(pdf_path.resolve())
+        item = app._queue_items[item_id]
+        app._select_queue_item(item_id)
+
+        # Complete with 2 pages and NO base64 images
+        res = OCRResult(
+            file_path=item_id,
+            status=JobStatus.SUCCESS,
+            pages=[
+                PageResult(page_num=1, markdown="Page 1 text", image_b64=None),
+                PageResult(page_num=2, markdown="Page 2 text", image_b64=None),
+            ],
+        )
+        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
+
+        # Switch to Image Preview tab
+        app.select_tab("Image Preview")
+        assert app._lbl_img_page.cget("text") == "Page 1 of 2"
+        assert app._img_display_label.cget("image") is not None
+
+        # Next page
+        app._on_img_next()
+        assert app._lbl_img_page.cget("text") == "Page 2 of 2"
+        assert app._img_display_label.cget("image") is not None
+
+        # Previous page
+        app._on_img_prev()
+        assert app._lbl_img_page.cget("text") == "Page 1 of 2"
+
+        # Standalone image (PNG)
+        png_path = tmp_path / "standalone.png"
+        img = Image.new("RGB", (150, 150), color="red")
+        img.save(png_path)
+
+        app.enqueue_file(png_path)
+        png_id = str(png_path.resolve())
+        png_res = OCRResult(
+            file_path=png_id,
+            status=JobStatus.SUCCESS,
+            pages=[PageResult(page_num=1, markdown="PNG text", image_b64=None)],
+        )
+        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=png_id, result=png_res))
+
+        app._select_queue_item(png_id)
+        assert app._tabview.get() == "Image Preview"
+        assert app._lbl_img_page.cget("text") == "Page 1 of 1"
+        assert app._img_display_label.cget("image") is not None
+
+        # Fallback when source file is deleted/moved
+        png_path.unlink()
+        app._render_preview(app._queue_items[png_id], tab_name="Image Preview")
+        assert not app._img_display_label.cget("image")
+        assert "Source file unavailable" in app._img_display_label.cget("text")
+    finally:
+        app._on_closing()
+
+
+def test_batch2_queue_item_file_size_caching(tmp_path):
+    """P10: Verify QueueItem caches formatted file size at creation time,
+    preventing repeated stat() calls during lifecycle events."""
+    test_file = tmp_path / "cached_size_test.png"
+    test_file.write_bytes(b"x" * 2048)
+
+    app = OCRApp(settings=Settings(), engine=MagicMock())
+    app.withdraw()
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    try:
+        app.enqueue_file(test_file)
+        item_id = str(test_file.resolve())
+        item = app._queue_items[item_id]
+
+        assert item.file_size_str is not None
+        assert "2.0 KB" in item.file_size_str or "2 KB" in item.file_size_str
+
+        # Mock stat() to raise if called again
+        with patch.object(Path, "stat", side_effect=RuntimeError("stat() should not be called")):
+            # 1. format meta
+            meta = app._format_queue_item_meta(item)
+            assert item.file_size_str in meta
+
+            # 2. lifecycle events
+            app._handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=item_id))
+            assert item.file_size_str in item.detail_label.cget("text")
+
+            app._handle_worker_event(
+                WorkerEvent(
+                    WorkerEventType.PAGE_PROGRESS,
+                    file_path=item_id,
+                    current_page=1,
+                    total_pages=1,
+                    page_result=PageResult(page_num=1, markdown="Done"),
+                )
+            )
+            assert item.file_size_str in item.detail_label.cget("text")
+
+            res = OCRResult(
+                file_path=item_id,
+                status=JobStatus.SUCCESS,
+                pages=[PageResult(page_num=1, markdown="Done", latency=0.1)],
+            )
+            app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
+            assert item.file_size_str in item.detail_label.cget("text")
+    finally:
+        app._on_closing()
+
+
+def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
+    """Verify GUI item selection vs worker race:
+    When user selects item B while worker is emitting events for item A,
+    item B's preview is never clobbered, and tab switches on item B
+    render item B's data on-demand (never item A's data)."""
+    p_a = tmp_path / "item_a.pdf"
+    p_b = tmp_path / "item_b.pdf"
+    p_a.write_bytes(b"%PDF-1.4 a")
+    p_b.write_bytes(b"%PDF-1.4 b")
+
+    app = OCRApp(settings=Settings(), engine=MagicMock())
+    app.withdraw()
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    try:
+        app.enqueue_file(p_a)
+        app.enqueue_file(p_b)
+        id_a = str(p_a.resolve())
+        id_b = str(p_b.resolve())
+
+        # Initially select item A
+        app._select_queue_item(id_a)
+        assert app._selected_item_id == id_a
+
+        # Switch selection to item B
+        app._select_queue_item(id_b)
+        assert app._selected_item_id == id_b
+
+        # Worker emits PAGE_PROGRESS and COMPLETED for item A
+        res_a = OCRResult(
+            file_path=id_a,
+            status=JobStatus.SUCCESS,
+            pages=[PageResult(page_num=1, markdown="# Content from Item A", latency=0.2)],
+        )
+        app._handle_worker_event(
+            WorkerEvent(
+                WorkerEventType.PAGE_PROGRESS,
+                file_path=id_a,
+                current_page=1,
+                total_pages=1,
+                page_result=PageResult(page_num=1, markdown="# Content from Item A"),
+            )
+        )
+        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_a, result=res_a))
+
+        # Item B must still be selected
+        assert app._selected_item_id == id_b
+
+        # Preview must NOT contain item A's content
+        raw_text = app._tb_markdown.get("1.0", "end")
+        assert "Content from Item A" not in raw_text
+
+        # Now complete item B with its own distinct content
+        res_b = OCRResult(
+            file_path=id_b,
+            status=JobStatus.SUCCESS,
+            pages=[PageResult(page_num=1, markdown="# Content from Item B", latency=0.3)],
+        )
+        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_b, result=res_b))
+
+        # Active tab ("Raw Markdown") should now have Item B's content
+        assert "Content from Item B" in app._tb_markdown.get("1.0", "end")
+
+        # Now switch tabs to "Text Preview" - must render Item B's content on-demand
+        app.select_tab("Text Preview")
+        assert "Content from Item B" in app._tb_preview.get("1.0", "end")
+        assert "Content from Item A" not in app._tb_preview.get("1.0", "end")
+
+        # Switch to "JSON Tree" - must render Item B's JSON on-demand
+        app.select_tab("JSON Tree")
+        assert "Content from Item B" in app._tb_json.get("1.0", "end")
+        assert "Content from Item A" not in app._tb_json.get("1.0", "end")
+    finally:
+        app._on_closing()
+
 
 
 

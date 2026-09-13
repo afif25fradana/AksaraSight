@@ -63,6 +63,7 @@ class QueueItem:
     # UI references
     row_frame: Optional[ctk.CTkFrame] = None
     indicator_bar: Optional[ctk.CTkFrame] = None
+    chip_label: Optional[ctk.CTkLabel] = None
     badge_label: Optional[ctk.CTkLabel] = None
     name_label: Optional[ctk.CTkLabel] = None
     detail_label: Optional[ctk.CTkLabel] = None
@@ -103,31 +104,52 @@ def _init_tkinterdnd(tkroot: Any) -> str:
     return tdnd._require(tkroot)
 
 
-# Design System Tokens - Warm Carbon & Scanner Amber
-COLOR_CANVAS_BG = "#141517"
-COLOR_SURFACE_1 = "#1c1e22"
-COLOR_SURFACE_2 = "#17181c"
-COLOR_SURFACE_BORDER = "#2a2c33"
-COLOR_SURFACE_BORDER_HOVER = "#3a3d46"
-COLOR_INTERACTIVE_NEUTRAL = "#22242b"
-COLOR_INTERACTIVE_HOVER = "#282a33"
-COLOR_ROW_SELECTED_BG = "#2a2d36"
-COLOR_ACCENT_AMBER = "#d97706"
-COLOR_ACCENT_AMBER_HOVER = "#f59e0b"
-COLOR_ACCENT_AMBER_DISABLED = "#7c4a0a"
-COLOR_ACCENT_AMBER_DISABLED_TEXT = "#a08060"
-COLOR_SCROLLBAR_THUMB = "#252830"
-COLOR_SCROLLBAR_THUMB_HOVER = "#33363f"
-COLOR_TEXT_PRIMARY = "#f3f4f6"
-COLOR_TEXT_MUTED = "#9ca3af"
-COLOR_TEXT_SUBTLE = "#858d99"
-COLOR_STATUS_QUEUED = "#858d99"
-COLOR_STATUS_PROCESSING = "#f59e0b"
-COLOR_STATUS_SUCCESS = "#10b981"
+# Design System Tokens - Calm Trust Palette (WCAG 2.1 AA verified)
+COLOR_CANVAS_BG = "#121417"
+COLOR_SURFACE_1 = "#1a1d21"
+COLOR_SURFACE_2 = "#22262b"
+COLOR_SURFACE_BORDER = "#2e333b"
+COLOR_SURFACE_BORDER_HOVER = "#3d444e"
+COLOR_INTERACTIVE_NEUTRAL = "#252a31"
+COLOR_INTERACTIVE_HOVER = "#2f3640"
+COLOR_ROW_SELECTED_BG = "#2a3745"
+
+# Accent Tokens (Slate Blue)
+COLOR_ACCENT_PRIMARY = "#2e6e91"
+COLOR_ACCENT_HOVER = "#3b82a6"
+COLOR_ACCENT_DISABLED = "#1e3847"
+COLOR_ACCENT_DISABLED_TEXT = "#8da5b5"
+COLOR_ACCENT_TEXT = "#56a0c7"
+# Backwards-compatibility aliases for existing imports
+COLOR_ACCENT_AMBER = COLOR_ACCENT_PRIMARY
+COLOR_ACCENT_AMBER_HOVER = COLOR_ACCENT_HOVER
+COLOR_ACCENT_AMBER_DISABLED = COLOR_ACCENT_DISABLED
+COLOR_ACCENT_AMBER_DISABLED_TEXT = COLOR_ACCENT_DISABLED_TEXT
+
+COLOR_SCROLLBAR_THUMB = "#2a303a"
+COLOR_SCROLLBAR_THUMB_HOVER = "#38414e"
+
+# Typography Tokens (WCAG 2.1 AA/AAA compliant)
+COLOR_TEXT_PRIMARY = "#f1f3f5"
+COLOR_TEXT_SECONDARY = "#9ca3af"
+COLOR_TEXT_MUTED = "#94a3b8"
+COLOR_TEXT_SUBTLE = "#94a3b8"
+
+# Status Dot Tokens
+COLOR_STATUS_QUEUED = "#94a3b8"
+COLOR_STATUS_PROCESSING = "#38bdf8"
+COLOR_STATUS_SUCCESS = "#34d399"
 COLOR_STATUS_PARTIAL = "#fbbf24"
-COLOR_STATUS_FAILED = "#f43f5e"
-COLOR_STATUS_CANCELLED = "#858d99"
-COLOR_DRAGOVER_BG = "#1e2028"
+COLOR_STATUS_FAILED = "#fb7185"
+COLOR_STATUS_CANCELLED = "#94a3b8"
+
+# File Type Chips
+COLOR_CHIP_PDF_BG = "#331e24"
+COLOR_CHIP_PDF_TEXT = "#fb7185"
+COLOR_CHIP_IMG_BG = "#182c3d"
+COLOR_CHIP_IMG_TEXT = "#38bdf8"
+
+COLOR_DRAGOVER_BG = "#192833"
 
 
 class OCRApp(ctk.CTk, tdnd.DnDWrapper):
@@ -535,14 +557,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
 
-        # Primary Button: Warm scanner amber fill (starts disabled with muted tint)
+        # Primary Button: Slate blue accent fill (starts disabled with muted tint)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
             text="Export Selected",
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color=COLOR_ACCENT_AMBER_DISABLED,
-            hover_color=COLOR_ACCENT_AMBER_HOVER,
-            text_color=COLOR_ACCENT_AMBER_DISABLED_TEXT,
+            fg_color=COLOR_ACCENT_DISABLED,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_ACCENT_DISABLED_TEXT,
             corner_radius=6,
             height=30,
             state="disabled",
@@ -568,31 +590,57 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_export_all.grid(row=0, column=3, sticky="e", padx=0)
 
     def _build_footer(self) -> None:
-        """Build the bottom status bar (~30px height, split into status label and counters)."""
+        """Build the bottom status bar (~30px height) with trust indicator and counters."""
         footer_frame = ctk.CTkFrame(self, corner_radius=0, height=30, fg_color=COLOR_SURFACE_1)
         footer_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         footer_frame.grid_columnconfigure(0, weight=1)
         footer_frame.grid_columnconfigure(1, weight=0)
+        footer_frame.grid_columnconfigure(2, weight=0)
 
         # Left: Status indicator label
         self._footer_status = ctk.CTkLabel(
             footer_frame,
             text="Ready",
             font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_MUTED,
             anchor="w",
         )
         self._footer_status.grid(row=0, column=0, sticky="w", padx=16, pady=(4, 5))
         self._status_label = self._footer_status
 
+        # Center: Trust indicator badge
+        trust_frame = ctk.CTkFrame(footer_frame, fg_color=COLOR_SURFACE_1)
+        trust_frame.grid(row=0, column=1, sticky="nsew", padx=12, pady=(4, 5))
+
+        trust_dot = ctk.CTkLabel(
+            trust_frame,
+            text="●",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            fg_color=COLOR_SURFACE_1,
+            text_color=COLOR_STATUS_SUCCESS,
+        )
+        trust_dot.pack(side="left", padx=(0, 5))
+
+        trust_label = ctk.CTkLabel(
+            trust_frame,
+            text="Local Processing — All data stays on your device",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_SURFACE_1,
+            text_color=COLOR_TEXT_MUTED,
+        )
+        trust_label.pack(side="left")
+        self._trust_label = trust_label
+
         # Right: Counters with numbers slightly brighter than the labels
-        counters_frame = ctk.CTkFrame(footer_frame, fg_color="transparent")
-        counters_frame.grid(row=0, column=1, sticky="e", padx=16, pady=(4, 5))
+        counters_frame = ctk.CTkFrame(footer_frame, fg_color=COLOR_SURFACE_1)
+        counters_frame.grid(row=0, column=2, sticky="e", padx=16, pady=(4, 5))
 
         lbl_tot = ctk.CTkLabel(
             counters_frame,
             text="Total: ",
             font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_SUBTLE,
         )
         lbl_tot.pack(side="left")
@@ -601,6 +649,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             counters_frame,
             text="0",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_total_val.pack(side="left", padx=(0, 10))
@@ -609,6 +658,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             counters_frame,
             text="Success: ",
             font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_SUBTLE,
         )
         lbl_succ.pack(side="left")
@@ -617,6 +667,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             counters_frame,
             text="0",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_success_val.pack(side="left", padx=(0, 10))
@@ -625,6 +676,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             counters_frame,
             text="Failed: ",
             font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_SUBTLE,
         )
         lbl_fail.pack(side="left")
@@ -633,6 +685,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             counters_frame,
             text="0",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=COLOR_SURFACE_1,
             text_color=COLOR_TEXT_PRIMARY,
         )
         self._lbl_failed_val.pack(side="left")
@@ -753,8 +806,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         row.pack(fill="x", padx=6, pady=3)
         row.grid_columnconfigure(0, weight=0)  # Left Accent Indicator
-        row.grid_columnconfigure(1, weight=1)  # Text column (Name + Meta)
-        row.grid_columnconfigure(2, weight=0)  # Status Badge
+        row.grid_columnconfigure(1, weight=0)  # File Type Chip
+        row.grid_columnconfigure(2, weight=1)  # Text column (Name + Meta)
+        row.grid_columnconfigure(3, weight=0)  # Status Dot Badge
 
         # Left 3px selection accent indicator (height=1 with sticky='ns' prevents frame expansion)
         indicator = ctk.CTkFrame(
@@ -764,7 +818,25 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             fg_color="transparent",
             corner_radius=1,
         )
-        indicator.grid(row=0, column=0, rowspan=2, sticky="ns", padx=(0, 6))
+        indicator.grid(row=0, column=0, rowspan=2, sticky="ns", padx=(0, 4))
+
+        # File-type chip badge (PDF or IMG)
+        is_pdf = item.file_path.suffix.lower() == ".pdf"
+        chip_text = "PDF" if is_pdf else "IMG"
+        chip_fg = COLOR_CHIP_PDF_BG if is_pdf else COLOR_CHIP_IMG_BG
+        chip_text_col = COLOR_CHIP_PDF_TEXT if is_pdf else COLOR_CHIP_IMG_TEXT
+
+        chip = ctk.CTkLabel(
+            row,
+            text=chip_text,
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            fg_color=chip_fg,
+            text_color=chip_text_col,
+            corner_radius=4,
+            width=32,
+            height=18,
+        )
+        chip.grid(row=0, column=1, rowspan=2, sticky="w", padx=(2, 6), pady=6)
 
         # Line 1: Filename
         name = ctk.CTkLabel(
@@ -775,42 +847,43 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             height=18,
             anchor="w",
         )
-        name.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=(6, 0))
+        name.grid(row=0, column=2, sticky="w", padx=(0, 4), pady=(6, 0))
 
         # Line 2: Format · Size · [Pages] · [Duration/Status]
         detail = ctk.CTkLabel(
             row,
             text=self._format_queue_item_meta(item),
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=COLOR_TEXT_SUBTLE,
+            text_color=COLOR_TEXT_MUTED,
             height=16,
             anchor="w",
         )
-        detail.grid(row=1, column=1, sticky="w", padx=(0, 4), pady=(0, 6))
+        detail.grid(row=1, column=2, sticky="w", padx=(0, 4), pady=(0, 6))
 
-        # Status badge / glyph on right
+        # Status dot indicator on right
         badge = ctk.CTkLabel(
             row,
-            text="[ ]",
-            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
+            text="●",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=COLOR_STATUS_QUEUED,
-            width=32,
+            width=24,
             height=18,
         )
-        badge.grid(row=0, column=2, rowspan=2, sticky="e", padx=(4, 10))
+        badge.grid(row=0, column=3, rowspan=2, sticky="e", padx=(4, 10))
 
         item.row_frame = row
         item.indicator_bar = indicator
+        item.chip_label = chip
         item.badge_label = badge
         item.name_label = name
         item.detail_label = detail
 
         # Clicking any part of the row selects it
-        for w in (row, indicator, badge, name, detail):
+        for w in (row, indicator, chip, badge, name, detail):
             w.bind("<Button-1>", lambda e, i_id=item.item_id: self._select_queue_item(i_id))
 
         # Hover feedback: lighten row bg on mouse enter (respect selected state)
-        for w in (row, indicator, badge, name, detail):
+        for w in (row, indicator, chip, badge, name, detail):
             w.bind("<Enter>", lambda e, i_id=item.item_id: self._on_queue_row_enter(e, i_id))
             w.bind("<Leave>", lambda e, i_id=item.item_id: self._on_queue_row_leave(e, i_id))
 
@@ -838,7 +911,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if item.row_frame:
             item.row_frame.configure(fg_color=COLOR_ROW_SELECTED_BG)
         if item.indicator_bar:
-            item.indicator_bar.configure(fg_color=COLOR_ACCENT_AMBER)
+            item.indicator_bar.configure(fg_color=COLOR_ACCENT_PRIMARY)
 
         # Render preview content for this item
         self._render_preview(item)
@@ -938,18 +1011,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         self._btn_copy.configure(state="normal" if selected_completed else "disabled")
 
-        # Export Selected: swap colors to preserve muted amber identity when disabled
+        # Export Selected: swap colors to preserve muted identity when disabled
         if selected_completed:
             self._btn_export_selected.configure(
                 state="normal",
-                fg_color=COLOR_ACCENT_AMBER,
+                fg_color=COLOR_ACCENT_PRIMARY,
                 text_color="#ffffff",
             )
         else:
             self._btn_export_selected.configure(
                 state="disabled",
-                fg_color=COLOR_ACCENT_AMBER_DISABLED,
-                text_color=COLOR_ACCENT_AMBER_DISABLED_TEXT,
+                fg_color=COLOR_ACCENT_DISABLED,
+                text_color=COLOR_ACCENT_DISABLED_TEXT,
             )
 
         self._btn_export_all.configure(
@@ -1139,8 +1212,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._drop_zone.configure(border_color=COLOR_SURFACE_BORDER)
 
     def _on_drag_enter(self, event: Any = None) -> Any:
-        """Visual feedback when dragging files over the drop zone (amber border + tinted bg)."""
-        self._drop_zone.configure(border_color=COLOR_ACCENT_AMBER, fg_color=COLOR_DRAGOVER_BG)
+        """Visual feedback when dragging files over the drop zone (accent border + tinted bg)."""
+        self._drop_zone.configure(border_color=COLOR_ACCENT_PRIMARY, fg_color=COLOR_DRAGOVER_BG)
         return getattr(event, "action", None)
 
     def _on_drag_leave(self, event: Any = None) -> Any:
@@ -1156,6 +1229,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 if event.widget in (
                     q_item.row_frame,
                     q_item.indicator_bar,
+                    q_item.chip_label,
                     q_item.badge_label,
                     q_item.name_label,
                     q_item.detail_label,
@@ -1175,6 +1249,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 if event.widget in (
                     q_item.row_frame,
                     q_item.indicator_bar,
+                    q_item.chip_label,
                     q_item.badge_label,
                     q_item.name_label,
                     q_item.detail_label,
@@ -1287,7 +1362,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if item:
                 item.status = QueueItemStatus.PROCESSING
                 if item.badge_label:
-                    item.badge_label.configure(text="[>]", text_color=COLOR_STATUS_PROCESSING)
+                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
                 if item.detail_label:
                     item.detail_label.configure(
                         text=self._format_queue_item_meta(item),
@@ -1305,13 +1380,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 item.result = event.result
                 item.duration = duration
                 if item.badge_label:
-                    badge_icon = "[✓]" if status_val == "SUCCESS" else "[~]"
                     badge_color = COLOR_STATUS_SUCCESS if status_val == "SUCCESS" else COLOR_STATUS_PARTIAL
-                    item.badge_label.configure(text=badge_icon, text_color=badge_color)
+                    item.badge_label.configure(text="●", text_color=badge_color)
                 if item.detail_label:
                     item.detail_label.configure(
                         text=self._format_queue_item_meta(item),
-                        text_color=COLOR_TEXT_SUBTLE,
+                        text_color=COLOR_TEXT_MUTED,
                     )
             self._update_footer(f"Done: {Path(event.file_path).name} ({status_val})")
 
@@ -1324,7 +1398,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 item.result = event.result
                 item.error = err_msg
                 if item.badge_label:
-                    item.badge_label.configure(text="[✗]", text_color=COLOR_STATUS_FAILED)
+                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_FAILED)
                 if item.detail_label:
                     item.detail_label.configure(
                         text=self._format_queue_item_meta(item),
@@ -1342,7 +1416,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 duration = event.result.total_duration if event.result else 0.0
                 item.duration = duration
                 if item.badge_label:
-                    item.badge_label.configure(text="[-]", text_color=COLOR_STATUS_CANCELLED)
+                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_CANCELLED)
                 if item.detail_label:
                     item.detail_label.configure(
                         text=self._format_queue_item_meta(item),

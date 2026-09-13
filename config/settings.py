@@ -28,6 +28,11 @@ class Settings:
     timeout: float = 60.0
     max_retries: int = 2
     allow_remote: bool = False
+    llama_server_path: Optional[str] = None
+    model_repo: str = "ggml-org/GLM-OCR-GGUF"
+    auto_start_server: bool = False
+    dpi: int = 100
+    max_pages: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration attributes across all construction paths."""
@@ -85,6 +90,41 @@ class Settings:
             raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{self.max_retries}'")
         object.__setattr__(self, "max_retries", val_retries)
 
+        # Server binary path normalization
+        if self.llama_server_path is not None:
+            clean_path = str(self.llama_server_path).strip()
+            object.__setattr__(self, "llama_server_path", clean_path if clean_path else None)
+
+        # Model repository validation
+        if not isinstance(self.model_repo, str) or not self.model_repo.strip():
+            raise ValueError(f"MODEL_REPO must be a non-empty string, got: '{self.model_repo}'")
+        object.__setattr__(self, "model_repo", self.model_repo.strip())
+
+        # Auto-start server validation
+        val_auto_start = bool(self.auto_start_server)
+        if isinstance(self.auto_start_server, str):
+            val_auto_start = self.auto_start_server.strip().lower() in ("1", "true", "yes", "on")
+        object.__setattr__(self, "auto_start_server", val_auto_start)
+
+        # DPI validation
+        try:
+            val_dpi = int(self.dpi)
+            if val_dpi <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(f"DPI must be a positive integer, got: '{self.dpi}'")
+        object.__setattr__(self, "dpi", val_dpi)
+
+        # Max pages validation
+        if self.max_pages is not None:
+            try:
+                val_max_pages = int(self.max_pages)
+                if val_max_pages <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise ValueError(f"MAX_PAGES must be a positive integer or None, got: '{self.max_pages}'")
+            object.__setattr__(self, "max_pages", val_max_pages)
+
     @property
     def is_loopback(self) -> bool:
         """Determine whether the configured endpoint targets a local loopback address."""
@@ -119,11 +159,106 @@ class Settings:
         raw_allow_remote = os.getenv("OCR_ALLOW_REMOTE") or os.getenv("ALLOW_REMOTE", "false")
         allow_remote = raw_allow_remote.strip().lower() in ("1", "true", "yes", "on")
 
+        raw_llama_path = os.getenv("OCR_LLAMA_SERVER_PATH") or os.getenv("LLAMA_SERVER_PATH")
+        model_repo = os.getenv("OCR_MODEL_REPO") or os.getenv("MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
+        raw_auto_start = os.getenv("OCR_AUTO_START_SERVER") or os.getenv("AUTO_START_SERVER", "false")
+        auto_start = raw_auto_start.strip().lower() in ("1", "true", "yes", "on")
+
+        raw_dpi = os.getenv("OCR_DPI") or os.getenv("DPI", "100")
+        raw_max_pages = os.getenv("OCR_MAX_PAGES") or os.getenv("MAX_PAGES")
+        max_pages = int(raw_max_pages.strip()) if raw_max_pages and str(raw_max_pages).strip() else None
+
         return cls(
             backend=backend,
             local_endpoint=endpoint,
             timeout=raw_timeout,  # type: ignore[arg-type]
             max_retries=raw_retries,  # type: ignore[arg-type]
             allow_remote=allow_remote,
+            llama_server_path=raw_llama_path,
+            model_repo=model_repo,
+            auto_start_server=auto_start,
+            dpi=raw_dpi,  # type: ignore[arg-type]
+            max_pages=max_pages,
         )
+
+    def save_to_env(self, env_path: Optional[str | Path] = None) -> Path:
+        """Persist current settings to a .env file, preserving comments and formatting.
+
+        Args:
+            env_path: Target .env file path. Defaults to '.env' in the current working directory.
+
+        Returns:
+            Path: The resolved path of the updated .env file.
+        """
+        target = Path(env_path).resolve() if env_path is not None else Path(".env").resolve()
+
+        # Key mapping of managed settings
+        managed: dict[str, str] = {
+            "OCR_BACKEND": self.backend,
+            "OCR_ENDPOINT": self.local_endpoint,
+            "OCR_TIMEOUT": str(self.timeout),
+            "OCR_MAX_RETRIES": str(self.max_retries),
+            "OCR_ALLOW_REMOTE": "true" if self.allow_remote else "false",
+            "OCR_DPI": str(self.dpi),
+            "OCR_MAX_PAGES": str(self.max_pages) if self.max_pages is not None else "",
+            "OCR_LLAMA_SERVER_PATH": self.llama_server_path or "",
+            "OCR_MODEL_REPO": self.model_repo,
+            "OCR_AUTO_START_SERVER": "true" if self.auto_start_server else "false",
+        }
+
+        # Also track legacy/unprefixed alias mappings
+        aliases: dict[str, str] = {
+            "BACKEND": "OCR_BACKEND",
+            "LOCAL_ENDPOINT": "OCR_ENDPOINT",
+            "TIMEOUT": "OCR_TIMEOUT",
+            "MAX_RETRIES": "OCR_MAX_RETRIES",
+            "ALLOW_REMOTE": "OCR_ALLOW_REMOTE",
+            "DPI": "OCR_DPI",
+            "MAX_PAGES": "OCR_MAX_PAGES",
+            "LLAMA_SERVER_PATH": "OCR_LLAMA_SERVER_PATH",
+            "MODEL_REPO": "OCR_MODEL_REPO",
+            "AUTO_START_SERVER": "OCR_AUTO_START_SERVER",
+        }
+
+        written_keys: Set[str] = set()
+        new_lines: list[str] = []
+
+        if target.is_file():
+            content = target.read_text(encoding="utf-8")
+            for line in content.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    new_lines.append(line)
+                    continue
+
+                if "=" in line:
+                    key_part, _ = line.split("=", 1)
+                    key = key_part.strip()
+                    canonical_key = aliases.get(key, key)
+                    if canonical_key in managed:
+                        new_lines.append(f"{key}={managed[canonical_key]}")
+                        written_keys.add(canonical_key)
+                        continue
+
+                new_lines.append(line)
+
+        # Append any managed keys that were not present in the existing file
+        unwritten = [k for k in managed if k not in written_keys]
+        if unwritten:
+            if new_lines and new_lines[-1].strip():
+                new_lines.append("")
+            for k in unwritten:
+                new_lines.append(f"{k}={managed[k]}")
+
+        # Atomic write
+        temp_file = target.with_suffix(".env.tmp")
+        temp_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        temp_file.replace(target)
+
+        # Synchronize os.environ so in-process environment readers see new values
+        for k, v in managed.items():
+            os.environ[k] = v
+
+        return target
+
 

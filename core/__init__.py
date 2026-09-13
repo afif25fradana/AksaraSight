@@ -39,6 +39,13 @@ from .pipeline import (
     ingest,
     is_pdf,
 )
+from .server_manager import (
+    ServerManager,
+    ServerOwnership,
+    ServerStatus,
+    ServerStatusInfo,
+    probe_server_health,
+)
 
 __all__ = [
     "BadRequestError",
@@ -60,7 +67,11 @@ __all__ = [
     "ResponseParsingError",
     "SUPPORTED_EXTENSIONS",
     "ServerError",
+    "ServerManager",
     "ServerOfflineError",
+    "ServerOwnership",
+    "ServerStatus",
+    "ServerStatusInfo",
     "ServerTimeoutError",
     "UnsupportedFormatError",
     "VisionClient",
@@ -68,6 +79,7 @@ __all__ = [
     "format_output",
     "ingest",
     "is_pdf",
+    "probe_server_health",
     "resolve_chat_endpoint",
     "resolve_unique_stem",
     "sanitize_filename_stem",

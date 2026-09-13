@@ -490,3 +490,45 @@ def test_cli_batch_streaming_exit_codes(
     ]
     exit_1 = main([str(in_dir), "-o", str(out_dir), "-q"])
     assert exit_1 == 1
+
+
+# ==============================================================================
+# Hardware Detection CLI Flag Tests
+# ==============================================================================
+
+@patch("cli.main.detect_hardware")
+def test_cli_detect_hardware_flag(
+    mock_detect: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --detect-hardware runs detection, prints summary, and exits with 0."""
+    from core.hardware import HardwareProfile
+
+    mock_detect.return_value = HardwareProfile(
+        gpu_name="NVIDIA Test GPU",
+        vram_mb=8192,
+        cuda_available=True,
+        cuda_supported=True,
+        vulkan_available=True,
+        cpu_name="Test CPU",
+        recommended_backend="cuda",
+        details="Test CUDA details",
+    )
+
+    exit_code = main(["--detect-hardware"])
+    assert exit_code == 0
+    mock_detect.assert_called_once()
+    captured = capsys.readouterr()
+    assert "SYSTEM HARDWARE DETECTION REPORT" in captured.out
+    assert "NVIDIA Test GPU" in captured.out
+    assert "RECOMMENDED BACKEND:  CUDA" in captured.out
+
+
+def test_cli_missing_input_shows_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify omitting input argument without special flags prints error and exits with 1."""
+    exit_code = main([])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "the following arguments are required: input" in captured.err

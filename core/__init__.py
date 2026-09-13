@@ -18,6 +18,11 @@ from .formatter import (
     sanitize_filename_stem,
     save_artifacts,
 )
+from .hardware import (
+    HardwareProfile,
+    PINNED_LLAMA_BUILD,
+    detect_hardware,
+)
 from .models import (
     JobConfig,
     JobStatus,
@@ -55,12 +60,14 @@ __all__ = [
     "EncryptedDocumentError",
     "ExtractedPage",
     "FilePreflightError",
+    "HardwareProfile",
     "JobConfig",
     "JobStatus",
     "MAX_RASTER_PIXELS",
     "OCREngine",
     "OCRResult",
     "OutputFormat",
+    "PINNED_LLAMA_BUILD",
     "PageResult",
     "PipelineError",
     "PROMPT_PRESETS",
@@ -76,6 +83,7 @@ __all__ = [
     "UnsupportedFormatError",
     "VisionClient",
     "check_preflight",
+    "detect_hardware",
     "format_output",
     "ingest",
     "is_pdf",

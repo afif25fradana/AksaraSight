@@ -344,6 +344,22 @@ def test_save_to_env_preserves_path_with_hash_and_spaces(tmp_path):
     assert s2.llama_server_path == path_with_hash
 
 
+def test_save_to_env_preserves_path_with_single_quotes(tmp_path):
+    """Verify paths containing literal single quotes (e.g. D'Angelo) are escaped and round-trip accurately (SEC-2.1)."""
+    env_file = tmp_path / "quote.env"
+    path_with_quote = r"C:\Users\D'Angelo\llama-server.exe"
+
+    s1 = Settings(llama_server_path=path_with_quote, model_repo="custom/ocr-model")
+    s1.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert r"OCR_LLAMA_SERVER_PATH='C:\Users\D\'Angelo\llama-server.exe'" in content
+
+    # Reload from env in a fresh load
+    s2 = Settings.from_env(env_file)
+    assert s2.llama_server_path == path_with_quote
+
+
 @pytest.mark.parametrize("bad_port_url", [
     "http://localhost:0/v1",
     "http://localhost:65536/v1",

@@ -480,11 +480,65 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
             runtime_dir = get_runtime_dir("b10930", "cpu")
             assert (runtime_dir / "manifest.json").is_file()
 
-            # Calling a second time must hit cache and do zero network calls
+            # Calling a second time without force must hit cache and do zero network calls
             mock_session.get.reset_mock()
             cached_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
             assert cached_exe == final_exe
             mock_session.get.assert_not_called()
+
+            # Calling a third time with force=True MUST bypass cache and re-download
+            mock_session.get.reset_mock()
+            forced_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=True)
+            assert forced_exe == final_exe
+            mock_session.get.assert_called_once()
+
+
+def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
+    """Verify force=True triggers a complete re-download and overwrites existing installation."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
+        zip_bytes = _create_test_zip({exe_name: b"binary v2", "version.txt": b"2.0"})
+        zip_digest = hashlib.sha256(zip_bytes).hexdigest()
+
+        # Seed an existing installation
+        runtime_dir = get_runtime_dir("b10930", "cpu")
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        (runtime_dir / exe_name).write_bytes(b"binary v1")
+        (runtime_dir / "manifest.json").write_text(json.dumps({"tag": "b10930", "backend": "cpu"}), encoding="utf-8")
+
+        mock_meta = {
+            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b10930-bin-win-cpu-x64.zip",
+                download_url="https://mock/cpu.zip",
+                size=len(zip_bytes),
+                digest=f"sha256:{zip_digest}",
+            )
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Length": str(len(zip_bytes))}
+        mock_resp.iter_content.return_value = [zip_bytes]
+        mock_resp.__enter__.return_value = mock_resp
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = mock_resp
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.validate_runtime_binary", return_value=True),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
+        ):
+            # force=False returns existing without network calls
+            p_cached = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=False)
+            assert p_cached.read_bytes() == b"binary v1"
+            mock_session.get.assert_not_called()
+
+            # force=True re-downloads and updates binary to v2
+            p_forced = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=True)
+            assert p_forced.read_bytes() == b"binary v2"
+            mock_session.get.assert_called_once()
+            assert (runtime_dir / "version.txt").read_bytes() == b"2.0"
 
 
 def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:

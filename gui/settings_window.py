@@ -40,6 +40,7 @@ from gui.theme import (
     COLOR_TEXT_PRIMARY,
     COLOR_TEXT_SECONDARY,
     COLOR_TEXT_SUBTLE,
+    align_segmented_button_corners,
 )
 
 
@@ -427,6 +428,7 @@ class SettingsWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family="Segoe UI", size=11),
         )
         self._seg_backend.grid(row=0, column=1, sticky="w", pady=6)
+        align_segmented_button_corners(self._seg_backend, COLOR_SURFACE_1)
 
         # 2. Local Endpoint URL
         lbl_ep = ctk.CTkLabel(
@@ -621,6 +623,7 @@ class SettingsWindow(ctk.CTkToplevel):
             command=self._on_runtime_mode_changed,
         )
         self._seg_runtime_mode.grid(row=0, column=1, sticky="w", pady=6)
+        align_segmented_button_corners(self._seg_runtime_mode, COLOR_SURFACE_1)
 
         # Container for runtime views
         self._runtime_container = ctk.CTkFrame(container, fg_color="transparent")
@@ -699,6 +702,7 @@ class SettingsWindow(ctk.CTkToplevel):
             command=self._on_managed_backend_changed,
         )
         self._seg_managed_backend.grid(row=1, column=1, sticky="w", padx=10, pady=4)
+        align_segmented_button_corners(self._seg_managed_backend, COLOR_SURFACE_2)
 
         # Installation Status
         lbl_status_title = ctk.CTkLabel(

@@ -51,3 +51,21 @@ COLOR_CHIP_IMG_TEXT = "#38bdf8"
 
 # Drag & Drop Highlight
 COLOR_DRAGOVER_BG = "#192833"
+
+
+def align_segmented_button_corners(seg: object, parent_bg: str) -> None:
+    """Align outer segment button canvas background with parent surface.
+
+    CTkSegmentedButton buttons inherit their master's fg_color as their canvas
+    background by default. On scaled displays, subpixel canvas allocation can leave
+    an unpainted outer edge where this canvas background bleeds through outside the
+    outer rounded corner curve. Setting the last segment button's bg_color to the
+    surrounding parent container background eliminates this corner clipping notch.
+    """
+    values = getattr(seg, "cget", lambda k: [])("values")
+    buttons_dict = getattr(seg, "_buttons_dict", {})
+    if values and len(values) > 0 and buttons_dict:
+        last_btn = buttons_dict.get(values[-1])
+        if last_btn is not None and hasattr(last_btn, "configure"):
+            last_btn.configure(bg_color=parent_bg)
+

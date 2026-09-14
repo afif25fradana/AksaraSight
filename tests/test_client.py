@@ -351,7 +351,7 @@ def test_response_parsing_invalid_choice_or_message() -> None:
 
 
 def test_response_parsing_defensive_null_content() -> None:
-    # Empirical check from llama.cpp / OpenAI: when content is None/null, handle defensively
+    # Empirical check from llama.cpp / OpenAI: when content is None/null, reject as parsing error (C-2)
     mock_response = MagicMock(spec=requests.Response)
     mock_response.status_code = 200
     mock_response.json.return_value = {
@@ -362,8 +362,8 @@ def test_response_parsing_defensive_null_content() -> None:
     mock_session.post.return_value = mock_response
 
     client = VisionClient(session=mock_session)
-    text, _, _ = client.complete("data:image/jpeg;base64,abc")
-    assert text == ""
+    with pytest.raises(ResponseParsingError, match="Model returned null/empty content"):
+        client.complete("data:image/jpeg;base64,abc")
 
 
 def test_response_parsing_empty_string_content() -> None:

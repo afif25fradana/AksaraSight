@@ -185,7 +185,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         except Exception:
             pass
 
-        self.settings = settings or getattr(engine, "settings", None) or Settings.from_env()
+        engine_settings = getattr(engine, "settings", None)
+        if not isinstance(engine_settings, Settings):
+            engine_settings = None
+        self.settings = settings or engine_settings or Settings.from_env()
         self.engine = engine or OCREngine(self.settings)
         self.server_manager = server_manager or ServerManager(settings=self.settings)
         self._settings_window: Optional[SettingsWindow] = None
@@ -2015,7 +2018,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 try:
                     # Apply any pending settings updates at document boundary (SEC-3.1)
                     self._apply_pending_engine_settings()
-                    job_cfg = JobConfig()
+                    job_cfg = JobConfig(
+                        max_pages=self.settings.max_pages,
+                        dpi=self.settings.dpi,
+                        max_image_dimension=self.settings.max_image_dimension,
+                    )
                     result = self.engine.process_document(
                         file_path_str,
                         config=job_cfg,

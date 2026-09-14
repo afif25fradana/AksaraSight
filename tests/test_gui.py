@@ -2510,3 +2510,130 @@ def test_segmented_button_styling_consistency():
     finally:
         parent.destroy()
 
+
+def test_gui_worker_forwards_settings_to_job_config(tmp_path):
+    """Verify GUI worker forwards max_pages, dpi, and max_image_dimension to JobConfig (C-1, C-5)."""
+    mock_engine = MagicMock()
+    test_file = tmp_path / "sample.pdf"
+    test_file.write_bytes(b"dummy")
+
+    fake_result = OCRResult(file_path=str(test_file), status=JobStatus.SUCCESS)
+    mock_engine.process_document.return_value = fake_result
+
+    custom_settings = Settings(
+        max_pages=3,
+        dpi=150,
+        max_image_dimension=1536,
+    )
+    app = OCRApp(engine=mock_engine, settings=custom_settings)
+    app.withdraw()
+
+    try:
+        app.enqueue_file(test_file)
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            app._process_result_queue()
+            if mock_engine.process_document.call_count > 0 and app._status_label.cget("text").startswith("Done:"):
+                break
+            time.sleep(0.05)
+
+        assert mock_engine.process_document.call_count == 1
+        call_kwargs = mock_engine.process_document.call_args.kwargs
+        cfg = call_kwargs.get("config")
+        assert cfg is not None
+        assert cfg.max_pages == 3
+        assert cfg.dpi == 150
+        assert cfg.max_image_dimension == 1536
+    finally:
+        app._on_closing()
+
+
+def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
+    """Verify CLI and GUI construct identical JobConfig and produce identical page counts for multi-page docs (C-1, C-5)."""
+    from cli.main import main
+    from core.engine import OCREngine
+    from core.pipeline import ExtractedPage
+
+    custom_settings = Settings(
+        max_pages=2,
+        dpi=120,
+        max_image_dimension=1536,
+    )
+    test_file = tmp_path / "multipage.pdf"
+    test_file.write_bytes(b"pdf-dummy-content")
+
+    # 4 simulated pages from ingestion pipeline
+    fake_pages = [
+        ExtractedPage(page_num=i, image_b64="data:image/jpeg;base64,abc", total_pages=4)
+        for i in range(1, 5)
+    ]
+
+    mock_client = MagicMock()
+    mock_client.complete.return_value = ("Extracted text", {"choices": []}, 0.05)
+
+    captured_cli_result = []
+    captured_gui_result = []
+
+    # 1. Process via CLI with settings
+    monkeypatch.setenv("OCR_MAX_PAGES", "2")
+    monkeypatch.setenv("OCR_DPI", "120")
+    monkeypatch.setenv("OCR_MAX_IMAGE_DIMENSION", "1536")
+
+    real_cli_engine = OCREngine(settings=custom_settings, client=mock_client)
+    with patch("cli.main.Settings.from_env", return_value=custom_settings), \
+         patch("cli.main.OCREngine", return_value=real_cli_engine), \
+         patch("core.engine.ingest", return_value=iter(fake_pages)):
+        orig_proc = real_cli_engine.process_document
+        def spy_cli_proc(*args, **kwargs):
+            res = orig_proc(*args, **kwargs)
+            captured_cli_result.append((kwargs.get("config"), res))
+            return res
+        real_cli_engine.process_document = spy_cli_proc
+
+        exit_code = main([str(test_file)])
+        assert exit_code == 0
+
+    # 2. Process via GUI with same settings
+    fake_pages_gui = [
+        ExtractedPage(page_num=i, image_b64="data:image/jpeg;base64,abc", total_pages=4)
+        for i in range(1, 5)
+    ]
+    real_gui_engine = OCREngine(settings=custom_settings, client=mock_client)
+    with patch("core.engine.ingest", return_value=iter(fake_pages_gui)):
+        orig_gui_proc = real_gui_engine.process_document
+        def spy_gui_proc(*args, **kwargs):
+            res = orig_gui_proc(*args, **kwargs)
+            captured_gui_result.append((kwargs.get("config"), res))
+            return res
+        real_gui_engine.process_document = spy_gui_proc
+
+        gui_app = OCRApp(engine=real_gui_engine, settings=custom_settings)
+        gui_app.withdraw()
+        try:
+            gui_app.enqueue_file(test_file)
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                gui_app._process_result_queue()
+                if len(captured_gui_result) > 0 and gui_app._status_label.cget("text").startswith("Done:"):
+                    break
+                time.sleep(0.05)
+        finally:
+            gui_app._on_closing()
+
+    assert len(captured_cli_result) == 1
+    assert len(captured_gui_result) == 1
+
+    cli_cfg, cli_res = captured_cli_result[0]
+    gui_cfg, gui_res = captured_gui_result[0]
+
+    # JobConfig parity assertion (C-1, C-5)
+    assert gui_cfg.max_pages == cli_cfg.max_pages == 2
+    assert gui_cfg.dpi == cli_cfg.dpi == 120
+    assert gui_cfg.max_image_dimension == cli_cfg.max_image_dimension == 1536
+
+    # Page count parity assertion (C-5): both must produce exactly 2 pages from a 4-page doc
+    assert len(cli_res.pages) == 2
+    assert len(gui_res.pages) == 2
+    assert len(cli_res.pages) == len(gui_res.pages)
+
+

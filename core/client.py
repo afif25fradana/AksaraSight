@@ -282,9 +282,8 @@ class VisionClient:
             )
 
         content = message.get("content")
-        # Defensive fallback: llama.cpp sets "" on empty content, but OpenAI spec allows null.
         if content is None:
-            text = ""
+            raise ResponseParsingError("Model returned null/empty content in message")
         elif isinstance(content, str):
             text = content.strip()
         else:

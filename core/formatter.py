@@ -211,12 +211,24 @@ def save_artifacts(
 
     if "markdown" in formatted:
         md_file = out_dir / f"{safe_stem}.md"
-        md_file.write_text(formatted["markdown"], encoding="utf-8")
+        temp_file = md_file.with_suffix(".md.tmp")
+        try:
+            temp_file.write_text(formatted["markdown"], encoding="utf-8")
+            temp_file.replace(md_file)
+        except Exception:
+            temp_file.unlink(missing_ok=True)
+            raise
         saved_paths["markdown"] = md_file.resolve()
 
     if "json" in formatted:
         json_file = out_dir / f"{safe_stem}.json"
-        json_file.write_text(formatted["json"], encoding="utf-8")
+        temp_file = json_file.with_suffix(".json.tmp")
+        try:
+            temp_file.write_text(formatted["json"], encoding="utf-8")
+            temp_file.replace(json_file)
+        except Exception:
+            temp_file.unlink(missing_ok=True)
+            raise
         saved_paths["json"] = json_file.resolve()
 
     return saved_paths

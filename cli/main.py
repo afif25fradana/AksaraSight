@@ -186,7 +186,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         output_format=output_fmt,
         prompt_mode=args.prompt_mode,
         custom_prompt=args.prompt,
-        max_pages=args.max_pages,
+        max_pages=args.max_pages if args.max_pages is not None else settings.max_pages,
         dpi=args.dpi or settings.dpi,
         max_image_dimension=settings.max_image_dimension,
     )

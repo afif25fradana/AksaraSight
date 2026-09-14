@@ -59,9 +59,9 @@ def test_page_result_defaults():
 
 
 def test_ocr_result_empty():
-    """Verify OCRResult with no pages and no error resolves to SUCCESS."""
+    """Verify OCRResult with no pages and no error resolves to FAILED (C-4 defense-in-depth)."""
     result = OCRResult(file_path="sample.png")
-    assert result.resolve_status() == JobStatus.SUCCESS
+    assert result.resolve_status() == JobStatus.FAILED
     assert result.markdown == ""
 
 

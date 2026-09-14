@@ -149,7 +149,7 @@ class OCRResult:
         Rules:
         - If cancellation was requested: CANCELLED.
         - If document-level error is present: FAILED.
-        - If no pages exist: SUCCESS (if no error), otherwise FAILED.
+        - If no pages exist: FAILED.
         - If all pages succeeded: SUCCESS.
         - If all pages failed: FAILED.
         - If some pages succeeded and some failed: PARTIAL.
@@ -166,7 +166,7 @@ class OCRResult:
             return self.status
 
         if not self.pages:
-            self.status = JobStatus.SUCCESS
+            self.status = JobStatus.FAILED
             return self.status
 
         success_count = sum(1 for p in self.pages if p.status == JobStatus.SUCCESS)

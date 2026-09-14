@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 
 from core.formatter import (
@@ -267,5 +268,40 @@ def test_save_artifacts_path_privacy_sanitization(tmp_path: Path) -> None:
     )
     exported_raw_json = json.loads(saved_raw["json"].read_text(encoding="utf-8"))
     assert exported_raw_json["file_path"] == str(raw_path)
+
+
+def test_save_artifacts_atomic_write_preserves_existing_on_error(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts writes atomically and unlinks .tmp without corrupting existing file on error (C-6)."""
+    config = JobConfig(output_format=OutputFormat.BOTH)
+
+    # 1. Clean run writes files atomically
+    saved = save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+    md_file = saved["markdown"]
+    json_file = saved["json"]
+    assert md_file.exists()
+    assert json_file.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+    orig_md_content = md_file.read_text(encoding="utf-8")
+
+    # 2. Simulate write_text failure on next save
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, data, *args, **kwargs):
+        if str(self).endswith(".tmp"):
+            raise OSError("Simulated disk error during temp write")
+        return real_write_text(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(OSError, match="Simulated disk error"):
+            save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+
+    # Verify original file was not corrupted and no lingering .tmp files remain
+    assert md_file.read_text(encoding="utf-8") == orig_md_content
+    assert not list(tmp_path.glob("*.tmp"))
+
 
 

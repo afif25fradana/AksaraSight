@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 VALID_BACKENDS: Set[str] = {"llama-cpp", "ollama", "vllm"}
+VALID_RUNTIME_MODES: Set[str] = {"managed", "custom"}
+VALID_MANAGED_BACKENDS: Set[str] = {"auto", "cuda", "vulkan", "cpu"}
 LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -45,6 +47,8 @@ class Settings:
         timeout: Network request timeout in seconds.
         max_retries: Maximum number of retry attempts upon transient network failure.
         allow_remote: Explicit opt-in flag to permit non-loopback / remote endpoints.
+        runtime_mode: Binary management mode ('managed' for auto-download, 'custom' for manual path).
+        managed_backend_override: Acceleration backend override for managed runtime ('auto', 'cuda', 'vulkan', 'cpu').
     """
 
     backend: str = "llama-cpp"
@@ -52,6 +56,8 @@ class Settings:
     timeout: float = 60.0
     max_retries: int = 2
     allow_remote: bool = False
+    runtime_mode: str = "custom"
+    managed_backend_override: str = "auto"
     llama_server_path: Optional[str] = None
     model_repo: str = "ggml-org/GLM-OCR-GGUF"
     auto_start_server: bool = False
@@ -63,6 +69,26 @@ class Settings:
         """Validate and normalize configuration attributes across all construction paths."""
         # Allow remote validation
         object.__setattr__(self, "allow_remote", _to_bool(self.allow_remote))
+
+        # Runtime mode validation & normalization
+        if not isinstance(self.runtime_mode, str):
+            raise ValueError(f"RUNTIME_MODE must be a string, got: '{self.runtime_mode}'")
+        clean_runtime_mode = self.runtime_mode.strip().lower()
+        if clean_runtime_mode not in VALID_RUNTIME_MODES:
+            valid_modes = ", ".join(sorted(VALID_RUNTIME_MODES))
+            raise ValueError(f"Invalid RUNTIME_MODE: '{self.runtime_mode}'. Must be one of: {valid_modes}")
+        object.__setattr__(self, "runtime_mode", clean_runtime_mode)
+
+        # Managed backend override validation & normalization
+        if not isinstance(self.managed_backend_override, str):
+            raise ValueError(f"MANAGED_BACKEND_OVERRIDE must be a string, got: '{self.managed_backend_override}'")
+        clean_backend_override = self.managed_backend_override.strip().lower()
+        if clean_backend_override not in VALID_MANAGED_BACKENDS:
+            valid_backends = ", ".join(sorted(VALID_MANAGED_BACKENDS))
+            raise ValueError(
+                f"Invalid MANAGED_BACKEND_OVERRIDE: '{self.managed_backend_override}'. Must be one of: {valid_backends}"
+            )
+        object.__setattr__(self, "managed_backend_override", clean_backend_override)
 
         # Backend validation & normalization
         if not isinstance(self.backend, str):
@@ -171,6 +197,33 @@ class Settings:
         parsed = urlsplit(self.local_endpoint)
         return (parsed.hostname or "").lower() in LOOPBACK_HOSTS
 
+    @property
+    def effective_llama_server_path(self) -> Optional[str]:
+        """Resolve the effective llama-server binary path based on runtime_mode.
+
+        In 'custom' mode: returns the configured manual path (llama_server_path).
+        In 'managed' mode: resolves the target backend (override or cached hardware profile)
+        and retrieves the verified managed binary path from disk.
+
+        Returns:
+            Optional[str]: Absolute path string to the executable, or None if unconfigured/uninstalled.
+        """
+        if self.runtime_mode == "custom":
+            return self.llama_server_path
+
+        # Managed mode
+        backend = self.managed_backend_override
+        if backend == "auto":
+            from core.hardware import get_cached_hardware_profile
+
+            profile = get_cached_hardware_profile()
+            backend = profile.recommended_backend
+
+        from core.runtime_manager import get_installed_runtime_path
+
+        installed_path = get_installed_runtime_path(backend=backend)
+        return str(installed_path) if installed_path is not None else None
+
     @classmethod
     def from_env(cls, env_path: Optional[str | Path] = None) -> "Settings":
         """Load and validate settings from environment variables and .env file.
@@ -199,6 +252,17 @@ class Settings:
         allow_remote = _to_bool(_get_env_with_fallback("OCR_ALLOW_REMOTE", "ALLOW_REMOTE", "false"))
 
         raw_llama_path = _get_env_with_fallback("OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH")
+        raw_runtime_mode = _get_env_with_fallback("OCR_RUNTIME_MODE", "RUNTIME_MODE")
+        if raw_runtime_mode is not None and raw_runtime_mode.strip():
+            runtime_mode = raw_runtime_mode.strip().lower()
+        else:
+            # Backward compatibility rule: if a custom path is already configured in env, default to custom.
+            # New installs without a configured path default to managed.
+            runtime_mode = "custom" if (raw_llama_path and raw_llama_path.strip()) else "managed"
+
+        raw_backend_override = _get_env_with_fallback("OCR_MANAGED_BACKEND_OVERRIDE", "MANAGED_BACKEND_OVERRIDE", "auto")
+        managed_backend_override = raw_backend_override.strip().lower() if raw_backend_override else "auto"
+
         model_repo = _get_env_with_fallback("OCR_MODEL_REPO", "MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
         auto_start = _to_bool(_get_env_with_fallback("OCR_AUTO_START_SERVER", "AUTO_START_SERVER", "false"))
 
@@ -214,6 +278,8 @@ class Settings:
             timeout=raw_timeout,  # type: ignore[arg-type]
             max_retries=raw_retries,  # type: ignore[arg-type]
             allow_remote=allow_remote,
+            runtime_mode=runtime_mode,
+            managed_backend_override=managed_backend_override,
             llama_server_path=raw_llama_path,
             model_repo=model_repo,
             auto_start_server=auto_start,
@@ -240,6 +306,8 @@ class Settings:
             "OCR_TIMEOUT": str(self.timeout),
             "OCR_MAX_RETRIES": str(self.max_retries),
             "OCR_ALLOW_REMOTE": "true" if self.allow_remote else "false",
+            "OCR_RUNTIME_MODE": self.runtime_mode,
+            "OCR_MANAGED_BACKEND_OVERRIDE": self.managed_backend_override,
             "OCR_DPI": str(self.dpi),
             "OCR_MAX_PAGES": str(self.max_pages) if self.max_pages is not None else "",
             "OCR_MAX_IMAGE_DIMENSION": str(self.max_image_dimension),
@@ -255,6 +323,8 @@ class Settings:
             "TIMEOUT": "OCR_TIMEOUT",
             "MAX_RETRIES": "OCR_MAX_RETRIES",
             "ALLOW_REMOTE": "OCR_ALLOW_REMOTE",
+            "RUNTIME_MODE": "OCR_RUNTIME_MODE",
+            "MANAGED_BACKEND_OVERRIDE": "OCR_MANAGED_BACKEND_OVERRIDE",
             "DPI": "OCR_DPI",
             "MAX_PAGES": "OCR_MAX_PAGES",
             "MAX_IMAGE_DIMENSION": "OCR_MAX_IMAGE_DIMENSION",

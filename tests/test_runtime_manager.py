@@ -682,3 +682,67 @@ def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> 
             # Invariant: all staging_* folders must be wiped
             staging_dirs = list(tmp_path.glob("staging_*"))
             assert len(staging_dirs) == 0
+
+
+def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> None:
+    """Verify that if staging_dir.rename(runtime_dir) fails, the backup is restored atomically."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        tag = "b10930"
+        backend = "cpu"
+        runtime_dir = get_runtime_dir(tag, backend)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
+        (runtime_dir / exe_name).write_bytes(b"original v1 binary")
+        (runtime_dir / "canary.txt").write_text("v1-canary-preserved", encoding="utf-8")
+        manifest = {"tag": tag, "backend": backend, "executable": exe_name, "installed_at": "2026-01-01T00:00:00Z", "assets": []}
+        (runtime_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        new_zip = _create_test_zip({exe_name: b"new v2 binary"})
+        new_digest = hashlib.sha256(new_zip).hexdigest()
+        asset_name = "llama-b10930-bin-win-cpu-x64.zip"
+
+        mock_meta = {
+            asset_name: ReleaseAssetInfo(
+                name=asset_name,
+                download_url="https://mock/cpu.zip",
+                size=len(new_zip),
+                digest=f"sha256:{new_digest}",
+            )
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Length": str(len(new_zip))}
+        mock_resp.iter_content.return_value = [new_zip]
+        mock_resp.__enter__.return_value = mock_resp
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = mock_resp
+
+        real_rename = Path.rename
+
+        def failing_rename(self, target, *args, **kwargs):
+            if "staging_" in str(self) and str(target) == str(runtime_dir):
+                raise OSError("Simulated Windows directory lock failure during rename")
+            return real_rename(self, target, *args, **kwargs)
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.validate_runtime_binary", return_value=True),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {asset_name: new_digest}),
+            patch.object(Path, "rename", side_effect=failing_rename, autospec=True),
+        ):
+            with pytest.raises(OSError, match="directory lock failure"):
+                ensure_runtime(backend="cpu", tag=tag, session=mock_session, force=True)
+
+            # Invariant: original runtime_dir was restored by the rollback branch
+            assert runtime_dir.exists()
+            assert (runtime_dir / "canary.txt").read_text(encoding="utf-8") == "v1-canary-preserved"
+            assert (runtime_dir / exe_name).read_bytes() == b"original v1 binary"
+
+            # Invariant: staging_* folders and temporary backups must not linger
+            backups = list(tmp_path.glob("*_old_*"))
+            assert len(backups) == 0
+            stagings = list(tmp_path.glob("staging_*"))
+            assert len(stagings) == 0
+

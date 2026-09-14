@@ -435,3 +435,98 @@ def test_server_manager_start_managed_installed_resolves_effective_path(tmp_path
     finally:
         mgr.shutdown()
 
+
+def test_real_loopback_server_manager_and_vision_client_integration():
+    """Verify ServerManager and VisionClient communicate cohesively across a real loopback TCP socket."""
+    import http.server
+    import json
+    import threading
+    from core.client import VisionClient
+
+    class FakeOpenAIHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/health", "/v1/health"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status": "ok"}')
+            elif self.path in ("/v1/models", "/models"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"data": [{"id": "GLM-OCR"}]}')
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            if self.path in ("/v1/chat/completions", "/chat/completions"):
+                content_length = int(self.headers.get("Content-Length", 0))
+                req_body = self.rfile.read(content_length)
+                assert len(req_body) > 0
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                resp_payload = {
+                    "id": "cmpl-test-loopback",
+                    "object": "chat.completion",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "# Extracted OCR Heading\nReal loopback content.",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+                self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), FakeOpenAIHandler)
+    server_port = server.server_address[1]
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    try:
+        endpoint = f"http://127.0.0.1:{server_port}/v1"
+        settings = Settings(
+            local_endpoint=endpoint,
+            model_repo="ggml-org/GLM-OCR-GGUF",
+            timeout=5.0,
+            max_retries=1,
+        )
+
+        # 1. Test ServerManager status polling against real loopback socket
+        sm = ServerManager(settings=settings)
+        try:
+            status_info = sm.poll_status()
+            assert status_info.status == ServerStatus.READY
+            assert "ready" in status_info.message.lower()
+        finally:
+            sm.shutdown()
+
+        # 2. Test VisionClient completion against real loopback socket
+        client = VisionClient(settings=settings)
+        try:
+            text, raw_json, latency = client.complete(
+                image_b64="data:image/jpeg;base64,ZmFrZQ==",
+                prompt="Text Recognition:",
+            )
+            assert text == "# Extracted OCR Heading\nReal loopback content."
+            assert raw_json["id"] == "cmpl-test-loopback"
+            assert latency > 0.0
+        finally:
+            client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+

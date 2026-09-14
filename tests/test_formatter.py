@@ -304,4 +304,33 @@ def test_save_artifacts_atomic_write_preserves_existing_on_error(
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_save_artifacts_json_atomic_replace_preserves_existing_on_error(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts unlinks .json.tmp and preserves existing .json on replace failure."""
+    config = JobConfig(output_format=OutputFormat.JSON)
+
+    saved = save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+    json_file = saved["json"]
+    assert json_file.exists()
+    orig_json_content = json_file.read_text(encoding="utf-8")
+
+    real_replace = Path.replace
+
+    def failing_replace(self, target, *args, **kwargs):
+        if str(self).endswith(".json.tmp"):
+            raise OSError("Simulated disk error during json replace")
+        return real_replace(self, target, *args, **kwargs)
+
+    with patch.object(Path, "replace", side_effect=failing_replace, autospec=True):
+        with pytest.raises(OSError, match="Simulated disk error during json replace"):
+            save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+
+    # Verify original json file was not corrupted and no lingering .tmp files remain
+    assert json_file.read_text(encoding="utf-8") == orig_json_content
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+
 

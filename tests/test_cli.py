@@ -2,6 +2,8 @@
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -532,3 +534,34 @@ def test_cli_missing_input_shows_error(
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "the following arguments are required: input" in captured.err
+
+
+def test_cli_main_launch_subprocess() -> None:
+    """Verify 'python -m cli.main --help' launches via __main__ block cleanly."""
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-m", "cli.main", "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"cli.main failed to launch:\n{result.stderr}"
+    assert "usage:" in result.stdout.lower()
+
+
+def test_cli_real_engine_integration(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify CLI main() runs end-to-end with real OCREngine, real Settings, and real pipeline (only VisionClient mocked)."""
+    from PIL import Image
+
+    test_img = tmp_path / "invoice.png"
+    Image.new("RGB", (150, 150), color="white").save(test_img)
+
+    with patch("core.client.VisionClient.complete", return_value=("# Real Invoice Title\nLine item text", {"id": "test"}, 0.05)):
+        exit_code = main([str(test_img), "--dpi", "100", "--max-pages", "1"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "# Real Invoice Title" in captured.out
+    assert "Line item text" in captured.out
+

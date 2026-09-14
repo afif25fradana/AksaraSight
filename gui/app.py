@@ -2018,10 +2018,15 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 try:
                     # Apply any pending settings updates at document boundary (SEC-3.1)
                     self._apply_pending_engine_settings()
+                    effective_settings = (
+                        self.engine.settings
+                        if hasattr(self.engine, "settings") and isinstance(self.engine.settings, Settings)
+                        else self.settings
+                    )
                     job_cfg = JobConfig(
-                        max_pages=self.settings.max_pages,
-                        dpi=self.settings.dpi,
-                        max_image_dimension=self.settings.max_image_dimension,
+                        max_pages=effective_settings.max_pages,
+                        dpi=effective_settings.dpi,
+                        max_image_dimension=effective_settings.max_image_dimension,
                     )
                     result = self.engine.process_document(
                         file_path_str,
@@ -2429,6 +2434,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 self.engine.client.settings = pending_s
             if hasattr(self.engine, "settings"):
                 self.engine.settings = pending_s
+            self.settings = pending_s
 
     def _on_settings_saved(self, new_settings: Settings) -> None:
         """Callback invoked when preferences are updated and saved in SettingsWindow."""

@@ -114,9 +114,9 @@ def _parse_driver_version(ver_str: Optional[str]) -> Optional[Tuple[int, int]]:
 
 def _probe_nvidia_smi() -> Optional[Tuple[str, int, str]]:
     """Query nvidia-smi for primary GPU name, total VRAM (MB), and driver version."""
-    nvsmi = shutil.which("nvidia-smi")
-    if not nvsmi and sys.platform == "win32":
-        # Check standard Windows installation directory if not in PATH
+    nvsmi: Optional[str] = None
+    if sys.platform == "win32":
+        # Check standard Windows installation directories first to avoid CWD binary hijacking
         for default_path in (
             Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "nvidia-smi.exe",
             Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
@@ -124,6 +124,9 @@ def _probe_nvidia_smi() -> Optional[Tuple[str, int, str]]:
             if default_path.is_file():
                 nvsmi = str(default_path)
                 break
+
+    if not nvsmi:
+        nvsmi = shutil.which("nvidia-smi")
 
     if not nvsmi:
         return None

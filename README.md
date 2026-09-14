@@ -10,6 +10,7 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 - **Production-Ready**: All 5 core architectural phases complete (Core Pipeline, CLI Interface, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **Extensively Audited**: Hardened across 7 rigorous audit cycles: Security (2 rounds), Performance, Code Quality (Ponytail simplification), Correctness & Data Integrity, Test Coverage Gaps, UX & Accessibility, and a dedicated Managed Runtime supply-chain security review.
 - **Robust Test Suite**: 345 unit and integration tests passing with 100% pass rate.
+- **Project History**: See [CHANGELOG.md](CHANGELOG.md) for the complete milestone evolution, audit breakdowns, and test history.
 
 ---
 

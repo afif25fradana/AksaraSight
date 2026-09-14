@@ -2637,3 +2637,90 @@ def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
     assert len(cli_res.pages) == len(gui_res.pages)
 
 
+def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
+    """Verify settings changed mid-document do not affect in-flight document's JobConfig and apply to next document."""
+    doc1 = tmp_path / "doc1.pdf"
+    doc2 = tmp_path / "doc2.pdf"
+    doc1.write_bytes(b"content1")
+    doc2.write_bytes(b"content2")
+
+    initial_settings = Settings(dpi=100, max_pages=1, max_image_dimension=1024)
+    updated_settings = Settings(dpi=200, max_pages=5, max_image_dimension=2048)
+
+    mock_engine = MagicMock()
+    mock_engine.settings = initial_settings
+
+    captured_configs = []
+    mid_doc_triggered = threading.Event()
+    doc1_release = threading.Event()
+
+    def mock_process_document(file_path_str, config=None, cancel_token=None, progress_callback=None):
+        captured_configs.append((file_path_str, config))
+        if "doc1.pdf" in file_path_str:
+            # Signal that doc1 is actively in-flight
+            mid_doc_triggered.set()
+            # Block until test signals to complete doc1
+            doc1_release.wait(timeout=2.0)
+        return OCRResult(file_path=file_path_str, status=JobStatus.SUCCESS)
+
+    mock_engine.process_document.side_effect = mock_process_document
+
+    app = OCRApp(engine=mock_engine, settings=initial_settings)
+    app.withdraw()
+
+    try:
+        # Enqueue doc1 and doc2
+        app.enqueue_file(doc1)
+        app.enqueue_file(doc2)
+
+        # Wait until doc1 is actively in-flight inside process_document
+        assert mid_doc_triggered.wait(timeout=2.0)
+
+        # At this exact moment, doc1 is in-flight:
+        # 1. doc1's JobConfig was created with initial_settings
+        assert len(captured_configs) == 1
+        doc1_path, doc1_cfg = captured_configs[0]
+        assert "doc1.pdf" in doc1_path
+        assert doc1_cfg.dpi == 100
+        assert doc1_cfg.max_pages == 1
+        assert doc1_cfg.max_image_dimension == 1024
+
+        # 2. Simulate user saving new settings in UI while doc1 is in-flight
+        app._on_settings_saved(updated_settings)
+
+        # Staged mechanism: _pending_engine_settings must hold updated_settings
+        assert app._pending_engine_settings == updated_settings
+
+        # In-flight doc1's JobConfig must NOT have changed
+        assert doc1_cfg.dpi == 100
+        assert doc1_cfg.max_pages == 1
+        assert doc1_cfg.max_image_dimension == 1024
+
+        # Release doc1 to complete
+        doc1_release.set()
+
+        # Wait for doc2 to be processed
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            app._process_result_queue()
+            if len(captured_configs) >= 2:
+                break
+            time.sleep(0.05)
+
+        assert len(captured_configs) == 2
+        doc2_path, doc2_cfg = captured_configs[1]
+        assert "doc2.pdf" in doc2_path
+
+        # 3. doc2 started after boundary: must receive updated_settings
+        assert doc2_cfg.dpi == 200
+        assert doc2_cfg.max_pages == 5
+        assert doc2_cfg.max_image_dimension == 2048
+
+        # Staged pending settings was cleared at the document boundary
+        assert app._pending_engine_settings is None
+    finally:
+        doc1_release.set()
+        app._on_closing()
+
+
+

@@ -66,6 +66,7 @@ from gui.theme import (
     COLOR_TEXT_PRIMARY,
     COLOR_TEXT_SECONDARY,
     COLOR_TEXT_SUBTLE,
+    align_segmented_button_corners,
 )
 
 from gui.settings_window import SettingsWindow
@@ -552,6 +553,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         tab_preview = self._tabview.add("Text Preview")
         tab_image = self._tabview.add("Image Preview")
         tab_json = self._tabview.add("JSON Tree")
+        align_segmented_button_corners(self._tabview._segmented_button, COLOR_CANVAS_BG)
 
         # Tab 1: Raw Markdown Textbox
         self._tb_markdown = ctk.CTkTextbox(

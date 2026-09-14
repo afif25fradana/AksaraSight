@@ -103,6 +103,7 @@ class WorkerEvent:
     current_page: int = 0
     total_pages: int = 0
     page_result: Optional[PageResult] = None
+    processed_dpi: Optional[int] = None
 
 
 @dataclass
@@ -115,6 +116,7 @@ class QueueItem:
     result: Optional[OCRResult] = None
     error: Optional[str] = None
     file_size_str: Optional[str] = None
+    processed_dpi: Optional[int] = None
     # UI references
     row_frame: Optional[ctk.CTkFrame] = None
     indicator_bar: Optional[ctk.CTkFrame] = None
@@ -122,6 +124,33 @@ class QueueItem:
     badge_label: Optional[ctk.CTkLabel] = None
     name_label: Optional[ctk.CTkLabel] = None
     detail_label: Optional[ctk.CTkLabel] = None
+
+
+def _friendly_err(exc: Any) -> str:
+    """Map common exceptions to user-friendly plain-language error messages for footer/UI display.
+
+    Diagnostic details are preserved in log files via logger; this helper filters out
+    technical OS error codes (e.g. WinError 2, Errno 13) and raw tracebacks from the UI.
+    """
+    if exc is None:
+        return "Unknown error"
+    if not isinstance(exc, Exception):
+        return str(exc)[:120]
+
+    if isinstance(exc, FileNotFoundError):
+        if getattr(exc, "errno", None) is not None:
+            fn = getattr(exc, "filename", None)
+            return f"File not found: {fn}" if fn else f"File not found: {exc.strerror or str(exc)}"
+        return str(exc)
+
+    if isinstance(exc, PermissionError):
+        fn = getattr(exc, "filename", None)
+        return f"Permission denied: {fn}" if fn else "Permission denied — check folder permissions."
+
+    if isinstance(exc, ConnectionError):
+        return f"Connection failed: {exc}"
+
+    return str(exc)[:120]
 
 
 def _init_tkinterdnd(tkroot: Any) -> str:
@@ -218,6 +247,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._pending_engine_settings: Optional[Settings] = None
         self._current_image_page_idx: int = 0
         self._current_ctk_image: Optional[ctk.CTkImage] = None
+        self._progress_indeterminate: bool = False
         self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._is_exporting: bool = False
         self._export_thread: Optional[threading.Thread] = None
@@ -574,6 +604,15 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tb_markdown.pack(fill="both", expand=True, padx=4, pady=4)
 
         # Tab 2: Formatted Preview Textbox
+        self._lbl_preview_disclaimer = ctk.CTkLabel(
+            tab_preview,
+            text="Preview applies light formatting — switch to Raw Markdown for exact output",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=COLOR_TEXT_SUBTLE,
+            anchor="w",
+        )
+        self._lbl_preview_disclaimer.pack(side="bottom", fill="x", padx=6, pady=(0, 4))
+
         self._tb_preview = ctk.CTkTextbox(
             tab_preview,
             corner_radius=6,
@@ -586,7 +625,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
             scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
         )
-        self._tb_preview.pack(fill="both", expand=True, padx=4, pady=4)
+        self._tb_preview.pack(side="top", fill="both", expand=True, padx=4, pady=(4, 2))
 
         # Configure rich markdown tags on underlying Tk text widget
         tw = self._tb_preview._textbox
@@ -1100,8 +1139,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if item.result and item.result.pages:
                 count = len(item.result.pages)
                 page_str = f"{count} page" if count == 1 else f"{count} pages"
-                return f"{base_meta} · Cancelled ({page_str})"
-            return f"{base_meta} · Cancelled"
+                meta = f"{base_meta} · Cancelled ({page_str})"
+            else:
+                meta = f"{base_meta} · Cancelled"
+            current_dpi = getattr(self.settings, "dpi", None)
+            if item.processed_dpi is not None and current_dpi is not None and item.processed_dpi != current_dpi:
+                meta += f" · ⚠ processed @{item.processed_dpi} DPI"
+            return meta
         else:  # SUCCESS / PARTIAL
             if item.result and item.result.pages:
                 count = len(item.result.pages)
@@ -1109,7 +1153,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             else:
                 page_str = "1 page"
             duration_str = f"{item.duration:.1f}s"
-            return f"{base_meta} · {page_str} · {duration_str}"
+            meta = f"{base_meta} · {page_str} · {duration_str}"
+            current_dpi = getattr(self.settings, "dpi", None)
+            if item.processed_dpi is not None and current_dpi is not None and item.processed_dpi != current_dpi:
+                meta += f" · ⚠ processed @{item.processed_dpi} DPI"
+            return meta
 
     def _create_queue_row_widget(self, item: QueueItem) -> None:
         """Create an interactive 2-line row widget (~56px height) in the scrollable queue list."""
@@ -1452,6 +1500,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self,
         file_path: Path,
         page_index: int,
+        effective_dpi: Optional[int] = None,
     ) -> Tuple[Optional[Image.Image], Optional[str]]:
         """Load and rasterize a single page on-demand from disk without holding base64 strings in memory (P2).
 
@@ -1462,7 +1511,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return None, f"Source file unavailable:\n{file_path.name}\n\n(File was moved or deleted after enqueue)"
 
         suffix = file_path.suffix.lower()
-        effective_dpi = getattr(self.settings, "dpi", 100) or 100
+        if effective_dpi is None:
+            effective_dpi = getattr(self.settings, "dpi", 100) or 100
         scale = effective_dpi / 72.0
 
         if suffix == ".pdf":
@@ -1536,9 +1586,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._current_image_page_idx = max(0, min(self._current_image_page_idx, total_img_pages - 1))
         target_page = item.result.pages[self._current_image_page_idx]
 
+        dpi_val = getattr(item, "processed_dpi", None) or getattr(self.settings, "dpi", 100) or 100
         pil_img, err_msg = self._load_image_page_on_demand(
             item.file_path,
             page_index=self._current_image_page_idx,
+            effective_dpi=dpi_val,
         )
 
         if err_msg or pil_img is None:
@@ -1569,7 +1621,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
             self._img_display_label.configure(image=ctk_img, text="")
             self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
-            self._lbl_img_info.configure(text=f"{orig_w} × {orig_h} px")
+            self._lbl_img_info.configure(text=f"{orig_w} × {orig_h} px @ {dpi_val} DPI")
             self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
             self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
         except Exception as exc:
@@ -1753,7 +1805,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._btn_export_selected.configure(text="Exported!")
             self.after(1200, lambda: self._btn_export_selected.configure(text="Export Selected"))
         except Exception as exc:
-            self._update_footer(f"Export error: {exc}")
+            logger.warning("Failed to export selected document: %s", exc)
+            self._update_footer(f"Export error: {_friendly_err(exc)}")
 
     def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
         """Export artifacts for all successfully processed documents in the queue (P8)."""
@@ -1803,7 +1856,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 self._safe_after(0, _on_success)
             except Exception as exc:
                 logger.warning("Export All error: %s", exc)
-                self._safe_after(0, lambda e=exc: self._update_footer(f"Export All error: {e}"))
+                self._safe_after(0, lambda e=exc: self._update_footer(f"Export All error: {_friendly_err(e)}"))
                 self._safe_after(0, self._reset_export_all_button)
             finally:
                 self._is_exporting = False
@@ -1992,14 +2045,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
                 file_path_str = str(item)
 
-                # Post STARTED event
-                self._result_queue.put(
-                    WorkerEvent(
-                        event_type=WorkerEventType.STARTED,
-                        file_path=file_path_str,
-                    )
-                )
-
                 # Setup cancel token for this document
                 cancel_event = threading.Event()
                 self._current_cancel_event = cancel_event
@@ -2028,6 +2073,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                         dpi=effective_settings.dpi,
                         max_image_dimension=effective_settings.max_image_dimension,
                     )
+
+                    # Post STARTED event with effective job dpi
+                    self._result_queue.put(
+                        WorkerEvent(
+                            event_type=WorkerEventType.STARTED,
+                            file_path=file_path_str,
+                            processed_dpi=job_cfg.dpi,
+                        )
+                    )
+
                     result = self.engine.process_document(
                         file_path_str,
                         config=job_cfg,
@@ -2097,17 +2152,34 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     _poll_result_queue = _process_result_queue
 
+    def _stop_indeterminate_progress(self) -> None:
+        """Stop indeterminate progress bar animation and switch back to determinate mode (F7)."""
+        if getattr(self, "_progress_indeterminate", False):
+            try:
+                self._progress_bar.stop()
+                self._progress_bar.configure(mode="determinate")
+            except Exception:
+                pass
+            self._progress_indeterminate = False
+
     def _handle_worker_event(self, event: WorkerEvent) -> None:
         """Process a single worker event on the main thread and update state/UI."""
         item = self._queue_items.get(event.file_path)
 
         if event.event_type == WorkerEventType.STARTED:
             print(f"[GUI Worker] Started processing: {event.file_path}")
-            self._progress_bar.set(0.0)
+            try:
+                self._progress_bar.configure(mode="indeterminate")
+                self._progress_bar.start()
+                self._progress_indeterminate = True
+            except Exception:
+                self._progress_bar.set(0.0)
             self._lbl_page_counter.configure(text="0 / ...")
             self._lbl_progress_info.configure(text=f"Processing {Path(event.file_path).name}...")
             if item:
                 item.status = QueueItemStatus.PROCESSING
+                if event.processed_dpi is not None:
+                    item.processed_dpi = event.processed_dpi
                 if item.badge_label:
                     item.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
                 if item.detail_label:
@@ -2118,6 +2190,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Processing: {Path(event.file_path).name}")
 
         elif event.event_type == WorkerEventType.PAGE_PROGRESS:
+            self._stop_indeterminate_progress()
             cur = event.current_page
             tot = max(1, event.total_pages)
             fraction = min(1.0, max(0.0, cur / tot))
@@ -2129,6 +2202,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if item:
                 item.status = QueueItemStatus.PROCESSING
                 if item.result is None:
+                    # Accumulator for live per-page preview during processing; overwritten by
+                    # the authoritative OCRResult from the COMPLETED event. status=SUCCESS
+                    # default is intentionally stale (resolve_status() never called here)
+                    # since COMPLETED replaces item.result entirely. (C-3)
                     item.result = OCRResult(file_path=item.file_path, status=JobStatus.SUCCESS)
                 if event.page_result:
                     if not any(p.page_num == event.page_result.page_num for p in item.result.pages):
@@ -2139,6 +2216,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return
 
         elif event.event_type == WorkerEventType.COMPLETED:
+            self._stop_indeterminate_progress()
             duration = event.result.total_duration if event.result else 0.0
             status_val = event.result.status.value if event.result else "SUCCESS"
             total_pages = len(event.result.pages) if event.result and event.result.pages else 1
@@ -2162,6 +2240,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Done: {Path(event.file_path).name} ({status_val})")
 
         elif event.event_type == WorkerEventType.FAILED:
+            self._stop_indeterminate_progress()
             err_msg = event.error or "Error"
             print(f"[GUI Worker] Failed processing: {event.file_path} ({err_msg})")
             self._failed_count += 1
@@ -2182,6 +2261,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Failed: {Path(event.file_path).name} - {err_msg}")
 
         elif event.event_type == WorkerEventType.CANCELLED:
+            self._stop_indeterminate_progress()
             err_msg = event.error or "Cancelled"
             print(f"[GUI Worker] Cancelled processing: {event.file_path} ({err_msg})")
             self._progress_bar.set(0.0)
@@ -2203,6 +2283,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Cancelled: {Path(event.file_path).name}")
 
         elif event.event_type == WorkerEventType.WORKER_CRASHED:
+            self._stop_indeterminate_progress()
             print(f"[GUI Worker] FATAL: Worker thread crashed: {event.error}", file=sys.stderr)
             sys.stderr.flush()
             self._progress_bar.set(0.0)
@@ -2376,7 +2457,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self.server_manager.stop()
                 except Exception as stop_err:
                     logger.warning("Error stopping server: %s", stop_err)
-                    self._safe_after(0, lambda: self._update_footer(f"Server stop failed: {stop_err}"))
+                    self._safe_after(0, lambda: self._update_footer(f"Server stop failed: {_friendly_err(stop_err)}"))
                 finally:
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
@@ -2398,7 +2479,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self.server_manager.start()
                 except Exception as start_err:
                     logger.warning("Error starting server: %s", start_err)
-                    self._safe_after(0, lambda: self._update_footer(f"Server start failed: {start_err}"))
+                    self._safe_after(0, lambda: self._update_footer(f"Server start failed: {_friendly_err(start_err)}"))
                 finally:
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
@@ -2445,6 +2526,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._pending_engine_settings = new_settings
         if self._current_cancel_event is None:
             self._apply_pending_engine_settings()
+
+        # Refresh queue rows' metadata if DPI setting changed (C-12)
+        for q_item in self._queue_items.values():
+            if q_item.detail_label and q_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED):
+                q_item.detail_label.configure(text=self._format_queue_item_meta(q_item))
 
         # Update header backend badge
         if not self.settings.is_loopback:

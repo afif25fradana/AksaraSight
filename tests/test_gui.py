@@ -2788,4 +2788,153 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         app._on_closing()
 
 
+def test_friendly_err_helper():
+    """Verify _friendly_err maps technical exceptions to readable messages without losing info (F6)."""
+    from gui.app import _friendly_err
+
+    # 1. Custom FileNotFoundError preserves author-crafted message
+    custom_fnf = FileNotFoundError("Managed llama.cpp runtime is not installed for backend 'cuda'.")
+    assert _friendly_err(custom_fnf) == "Managed llama.cpp runtime is not installed for backend 'cuda'."
+
+    # 2. OS FileNotFoundError strips errno/WinError noise
+    os_fnf = FileNotFoundError(2, "No such file or directory", "sample.pdf")
+    assert _friendly_err(os_fnf) == "File not found: sample.pdf"
+
+    # 3. PermissionError with filename
+    perm_err = PermissionError(13, "Permission denied", "C:/secret/doc.md")
+    assert _friendly_err(perm_err) == "Permission denied: C:/secret/doc.md"
+
+    # 4. PermissionError without filename
+    perm_err_nofn = PermissionError("Access is denied")
+    assert "Permission denied" in _friendly_err(perm_err_nofn)
+
+    # 5. ConnectionError
+    conn_err = ConnectionError("Failed to connect to http://localhost:8080")
+    assert "Connection failed" in _friendly_err(conn_err)
+
+    # 6. None / string / generic fallback
+    assert _friendly_err(None) == "Unknown error"
+    assert _friendly_err("simple text") == "simple text"
+
+
+def test_processed_dpi_recording_and_image_caption(tmp_path):
+    """Verify processed_dpi is captured on STARTED and used in image preview caption (C-8)."""
+    from gui.app import OCRApp, WorkerEvent, WorkerEventType, QueueItem, QueueItemStatus
+    from core.models import OCRResult, PageResult, JobStatus
+    from PIL import Image
+
+    img_file = tmp_path / "test_scan.png"
+    Image.new("RGB", (100, 100), color="white").save(img_file)
+
+    app = OCRApp(settings=Settings(dpi=150))
+    app.withdraw()
+    try:
+        item = QueueItem(
+            item_id="item-1",
+            file_path=img_file,
+            status=QueueItemStatus.QUEUED,
+        )
+        app._queue_items[str(img_file)] = item
+
+        # Post STARTED event with processed_dpi=300
+        event = WorkerEvent(
+            event_type=WorkerEventType.STARTED,
+            file_path=str(img_file),
+            processed_dpi=300,
+        )
+        app._handle_worker_event(event)
+        assert item.processed_dpi == 300
+
+        # Complete the item
+        page_res = PageResult(page_num=1, markdown="Sample OCR", latency=0.5)
+        item.result = OCRResult(file_path=img_file, status=JobStatus.SUCCESS, pages=[page_res])
+        item.status = QueueItemStatus.SUCCESS
+
+        # Render preview and verify caption has processed DPI (300), not settings DPI (150)
+        app._render_image_preview(item)
+        assert "@ 300 DPI" in app._lbl_img_info.cget("text")
+    finally:
+        app._on_closing()
+
+
+def test_processed_dpi_staleness_warning_hint(tmp_path):
+    """Verify queue row meta warns if processed_dpi differs from current settings.dpi (C-12)."""
+    from gui.app import OCRApp, QueueItem, QueueItemStatus
+    from core.models import OCRResult, PageResult, JobStatus
+
+    app = OCRApp(settings=Settings(dpi=200))
+    app.withdraw()
+    try:
+        doc_path = tmp_path / "doc.pdf"
+        doc_path.write_bytes(b"%PDF-fake")
+
+        item = QueueItem(
+            item_id="item-1",
+            file_path=doc_path,
+            status=QueueItemStatus.SUCCESS,
+            duration=1.2,
+            processed_dpi=100,
+            result=OCRResult(file_path=doc_path, status=JobStatus.SUCCESS, pages=[PageResult(1, "text")]),
+        )
+        # settings.dpi is 200, item.processed_dpi is 100 -> warning hint should appear
+        meta = app._format_queue_item_meta(item)
+        assert "⚠ processed @100 DPI" in meta
+
+        # When settings.dpi matches item.processed_dpi -> no warning hint
+        app.settings = Settings(dpi=100)
+        meta_same = app._format_queue_item_meta(item)
+        assert "⚠" not in meta_same
+    finally:
+        app._on_closing()
+
+
+def test_preview_disclaimer_label():
+    """Verify static disclaimer label is present on the Text Preview tab (C-7)."""
+    from gui.app import OCRApp
+
+    app = OCRApp(settings=Settings())
+    app.withdraw()
+    try:
+        assert hasattr(app, "_lbl_preview_disclaimer")
+        disclaimer_text = app._lbl_preview_disclaimer.cget("text")
+        assert "Preview applies light formatting" in disclaimer_text
+        assert "Raw Markdown" in disclaimer_text
+    finally:
+        app._on_closing()
+
+
+def test_indeterminate_progress_mode_lifecycle(tmp_path):
+    """Verify progress bar switches to indeterminate on STARTED and determinate on progress (F7)."""
+    from gui.app import OCRApp, WorkerEvent, WorkerEventType, QueueItem
+    from core.models import PageResult
+
+    doc_file = tmp_path / "doc.pdf"
+    doc_file.write_bytes(b"%PDF-fake")
+
+    app = OCRApp(settings=Settings())
+    app.withdraw()
+    try:
+        item = QueueItem(item_id="item-1", file_path=doc_file)
+        app._queue_items[str(doc_file)] = item
+
+        # 1. STARTED event -> indeterminate mode
+        app._handle_worker_event(WorkerEvent(event_type=WorkerEventType.STARTED, file_path=str(doc_file)))
+        assert app._progress_indeterminate is True
+        assert app._progress_bar.cget("mode") == "indeterminate"
+
+        # 2. PAGE_PROGRESS event -> switches back to determinate mode
+        app._handle_worker_event(WorkerEvent(
+            event_type=WorkerEventType.PAGE_PROGRESS,
+            file_path=str(doc_file),
+            current_page=1,
+            total_pages=2,
+            page_result=PageResult(1, "text"),
+        ))
+        assert app._progress_indeterminate is False
+        assert app._progress_bar.cget("mode") == "determinate"
+    finally:
+        app._on_closing()
+
+
+
 

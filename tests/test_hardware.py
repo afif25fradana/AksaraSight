@@ -9,6 +9,7 @@ from core.hardware import (
     MIN_CUDA_DRIVER_VERSION,
     PINNED_LLAMA_BUILD,
     _parse_driver_version,
+    _probe_nvidia_smi,
     detect_hardware,
 )
 
@@ -159,3 +160,43 @@ def test_real_hardware_smoke() -> None:
     assert len(profile.details) > 0
     summary = profile.format_summary()
     assert "SYSTEM HARDWARE DETECTION REPORT" in summary
+
+
+def test_probe_nvidia_smi_prioritizes_system_paths_over_shutil_which() -> None:
+    """Verify _probe_nvidia_smi checks known System32/Program Files paths before shutil.which (SEC-MR2)."""
+    import subprocess
+    from pathlib import Path
+
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = "NVIDIA GeForce RTX 4090, 24576, 555.85\n"
+
+    # Case 1: System32 path exists on Windows -> shutil.which MUST NOT be called
+    def fake_is_file(self: Path) -> bool:
+        return "System32" in str(self) and "nvidia-smi.exe" in str(self)
+
+    with (
+        patch("sys.platform", "win32"),
+        patch.object(Path, "is_file", fake_is_file),
+        patch("shutil.which") as mock_which,
+        patch("subprocess.run", return_value=mock_res) as mock_run,
+    ):
+        result = _probe_nvidia_smi()
+        assert result == ("NVIDIA GeForce RTX 4090", 24576, "555.85")
+        mock_which.assert_not_called()
+        # Verify run was called with the absolute System32 path
+        called_binary = mock_run.call_args[0][0][0]
+        assert called_binary.endswith("System32\\nvidia-smi.exe") or called_binary.endswith("System32/nvidia-smi.exe")
+
+    # Case 2: Neither system path exists -> falls back to shutil.which
+    with (
+        patch("sys.platform", "win32"),
+        patch.object(Path, "is_file", return_value=False),
+        patch("shutil.which", return_value="C:\\custom\\nvidia-smi.exe") as mock_which,
+        patch("subprocess.run", return_value=mock_res) as mock_run,
+    ):
+        result = _probe_nvidia_smi()
+        assert result == ("NVIDIA GeForce RTX 4090", 24576, "555.85")
+        mock_which.assert_called_once_with("nvidia-smi")
+        called_binary = mock_run.call_args[0][0][0]
+        assert called_binary == "C:\\custom\\nvidia-smi.exe"

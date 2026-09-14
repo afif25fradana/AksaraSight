@@ -288,6 +288,46 @@ def test_download_and_verify_asset_cross_verify_mismatch_refuses(tmp_path: Path)
     assert not (tmp_path / "mismatch-asset.zip.part").exists()
 
 
+def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None:
+    """Verify that if an asset is in KNOWN_PINNED_HASHES, verification MUST match that hash (SEC-MR3)."""
+    content = b"Attacker tampered archive"
+    tampered_digest = hashlib.sha256(content).hexdigest()
+    legit_pinned_hash = "cccc" * 16
+
+    # Scenario: GitHub API is compromised or spoofed to return tampered_digest matching content,
+    # but KNOWN_PINNED_HASHES contains legit_pinned_hash.
+    asset = ReleaseAssetInfo(
+        name="llama-b10930-bin-win-test-x64.zip",
+        download_url="https://example.com/asset.zip",
+        size=len(content),
+        digest=f"sha256:{tampered_digest}",
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"Content-Length": str(len(content))}
+    mock_resp.iter_content.return_value = [content]
+    mock_resp.__enter__.return_value = mock_resp
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.get.return_value = mock_resp
+
+    with patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {asset.name: legit_pinned_hash}):
+        # Cross-verification MUST abort due to mismatch between GitHub digest and pinned hash
+        with pytest.raises(RuntimeIntegrityError, match="Digest mismatch between GitHub API digest"):
+            download_and_verify_asset(asset=asset, dest_dir=tmp_path, session=mock_session)
+
+        # Even if GitHub API omitted digest entirely, verification MUST match pinned hash, not tampered content
+        asset_no_gh_digest = ReleaseAssetInfo(
+            name="llama-b10930-bin-win-test-x64.zip",
+            download_url="https://example.com/asset.zip",
+            size=len(content),
+            digest=None,
+        )
+        with pytest.raises(RuntimeIntegrityError, match="SHA-256 integrity verification FAILED"):
+            download_and_verify_asset(asset=asset_no_gh_digest, dest_dir=tmp_path, session=mock_session)
+
+
 # ==============================================================================
 # Safe Extraction & Zip-Slip Protection Tests
 # ==============================================================================
@@ -345,6 +385,7 @@ def test_validate_runtime_binary(tmp_path: Path) -> None:
             stderr=-1,
             timeout=5.0,
             creationflags=expected_flags,
+            cwd=str(exe.parent),
         )
 
     # Failure case: returns non-zero on both --version and -h
@@ -479,6 +520,8 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
             assert final_exe.name == exe_name
             runtime_dir = get_runtime_dir("b10930", "cpu")
             assert (runtime_dir / "manifest.json").is_file()
+            # Verify downloaded archive was cleaned up from downloads folder (Priority 3 hygiene)
+            assert not (tmp_path / "downloads" / "llama-b10930-bin-win-cpu-x64.zip").exists()
 
             # Calling a second time without force must hit cache and do zero network calls
             mock_session.get.reset_mock()

@@ -308,7 +308,13 @@ def download_and_verify_asset(
         logger.error(err_msg)
         raise RuntimeIntegrityError(err_msg)
 
-    expected_hex = github_hex or pinned_hex
+    # SEC-MR3: If pinned hash is available for this asset, it is authoritative and mandatory
+    if pinned_hex:
+        expected_hex = pinned_hex
+    elif github_hex:
+        expected_hex = github_hex
+    else:
+        expected_hex = None
 
     # FAIL-CLOSED: Refuse unverified extraction if no authoritative hash exists from any source
     if not expected_hex:
@@ -422,6 +428,7 @@ def validate_runtime_binary(exe_path: Path) -> bool:
                     stderr=subprocess.PIPE,
                     timeout=5.0,
                     creationflags=creationflags,
+                    cwd=str(exe_path.parent),
                 )
                 if res.returncode == 0:
                     return True
@@ -619,6 +626,14 @@ def ensure_runtime(
                 raise
         else:
             staging_dir.rename(runtime_dir)
+
+        # Clean up downloaded archive files after successful installation (hygiene)
+        for archive in downloaded_archives:
+            try:
+                if archive.is_file():
+                    archive.unlink()
+            except Exception as cleanup_err:
+                logger.debug("Failed to remove downloaded archive %s: %s", archive, cleanup_err)
 
         final_exe = runtime_dir / exe_name
         logger.info("Managed runtime successfully installed: %s", final_exe)

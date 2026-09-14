@@ -476,6 +476,7 @@ class ServerManager:
                     encoding="utf-8",
                     errors="replace",
                     creationflags=creationflags,
+                    cwd=str(Path(resolved_path).parent),
                 )
                 self._process = proc
                 self._ownership = ServerOwnership.MANAGED

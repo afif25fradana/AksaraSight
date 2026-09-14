@@ -23,7 +23,7 @@ from core.runtime_manager import (
 
 logger = logging.getLogger(__name__)
 
-from gui.app import (
+from gui.theme import (
     COLOR_ACCENT_HOVER,
     COLOR_ACCENT_PRIMARY,
     COLOR_CANVAS_BG,

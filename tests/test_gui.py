@@ -2,6 +2,8 @@ import inspect
 import json
 from pathlib import Path
 import queue
+import subprocess
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -2432,12 +2434,41 @@ def test_settings_window_hardware_refresh_updates_ui():
         parent.destroy()
 
 
+def test_gui_app_launch_subprocess():
+    """Regression test: verify 'python -m gui.app -h' launches without circular import error."""
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-m", "gui.app", "-h"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"gui.app failed to launch:\n{result.stderr}"
+    assert "GLM-OCR Local Studio Desktop GUI" in result.stdout
 
 
+def test_gui_settings_window_clean_import_subprocess():
+    """Regression test: verify gui.settings_window can be imported first in a fresh process."""
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-c", "import gui.settings_window; from gui.settings_window import SettingsWindow; print('OK')"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"gui.settings_window import failed:\n{result.stderr}"
+    assert result.stdout.strip() == "OK"
 
 
+def test_theme_tokens_reexported_in_app():
+    """Verify all tokens defined in gui.theme are re-exported in gui.app for backward compatibility."""
+    import gui.app
+    import gui.theme
 
-
-
-
-
+    tokens = [name for name in dir(gui.theme) if name.startswith("COLOR_")]
+    assert len(tokens) >= 16
+    for token in tokens:
+        assert hasattr(gui.app, token), f"gui.app missing re-export of {token}"
+        assert getattr(gui.app, token) == getattr(gui.theme, token)

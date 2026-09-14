@@ -224,6 +224,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._is_exporting: bool = False
         self._export_thread: Optional[threading.Thread] = None
+        self._runtime_download_thread: Optional[threading.Thread] = None
         self._ingest_threads: List[threading.Thread] = []
         self._pending_batch_inserts: int = 0
         self._ui_callback_queue: queue.Queue[Tuple[Any, tuple, dict]] = queue.Queue()
@@ -2508,6 +2509,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             for t in self._ingest_threads:
                 if t.is_alive():
                     t.join(timeout=0.5)
+
+        # 4d. Join runtime download thread if running
+        if hasattr(self, "_runtime_download_thread") and self._runtime_download_thread is not None and self._runtime_download_thread.is_alive():
+            self._runtime_download_thread.join(timeout=1.0)
 
         # 5. Join server poller thread
         if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:

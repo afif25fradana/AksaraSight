@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+import threading
 from tkinter import filedialog
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import urlsplit
@@ -9,6 +10,12 @@ from urllib.parse import urlsplit
 import customtkinter as ctk
 
 from config.settings import Settings
+from core.hardware import PINNED_LLAMA_BUILD, get_cached_hardware_profile
+from core.runtime_manager import (
+    ensure_runtime,
+    get_installed_runtime_path,
+    is_runtime_installed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +200,20 @@ class SettingsWindow(ctk.CTkToplevel):
         self.server_manager = server_manager
         self.on_save_callback = on_save_callback
 
+        # Hardware profile and download state
+        self._hardware_profile = get_cached_hardware_profile()
+        self._is_downloading: bool = False
+        self._is_closed: bool = False
+        self._download_thread: Optional[threading.Thread] = None
+
+        parent_thread = getattr(self.parent, "_runtime_download_thread", None)
+        if parent_thread is not None and parent_thread.is_alive():
+            self._is_downloading = True
+            self._download_thread = parent_thread
+
         # Track initial server configuration to detect if restart is required
         self._initial_server_config: Tuple[str, str, str] = (
-            str(self.settings.llama_server_path or ""),
+            str(self.settings.effective_llama_server_path or ""),
             str(self.settings.model_repo),
             str(self.settings.local_endpoint),
         )
@@ -573,19 +591,176 @@ class SettingsWindow(ctk.CTkToplevel):
         lbl_mp_hint.pack(side="left", padx=(10, 0))
 
     def _build_server_section(self, container: ctk.CTkFrame) -> None:
-        """Build form inputs for llama-server path, model repository, and auto-start toggle."""
-        # 1. llama-server binary path with browse button
-        lbl_path = ctk.CTkLabel(
+        """Build form inputs for runtime source (managed/custom), server path, model repository, and auto-start."""
+        # 1. Runtime Source Toggle (Managed vs Custom Path)
+        lbl_source = ctk.CTkLabel(
             container,
+            text="Runtime Source:",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=COLOR_TEXT_PRIMARY,
+            anchor="w",
+        )
+        lbl_source.grid(row=0, column=0, sticky="w", pady=6)
+
+        self._seg_runtime_mode = ctk.CTkSegmentedButton(
+            container,
+            values=["Managed (Auto)", "Custom Path"],
+            selected_color=COLOR_ACCENT_PRIMARY,
+            selected_hover_color=COLOR_ACCENT_HOVER,
+            unselected_color=COLOR_SURFACE_2,
+            unselected_hover_color=COLOR_INTERACTIVE_HOVER,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self._on_runtime_mode_changed,
+        )
+        self._seg_runtime_mode.grid(row=0, column=1, sticky="w", pady=6)
+
+        # Container for runtime views
+        self._runtime_container = ctk.CTkFrame(container, fg_color="transparent")
+        self._runtime_container.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+        self._runtime_container.grid_columnconfigure(0, weight=1)
+
+        # ---------------- Managed Runtime Frame ----------------
+        self._frame_managed = ctk.CTkFrame(
+            self._runtime_container,
+            fg_color=COLOR_SURFACE_2,
+            corner_radius=6,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+        )
+        self._frame_managed.grid_columnconfigure(1, weight=1)
+
+        # Hardware readout
+        lbl_hw_title = ctk.CTkLabel(
+            self._frame_managed,
+            text="Detected Hardware:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
+            anchor="w",
+        )
+        lbl_hw_title.grid(row=0, column=0, sticky="nw", padx=10, pady=(8, 2))
+
+        hw = self._hardware_profile
+        if hw.gpu_name:
+            vram_str = f" ({hw.vram_mb / 1024:.1f} GB VRAM)" if hw.vram_mb else ""
+            driver_str = f" [Driver {hw.cuda_driver_version}]" if hw.cuda_driver_version else ""
+            hw_desc = f"{hw.gpu_name}{vram_str}{driver_str}\nRecommended Backend: {hw.recommended_backend.upper()}"
+        else:
+            cpu_model = hw.cpu_name or "Generic x86_64"
+            hw_desc = f"CPU ({cpu_model})\nRecommended Backend: CPU"
+
+        self._lbl_hw_desc = ctk.CTkLabel(
+            self._frame_managed,
+            text=hw_desc,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_MUTED,
+            justify="left",
+            anchor="w",
+        )
+        self._lbl_hw_desc.grid(row=0, column=1, sticky="w", padx=10, pady=(8, 2))
+
+        # Target Backend Override
+        lbl_target_backend = ctk.CTkLabel(
+            self._frame_managed,
+            text="Target Backend:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
+            anchor="w",
+        )
+        lbl_target_backend.grid(row=1, column=0, sticky="w", padx=10, pady=4)
+
+        self._seg_managed_backend = ctk.CTkSegmentedButton(
+            self._frame_managed,
+            values=["auto", "cuda", "vulkan", "cpu"],
+            selected_color=COLOR_ACCENT_PRIMARY,
+            selected_hover_color=COLOR_ACCENT_HOVER,
+            unselected_color=COLOR_SURFACE_1,
+            unselected_hover_color=COLOR_INTERACTIVE_HOVER,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self._on_managed_backend_changed,
+        )
+        self._seg_managed_backend.grid(row=1, column=1, sticky="w", padx=10, pady=4)
+
+        # Installation Status
+        lbl_status_title = ctk.CTkLabel(
+            self._frame_managed,
+            text="Status:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
+            anchor="w",
+        )
+        lbl_status_title.grid(row=2, column=0, sticky="w", padx=10, pady=4)
+
+        status_box = ctk.CTkFrame(self._frame_managed, fg_color="transparent")
+        status_box.grid(row=2, column=1, sticky="ew", padx=10, pady=4)
+        status_box.grid_columnconfigure(0, weight=1)
+
+        self._lbl_managed_status = ctk.CTkLabel(
+            status_box,
+            text="● Not Installed",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        )
+        self._lbl_managed_status.grid(row=0, column=0, sticky="w")
+
+        self._lbl_managed_path = ctk.CTkLabel(
+            status_box,
+            text="",
+            font=ctk.CTkFont(family="Consolas", size=9),
+            text_color=COLOR_TEXT_SUBTLE,
+            anchor="w",
+        )
+        self._lbl_managed_path.grid(row=1, column=0, sticky="w")
+
+        # Download Action & Progress Row
+        action_row = ctk.CTkFrame(self._frame_managed, fg_color="transparent")
+        action_row.grid(row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 6))
+        action_row.grid_columnconfigure(1, weight=1)
+
+        self._btn_download = ctk.CTkButton(
+            action_row,
+            text="Download Runtime",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            width=140,
+            height=28,
+            fg_color=COLOR_ACCENT_PRIMARY,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#ffffff",
+            command=self._on_download_runtime,
+        )
+        self._btn_download.grid(row=0, column=0, sticky="w", padx=(0, 10))
+
+        self._lbl_download_status = ctk.CTkLabel(
+            action_row,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w",
+        )
+        self._lbl_download_status.grid(row=0, column=1, sticky="w")
+
+        self._progress_download = ctk.CTkProgressBar(
+            self._frame_managed,
+            progress_color=COLOR_ACCENT_PRIMARY,
+            height=6,
+        )
+        self._progress_download.set(0.0)
+
+        # ---------------- Custom Path Frame ----------------
+        self._frame_custom = ctk.CTkFrame(self._runtime_container, fg_color="transparent")
+        self._frame_custom.grid_columnconfigure(1, weight=1)
+
+        lbl_path = ctk.CTkLabel(
+            self._frame_custom,
             text="llama-server.exe:",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=COLOR_TEXT_PRIMARY,
             anchor="w",
         )
-        lbl_path.grid(row=0, column=0, sticky="w", pady=6)
+        lbl_path.grid(row=0, column=0, sticky="w", pady=4)
 
-        path_box = ctk.CTkFrame(container, fg_color="transparent")
-        path_box.grid(row=0, column=1, sticky="ew", pady=6)
+        path_box = ctk.CTkFrame(self._frame_custom, fg_color="transparent")
+        path_box.grid(row=0, column=1, sticky="ew", pady=4)
         path_box.grid_columnconfigure(0, weight=1)
 
         self._ent_server_path = ctk.CTkEntry(
@@ -620,7 +795,7 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=COLOR_TEXT_PRIMARY,
             anchor="w",
         )
-        lbl_repo.grid(row=1, column=0, sticky="w", pady=6)
+        lbl_repo.grid(row=2, column=0, sticky="w", pady=6)
 
         self._ent_model_repo = ctk.CTkEntry(
             container,
@@ -629,7 +804,7 @@ class SettingsWindow(ctk.CTkToplevel):
             fg_color=COLOR_SURFACE_2,
             border_color=COLOR_SURFACE_BORDER,
         )
-        self._ent_model_repo.grid(row=1, column=1, sticky="ew", pady=6)
+        self._ent_model_repo.grid(row=2, column=1, sticky="ew", pady=6)
 
         # 3. Auto-start Server Switch (strictly default False / opt-in)
         lbl_auto = ctk.CTkLabel(
@@ -639,10 +814,10 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=COLOR_TEXT_PRIMARY,
             anchor="w",
         )
-        lbl_auto.grid(row=2, column=0, sticky="w", pady=6)
+        lbl_auto.grid(row=3, column=0, sticky="w", pady=6)
 
         auto_box = ctk.CTkFrame(container, fg_color="transparent")
-        auto_box.grid(row=2, column=1, sticky="w", pady=6)
+        auto_box.grid(row=3, column=1, sticky="w", pady=6)
 
         self._sw_auto_start = ctk.CTkSwitch(
             auto_box,
@@ -656,6 +831,166 @@ class SettingsWindow(ctk.CTkToplevel):
     # ==========================================================================
     # State Population & Interaction Handlers
     # ==========================================================================
+
+    def _on_runtime_mode_changed(self, mode: str) -> None:
+        """Toggle between Managed and Custom Path runtime views."""
+        if "Managed" in mode:
+            self._frame_custom.pack_forget()
+            self._frame_managed.pack(fill="x", expand=True)
+            self._update_managed_status()
+        else:
+            self._frame_managed.pack_forget()
+            self._frame_custom.pack(fill="x", expand=True)
+
+    def _on_managed_backend_changed(self, backend: str) -> None:
+        """Update installation status display when target backend override is changed."""
+        self._update_managed_status(backend)
+
+    def _get_active_target_backend(self) -> str:
+        """Resolve the effective backend target name (e.g. 'cuda', 'vulkan', 'cpu')."""
+        override = self._seg_managed_backend.get().strip().lower()
+        if override == "auto":
+            return self._hardware_profile.recommended_backend
+        return override
+
+    def _update_managed_status(self, backend: Optional[str] = None) -> None:
+        """Refresh the installation status badge, path label, and download button state."""
+        target = backend or self._get_active_target_backend()
+        if target == "auto":
+            target = self._hardware_profile.recommended_backend
+
+        installed = is_runtime_installed(tag=PINNED_LLAMA_BUILD, backend=target)
+        if installed:
+            path = get_installed_runtime_path(tag=PINNED_LLAMA_BUILD, backend=target)
+            self._lbl_managed_status.configure(
+                text=f"● Installed ({PINNED_LLAMA_BUILD} - {target})",
+                text_color=COLOR_STATUS_SUCCESS,
+            )
+            if hasattr(self, "_lbl_managed_path"):
+                self._lbl_managed_path.configure(text=str(path) if path else "")
+            if not self._is_downloading:
+                self._btn_download.configure(text="Re-download Runtime", state="normal")
+        else:
+            self._lbl_managed_status.configure(
+                text="● Not Installed",
+                text_color=COLOR_TEXT_MUTED,
+            )
+            if hasattr(self, "_lbl_managed_path"):
+                self._lbl_managed_path.configure(text="")
+            if not self._is_downloading:
+                self._btn_download.configure(text="Download Runtime", state="normal")
+
+    def _safe_ui_dispatch(self, fn: Callable[[], Any]) -> None:
+        """Schedule a UI update callback on the Tk event loop only if this window is still open."""
+        if getattr(self, "_is_closed", False):
+            return
+        try:
+            self.after(0, fn)
+        except Exception:
+            pass
+
+    def wait_for_download(self, timeout: float = 5.0) -> None:
+        """Wait for active background download thread to complete and flush UI callbacks."""
+        if self._download_thread and self._download_thread.is_alive():
+            self._download_thread.join(timeout=timeout)
+        try:
+            self.update_idletasks()
+            self.update()
+        except Exception:
+            pass
+
+    def _on_download_runtime(self) -> None:
+        """Download and verify the selected llama.cpp runtime binary asynchronously."""
+        # 1. Concurrency guard (mirroring Batch 3 P8 Export All)
+        if self._is_downloading:
+            return
+        if self._download_thread is not None and self._download_thread.is_alive():
+            return
+        if hasattr(self.parent, "_runtime_download_thread"):
+            parent_thread = getattr(self.parent, "_runtime_download_thread")
+            if parent_thread is not None and parent_thread.is_alive():
+                return
+
+        target_backend = self._get_active_target_backend()
+        self._is_downloading = True
+        self._btn_download.configure(text="Downloading...", state="disabled")
+        self._lbl_download_status.configure(text="Initializing download...", text_color=COLOR_TEXT_MUTED)
+        self._progress_download.set(0.0)
+        self._progress_download.grid(row=4, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8))
+
+        def _worker() -> None:
+            try:
+                def _progress_cb(stage: str, done: int, total: int) -> None:
+                    msg = stage
+                    frac = 0.0
+                    if total > 0:
+                        frac = done / total
+                        mb_done = done / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        msg = f"{stage} ({mb_done:.1f}/{mb_total:.1f} MB)"
+
+                    def _update_ui() -> None:
+                        if getattr(self, "_is_closed", False):
+                            return
+                        try:
+                            if hasattr(self, "_lbl_download_status"):
+                                self._lbl_download_status.configure(text=msg, text_color=COLOR_TEXT_MUTED)
+                            if hasattr(self, "_progress_download") and total > 0:
+                                self._progress_download.set(frac)
+                        except Exception:
+                            pass
+
+                    self._safe_ui_dispatch(_update_ui)
+
+                installed_path = ensure_runtime(
+                    backend=target_backend,
+                    tag=PINNED_LLAMA_BUILD,
+                    progress_callback=_progress_cb,
+                )
+
+                def _success_ui() -> None:
+                    if getattr(self, "_is_closed", False):
+                        return
+                    try:
+                        if hasattr(self, "_progress_download"):
+                            self._progress_download.set(1.0)
+                        if hasattr(self, "_lbl_download_status"):
+                            self._lbl_download_status.configure(
+                                text=f"Runtime ready ({PINNED_LLAMA_BUILD})",
+                                text_color=COLOR_STATUS_SUCCESS,
+                            )
+                        self._update_managed_status(target_backend)
+                    except Exception:
+                        pass
+
+                self._safe_ui_dispatch(_success_ui)
+
+            except Exception as exc:
+                logger.error("Managed runtime download failed: %s", exc)
+                def _fail_ui() -> None:
+                    if getattr(self, "_is_closed", False):
+                        return
+                    try:
+                        if hasattr(self, "_lbl_download_status"):
+                            self._lbl_download_status.configure(
+                                text=f"Download failed: {exc}",
+                                text_color=COLOR_STATUS_ERROR,
+                            )
+                        self._update_managed_status(target_backend)
+                    except Exception:
+                        pass
+
+                self._safe_ui_dispatch(_fail_ui)
+            finally:
+                self._is_downloading = False
+
+        thread = threading.Thread(target=_worker, name="RuntimeDownloadWorker", daemon=True)
+        self._download_thread = thread
+        if hasattr(self.parent, "_runtime_download_thread"):
+            self.parent._runtime_download_thread = thread
+        else:
+            setattr(self.parent, "_runtime_download_thread", thread)
+        thread.start()
 
     def _populate_fields(self, s: Settings) -> None:
         """Fill form controls with values from the given Settings object."""
@@ -681,6 +1016,21 @@ class SettingsWindow(ctk.CTkToplevel):
         self._ent_max_pages.delete(0, "end")
         if s.max_pages is not None:
             self._ent_max_pages.insert(0, str(s.max_pages))
+
+        # Runtime Source & Managed Target Backend
+        if s.runtime_mode == "custom":
+            self._seg_runtime_mode.set("Custom Path")
+            self._on_runtime_mode_changed("Custom Path")
+        else:
+            self._seg_runtime_mode.set("Managed (Auto)")
+            self._on_runtime_mode_changed("Managed (Auto)")
+
+        self._seg_managed_backend.set(s.managed_backend_override)
+        self._update_managed_status(s.managed_backend_override)
+
+        if self._is_downloading:
+            self._btn_download.configure(text="Downloading...", state="disabled")
+            self._lbl_download_status.configure(text="Download in progress...", text_color=COLOR_TEXT_MUTED)
 
         # Server
         self._ent_server_path.delete(0, "end")
@@ -743,6 +1093,8 @@ class SettingsWindow(ctk.CTkToplevel):
         dpi = int(self._slider_dpi.get())
         raw_max_pages = self._ent_max_pages.get().strip()
         max_pages = int(raw_max_pages) if raw_max_pages else None
+        runtime_mode = "custom" if self._seg_runtime_mode.get() == "Custom Path" else "managed"
+        backend_override = self._seg_managed_backend.get().strip().lower()
         server_path = self._ent_server_path.get().strip() or None
         model_repo = self._ent_model_repo.get().strip()
         auto_start = (self._sw_auto_start.get() == 1)
@@ -760,6 +1112,8 @@ class SettingsWindow(ctk.CTkToplevel):
                 max_retries=raw_retries,  # type: ignore[arg-type]
                 dpi=dpi,
                 max_pages=max_pages,
+                runtime_mode=runtime_mode,
+                managed_backend_override=backend_override,
                 llama_server_path=server_path,
                 model_repo=model_repo,
                 auto_start_server=auto_start,
@@ -781,7 +1135,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
         # Check if managed server is actively running and requires a restart
         new_server_config = (
-            str(new_settings.llama_server_path or ""),
+            str(new_settings.effective_llama_server_path or ""),
             str(new_settings.model_repo),
             str(new_settings.local_endpoint),
         )
@@ -802,3 +1156,8 @@ class SettingsWindow(ctk.CTkToplevel):
                 logger.warning("Error invoking settings on_save_callback: %s", cb_err)
 
         self.destroy()
+
+    def destroy(self) -> None:
+        """Mark modal window as closed and release GUI resources."""
+        self._is_closed = True
+        super().destroy()

@@ -1,6 +1,7 @@
 """Unit tests for config/settings.py."""
 
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from config.settings import Settings, VALID_BACKENDS
 
@@ -415,3 +416,107 @@ def test_max_image_dimension_env_round_trip(tmp_path, monkeypatch):
 
     loaded = Settings.from_env(env_file)
     assert loaded.max_image_dimension == 3072
+
+
+def test_runtime_mode_defaults_and_backward_compatibility(tmp_path, monkeypatch):
+    """Verify runtime_mode defaults to managed for new installs and custom for existing installs."""
+    for k in ["OCR_RUNTIME_MODE", "RUNTIME_MODE", "OCR_MANAGED_BACKEND_OVERRIDE", "MANAGED_BACKEND_OVERRIDE",
+              "OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH"]:
+        monkeypatch.delenv(k, raising=False)
+
+    # 1. Clean installation without llama_server_path -> managed
+    clean_env = tmp_path / "clean.env"
+    clean_env.write_text("OCR_BACKEND='llama-cpp'\n", encoding="utf-8")
+    s_clean = Settings.from_env(clean_env)
+    assert s_clean.runtime_mode == "managed"
+    assert s_clean.managed_backend_override == "auto"
+
+    # 2. Existing installation with llama_server_path -> custom (backward compatibility)
+    compat_env = tmp_path / "compat.env"
+    compat_env.write_text("OCR_LLAMA_SERVER_PATH='C:/tools/llama-server.exe'\n", encoding="utf-8")
+    s_compat = Settings.from_env(compat_env)
+    assert s_compat.runtime_mode == "custom"
+    assert s_compat.llama_server_path == "C:/tools/llama-server.exe"
+
+    # 3. Explicit OCR_RUNTIME_MODE overrides backward compatibility logic
+    explicit_env = tmp_path / "explicit.env"
+    explicit_env.write_text(
+        "OCR_LLAMA_SERVER_PATH='C:/tools/llama-server.exe'\nOCR_RUNTIME_MODE='managed'\n",
+        encoding="utf-8",
+    )
+    s_explicit = Settings.from_env(explicit_env)
+    assert s_explicit.runtime_mode == "managed"
+
+
+def test_runtime_mode_and_backend_validation():
+    """Verify validation of runtime_mode and managed_backend_override values."""
+    # Invalid runtime_mode
+    with pytest.raises(ValueError, match="Invalid RUNTIME_MODE"):
+        Settings(runtime_mode="invalid_mode")
+
+    with pytest.raises(ValueError, match="RUNTIME_MODE must be a string"):
+        Settings(runtime_mode=123)  # type: ignore[arg-type]
+
+    # Invalid managed_backend_override
+    with pytest.raises(ValueError, match="Invalid MANAGED_BACKEND_OVERRIDE"):
+        Settings(managed_backend_override="rocm")
+
+    with pytest.raises(ValueError, match="MANAGED_BACKEND_OVERRIDE must be a string"):
+        Settings(managed_backend_override=None)  # type: ignore[arg-type]
+
+    # Case normalization and stripping
+    s = Settings(runtime_mode="  MANAGED  ", managed_backend_override="  CUDA  ")
+    assert s.runtime_mode == "managed"
+    assert s.managed_backend_override == "cuda"
+
+
+def test_effective_llama_server_path():
+    """Verify effective_llama_server_path property behavior in custom and managed modes."""
+    # 1. Custom mode returns manual path
+    s_custom = Settings(runtime_mode="custom", llama_server_path="C:/custom/llama-server.exe")
+    assert s_custom.effective_llama_server_path == "C:/custom/llama-server.exe"
+
+    # 2. Managed mode with no installed binary returns None
+    s_managed = Settings(runtime_mode="managed", managed_backend_override="cpu")
+    with patch("core.runtime_manager.get_installed_runtime_path", return_value=None) as mock_get_path:
+        assert s_managed.effective_llama_server_path is None
+        mock_get_path.assert_called_once_with(backend="cpu")
+
+    # 3. Managed mode with auto backend queries cached hardware profile
+    from core.hardware import HardwareProfile
+    fake_profile = HardwareProfile(
+        gpu_name="NVIDIA GeForce RTX 3050",
+        vram_mb=4096,
+        cuda_driver_version="560.94",
+        cuda_available=True,
+        cuda_supported=True,
+        vulkan_available=True,
+        recommended_backend="cuda",
+        details="NVIDIA RTX 3050 detected",
+    )
+    s_auto = Settings(runtime_mode="managed", managed_backend_override="auto")
+    with patch("core.hardware.get_cached_hardware_profile", return_value=fake_profile) as mock_hw, \
+         patch("core.runtime_manager.get_installed_runtime_path", return_value=Path("C:/managed/llama-server.exe")) as mock_get_path:
+        path = s_auto.effective_llama_server_path
+        assert path == "C:\\managed\\llama-server.exe" or path == "C:/managed/llama-server.exe"
+        mock_hw.assert_called_once()
+        mock_get_path.assert_called_once_with(backend="cuda")
+
+
+def test_runtime_mode_env_round_trip(tmp_path, monkeypatch):
+    """Verify runtime_mode and managed_backend_override save to and load from .env file."""
+    for k in ["OCR_RUNTIME_MODE", "RUNTIME_MODE", "OCR_MANAGED_BACKEND_OVERRIDE", "MANAGED_BACKEND_OVERRIDE"]:
+        monkeypatch.delenv(k, raising=False)
+
+    env_file = tmp_path / "runtime.env"
+    s = Settings(runtime_mode="managed", managed_backend_override="vulkan")
+    s.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "OCR_RUNTIME_MODE='managed'" in content
+    assert "OCR_MANAGED_BACKEND_OVERRIDE='vulkan'" in content
+
+    loaded = Settings.from_env(env_file)
+    assert loaded.runtime_mode == "managed"
+    assert loaded.managed_backend_override == "vulkan"
+

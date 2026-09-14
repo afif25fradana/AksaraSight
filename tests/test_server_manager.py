@@ -403,7 +403,23 @@ def test_server_manager_start_managed_not_installed_raises_clear_error():
     try:
         with patch("core.runtime_manager.get_installed_runtime_path", return_value=None), \
              patch("shutil.which", return_value=None):
-            with pytest.raises(FileNotFoundError, match="Managed llama.cpp runtime is not installed"):
+            with pytest.raises(FileNotFoundError, match="Managed llama.cpp runtime is not installed for backend 'cpu'"):
+                mgr.start()
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_custom_unconfigured_raises_clear_error():
+    """Verify start() raises helpful error when custom path is empty or not configured."""
+    settings = Settings(
+        runtime_mode="custom",
+        llama_server_path=None,
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    try:
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(FileNotFoundError, match="llama-server executable path is not configured"):
                 mgr.start()
     finally:
         mgr.shutdown()

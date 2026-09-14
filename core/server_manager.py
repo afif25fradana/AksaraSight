@@ -431,9 +431,15 @@ class ServerManager:
 
             if not candidate_path or not Path(candidate_path).is_file():
                 if self.settings.runtime_mode == "managed" and not server_path:
+                    backend = getattr(self.settings, "managed_backend_override", "auto")
                     raise FileNotFoundError(
-                        "Managed llama.cpp runtime is not installed. "
+                        f"Managed llama.cpp runtime is not installed for backend '{backend}'. "
                         "Open Settings to download the recommended runtime."
+                    )
+                if not candidate_path:
+                    raise FileNotFoundError(
+                        "llama-server executable path is not configured. "
+                        "Configure the path to llama-server.exe in Settings."
                     )
                 raise FileNotFoundError(
                     f"llama-server executable not found at '{candidate_path}'. "

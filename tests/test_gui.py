@@ -1292,6 +1292,34 @@ def test_settings_window_allow_remote_confirmation_flow():
         parent.destroy()
 
 
+def test_settings_window_and_security_dialog_escape_key_dismissal():
+    """Verify pressing Escape dismisses SettingsWindow and SecurityConfirmationDialog (F5)."""
+    from gui.settings_window import SettingsWindow, SecurityConfirmationDialog
+
+    parent = ctk.CTk()
+    parent.withdraw()
+    try:
+        win = SettingsWindow(parent, settings=Settings())
+        called_win = []
+        win._on_cancel = lambda: called_win.append(1)
+        win.update()
+        win.event_generate("<Escape>")
+        win.update()
+        assert called_win == [1]
+        win.destroy()
+
+        dialog = SecurityConfirmationDialog(parent)
+        called_dialog = []
+        dialog._on_cancel = lambda: called_dialog.append(1)
+        dialog.update()
+        dialog.event_generate("<Escape>")
+        dialog.update()
+        assert called_dialog == [1]
+        dialog.destroy()
+    finally:
+        parent.destroy()
+
+
 def test_settings_window_successful_save(tmp_path):
     """Verify valid settings save to .env and invoke the on_save_callback."""
     from gui.settings_window import SettingsWindow

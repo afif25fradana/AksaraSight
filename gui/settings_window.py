@@ -64,6 +64,7 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
             pass
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
         self._build_ui()
 
         # Center dialog over parent window if possible
@@ -237,6 +238,7 @@ class SettingsWindow(ctk.CTkToplevel):
             pass
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
 
         self._build_ui()
         self._populate_fields(self.settings)

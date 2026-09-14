@@ -534,7 +534,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             fg_color=COLOR_SURFACE_1,
             segmented_button_selected_color=COLOR_INTERACTIVE_NEUTRAL,
             segmented_button_selected_hover_color=COLOR_INTERACTIVE_HOVER,
-            segmented_button_fg_color=COLOR_SURFACE_BORDER,
+            segmented_button_fg_color=COLOR_SURFACE_2,
             segmented_button_unselected_color=COLOR_SURFACE_2,
             segmented_button_unselected_hover_color=COLOR_INTERACTIVE_HOVER,
             command=self._on_tab_changed,
@@ -542,7 +542,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tabview._segmented_button.configure(
             height=30,
             corner_radius=6,
-            border_width=1,
+            border_width=0,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLOR_TEXT_PRIMARY,
         )

@@ -1478,27 +1478,35 @@ def test_server_action_button_click_dispatches_start_and_stop():
     app = OCRApp(engine=mock_engine, server_manager=mock_sm)
     app.withdraw()
 
+    def wait_for_call_count(mock_obj: Any, expected_count: int, timeout: float = 2.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if mock_obj.call_count >= expected_count:
+                return
+            time.sleep(0.02)
+        assert mock_obj.call_count == expected_count, (
+            f"Timed out after {timeout}s waiting for {mock_obj} call_count={expected_count}; "
+            f"actual call_count={mock_obj.call_count}"
+        )
+
     try:
         # Case A: When offline, click triggers start()
         mock_sm.status = ServerStatus.OFFLINE
         mock_sm.ownership = ServerOwnership.NONE
         app._on_server_action_clicked()
-        time.sleep(0.1)
-        assert mock_sm.start.call_count == 1
+        wait_for_call_count(mock_sm.start, 1)
 
         # Case B: When ready and managed, click triggers stop()
         mock_sm.status = ServerStatus.READY
         mock_sm.ownership = ServerOwnership.MANAGED
         app._on_server_action_clicked()
-        time.sleep(0.1)
-        assert mock_sm.stop.call_count == 1
+        wait_for_call_count(mock_sm.stop, 1)
 
         # Case C: When starting and managed, click also triggers stop() (Cancel Launch)
         mock_sm.status = ServerStatus.STARTING
         mock_sm.ownership = ServerOwnership.MANAGED
         app._on_server_action_clicked()
-        time.sleep(0.1)
-        assert mock_sm.stop.call_count == 2
+        wait_for_call_count(mock_sm.stop, 2)
     finally:
         app._on_closing()
 
@@ -2460,6 +2468,35 @@ def test_gui_settings_window_clean_import_subprocess():
     )
     assert result.returncode == 0, f"gui.settings_window import failed:\n{result.stderr}"
     assert result.stdout.strip() == "OK"
+
+
+def test_gui_pkg_launch_subprocess():
+    """Verify 'python -m gui -h' launches via gui/__main__.py cleanly."""
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-m", "gui", "-h"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"gui package launch failed:\n{result.stderr}"
+    assert "GLM-OCR Local Studio Desktop GUI" in result.stdout
+
+
+def test_smoke_test_gui_script_subprocess():
+    """Verify scripts/smoke_test_gui.py executes cleanly without assertion failures or hanging."""
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "smoke_test_gui.py")],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"smoke_test_gui.py failed:\n{result.stderr}\n{result.stdout}"
+    assert "Smoke Test PASSED" in result.stdout
+
 
 
 def test_theme_tokens_reexported_in_app():

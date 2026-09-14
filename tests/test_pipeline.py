@@ -457,3 +457,20 @@ def test_ingest_pdf_respects_custom_dpi(tmp_path: Path) -> None:
     pages_144 = list(ingest(pdf_path, dpi=144))
     assert pages_144[0].width == 144
     assert pages_144[0].height == 144
+
+
+def test_ingest_pdf_downscales_oversized_rendered_page(tmp_path: Path) -> None:
+    """Verify rendered PDF page exceeding max_image_dimension is downscaled preserving aspect ratio."""
+    pdf_path = tmp_path / "oversized_pdf.pdf"
+    doc = pdfium.PdfDocument.new()
+    # 720 x 1440 pt -> at dpi=144 (scale=2.0) = 1440 x 2880 px
+    doc.new_page(720, 1440)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # Pass max_image_dimension=1024 -> longest edge (2880) downscales to 1024, width (1440) to 512
+    pages = list(ingest(pdf_path, dpi=144, max_image_dimension=1024))
+    assert len(pages) == 1
+    assert pages[0].width == 512
+    assert pages[0].height == 1024
+

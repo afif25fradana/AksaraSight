@@ -154,6 +154,17 @@ def image_to_base64_url(image: Image.Image, quality: int = DEFAULT_JPEG_QUALITY)
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def _downscale_if_needed(image: Image.Image, max_dim: int) -> Image.Image:
+    """Downscale image if longest edge exceeds max_dim, preserving aspect ratio."""
+    w, h = image.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    return image
+
+
 # ==============================================================================
 # Ingestion Workers
 # ==============================================================================
@@ -179,14 +190,6 @@ def _process_image(
         UnsupportedFormatError: If file is not an image Pillow recognizes.
         CorruptDocumentError: If headers are corrupt or raster data is truncated.
     """
-    def _downscale_if_needed(image: Image.Image, max_dim: int) -> Image.Image:
-        w, h = image.size
-        if max(w, h) > max_dim:
-            scale = max_dim / max(w, h)
-            new_w = max(1, int(w * scale))
-            new_h = max(1, int(h * scale))
-            return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        return image
 
     # Stage 1: Header verification
     try:
@@ -355,13 +358,14 @@ def _process_pdf(
             assert pil_img is not None
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
-            b64 = image_to_base64_url(pil_img)
+            scaled_img = _downscale_if_needed(pil_img, max_image_dimension)
+            b64 = image_to_base64_url(scaled_img)
             yield ExtractedPage(
                 page_num=page_num,
                 total_pages=total_pages,
                 image_b64=b64,
-                width=pil_img.width,
-                height=pil_img.height,
+                width=scaled_img.width,
+                height=scaled_img.height,
             )
     finally:
         with _PDFIUM_LOCK:

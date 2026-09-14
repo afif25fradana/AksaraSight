@@ -152,7 +152,15 @@ def test_hardware_profile_format_summary() -> None:
 
 
 def test_real_hardware_smoke() -> None:
-    """Verify detect_hardware() executes cleanly on real host environment without raising."""
+    """Verify detect_hardware() executes cleanly on real host environment without raising.
+
+    CAVEAT / AUDIT NOTE:
+    This smoke test runs against whatever physical or virtual hardware is present
+    on the host machine (invoking real nvidia-smi, nvcuda.dll, or vulkan-1.dll).
+    It is an environment diagnostic probe, NOT a deterministic hardware-independent
+    contract test. Deterministic behavior across CUDA/Vulkan/CPU fallback paths is
+    verified independently via mocked unit tests above.
+    """
     profile = detect_hardware()
     assert isinstance(profile, HardwareProfile)
     assert profile.recommended_backend in {"cuda", "vulkan", "cpu"}
@@ -160,6 +168,7 @@ def test_real_hardware_smoke() -> None:
     assert len(profile.details) > 0
     summary = profile.format_summary()
     assert "SYSTEM HARDWARE DETECTION REPORT" in summary
+
 
 
 def test_probe_nvidia_smi_prioritizes_system_paths_over_shutil_which() -> None:

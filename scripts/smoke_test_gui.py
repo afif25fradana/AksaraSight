@@ -28,7 +28,7 @@ def main() -> None:
 
     # Configure mock engine to avoid requiring live local LLM backend for smoke test
     mock_engine = MagicMock()
-    mock_engine.process_document.side_effect = lambda path: OCRResult(
+    mock_engine.process_document.side_effect = lambda path, *args, **kwargs: OCRResult(
         file_path=str(path),
         status=JobStatus.SUCCESS,
     )
@@ -40,22 +40,40 @@ def main() -> None:
     app.withdraw()
     print("      -> Window created, worker thread running (daemon=True).")
 
-    print("[2/4] Simulating native drag-and-drop file drop event...")
-    sample_paths = "{C:/Sample Invoices/Invoice 2026.pdf} C:/receipt.png"
-    fake_event = SimpleNamespace(data=sample_paths)
-    app._on_drop_files(fake_event)
+    print("[2/4] Simulating native drag-and-drop file drop event with real temporary files...")
+    import tempfile
+    from PIL import Image
+    import pypdfium2 as pdfium
 
-    print("[3/4] Processing worker queue on main thread...")
-    start_time = time.time()
-    while time.time() - start_time < 2.0:
-        app._process_result_queue()
-        app.update()
-        if mock_engine.process_document.call_count >= 2:
-            break
-        time.sleep(0.05)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        invoice_pdf = tmp_path / "Invoice 2026.pdf"
+        receipt_png = tmp_path / "receipt.png"
 
-    print(f"      -> Processed {mock_engine.process_document.call_count} documents via worker thread.")
-    assert mock_engine.process_document.call_count == 2, "Expected 2 documents to be processed"
+        # Create real valid dummy PDF and PNG
+        doc = pdfium.PdfDocument.new()
+        doc.new_page(200, 200)
+        doc.save(str(invoice_pdf))
+        doc.close()
+
+        Image.new("RGB", (100, 100), color="blue").save(receipt_png)
+
+        # TkinterDnD data string format with space-containing path in braces
+        sample_paths = f"{{{invoice_pdf}}} {{{receipt_png}}}"
+        fake_event = SimpleNamespace(data=sample_paths)
+        app._on_drop_files(fake_event)
+
+        print("[3/4] Processing worker queue on main thread...")
+        start_time = time.time()
+        while time.time() - start_time < 3.0:
+            app._process_result_queue()
+            app.update()
+            if mock_engine.process_document.call_count >= 2:
+                break
+            time.sleep(0.05)
+
+        print(f"      -> Processed {mock_engine.process_document.call_count} documents via worker thread.")
+        assert mock_engine.process_document.call_count == 2, "Expected 2 documents to be processed"
 
     print("[4/4] Triggering clean shutdown (_on_closing)...")
     app._on_closing()

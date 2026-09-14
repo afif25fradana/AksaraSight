@@ -418,6 +418,8 @@ class SettingsWindow(ctk.CTkToplevel):
         self._seg_backend = ctk.CTkSegmentedButton(
             container,
             values=["llama-cpp", "ollama", "vllm"],
+            fg_color=COLOR_SURFACE_BORDER,
+            border_width=1,
             selected_color=COLOR_ACCENT_PRIMARY,
             selected_hover_color=COLOR_ACCENT_HOVER,
             unselected_color=COLOR_SURFACE_2,
@@ -609,6 +611,8 @@ class SettingsWindow(ctk.CTkToplevel):
         self._seg_runtime_mode = ctk.CTkSegmentedButton(
             container,
             values=["Managed (Auto)", "Custom Path"],
+            fg_color=COLOR_SURFACE_BORDER,
+            border_width=1,
             selected_color=COLOR_ACCENT_PRIMARY,
             selected_hover_color=COLOR_ACCENT_HOVER,
             unselected_color=COLOR_SURFACE_2,
@@ -685,6 +689,8 @@ class SettingsWindow(ctk.CTkToplevel):
         self._seg_managed_backend = ctk.CTkSegmentedButton(
             self._frame_managed,
             values=["auto", "cuda", "vulkan", "cpu"],
+            fg_color=COLOR_SURFACE_BORDER,
+            border_width=1,
             selected_color=COLOR_ACCENT_PRIMARY,
             selected_hover_color=COLOR_ACCENT_HOVER,
             unselected_color=COLOR_SURFACE_1,

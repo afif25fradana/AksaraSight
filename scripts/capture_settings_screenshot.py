@@ -90,6 +90,8 @@ def main() -> None:
         auto_start_server=False,
         dpi=100,
         max_pages=None,
+        runtime_mode="managed",
+        managed_backend_override="auto",
     )
 
     win = SettingsWindow(root, settings=settings)
@@ -104,12 +106,25 @@ def main() -> None:
     img.save(out_path, format="PNG")
     print(f"Saved preview to: {out_path} ({img.width}x{img.height})")
 
+    # Scroll down to capture Managed Runtime and Server Supervision
+    win._scroll._parent_canvas.yview_moveto(1.0)
+    win.update_idletasks()
+    win.update()
+    time.sleep(0.3)
+
+    img_scrolled = capture_window_to_image(win)
+    out_scrolled_path = Path("docs/images/settings_window_scrolled_preview.png").resolve()
+    img_scrolled.save(out_scrolled_path, format="PNG")
+    print(f"Saved scrolled preview to: {out_scrolled_path} ({img_scrolled.width}x{img_scrolled.height})")
+
     # Also copy to artifacts directory
     artifact_dir = Path(r"docs/images/_generated")
     if artifact_dir.exists():
         artifact_path = artifact_dir / "settings_window_preview.png"
         img.save(artifact_path, format="PNG")
-        print(f"Saved artifact preview to: {artifact_path}")
+        artifact_scrolled_path = artifact_dir / "settings_window_scrolled_preview.png"
+        img_scrolled.save(artifact_scrolled_path, format="PNG")
+        print(f"Saved artifact previews to: {artifact_dir}")
 
     win.destroy()
     root.destroy()

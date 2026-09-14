@@ -2472,3 +2472,30 @@ def test_theme_tokens_reexported_in_app():
     for token in tokens:
         assert hasattr(gui.app, token), f"gui.app missing re-export of {token}"
         assert getattr(gui.app, token) == getattr(gui.theme, token)
+
+
+def test_segmented_button_styling_consistency():
+    """Verify all segmented buttons use Calm Trust COLOR_SURFACE_BORDER and border_width=1."""
+    from gui.theme import COLOR_SURFACE_BORDER
+    from gui.settings_window import SettingsWindow
+    from gui.app import OCRApp
+
+    parent = ctk.CTk()
+    parent.withdraw()
+    try:
+        win = SettingsWindow(parent, settings=Settings())
+        for seg in [win._seg_backend, win._seg_runtime_mode, win._seg_managed_backend]:
+            assert seg.cget("fg_color") == COLOR_SURFACE_BORDER
+            assert seg.cget("border_width") == 1
+        win.destroy()
+
+        app = OCRApp(engine=MagicMock())
+        app.withdraw()
+        try:
+            assert app._tabview._segmented_button.cget("fg_color") == COLOR_SURFACE_BORDER
+            assert app._tabview._segmented_button.cget("border_width") == 1
+        finally:
+            app._on_closing()
+    finally:
+        parent.destroy()
+

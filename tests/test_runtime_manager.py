@@ -202,6 +202,92 @@ def test_download_and_verify_asset_corrupted_payload_refuses_extraction(tmp_path
     assert not (tmp_path / "corrupted-asset.zip.part").exists()
 
 
+def test_download_and_verify_asset_github_digest_missing_hardcoded_present(tmp_path: Path) -> None:
+    """If GitHub API digest is missing, verification succeeds using KNOWN_PINNED_HASHES alone."""
+    content = b"Mock archive bytes with hardcoded hash only"
+    digest = hashlib.sha256(content).hexdigest()
+
+    asset = ReleaseAssetInfo(
+        name="llama-b10930-bin-win-test-x64.zip",
+        download_url="https://example.com/asset.zip",
+        size=len(content),
+        digest=None,  # GitHub API did not provide a digest!
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"Content-Length": str(len(content))}
+    mock_resp.iter_content.return_value = [content]
+    mock_resp.__enter__.return_value = mock_resp
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.get.return_value = mock_resp
+
+    with patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {asset.name: digest}):
+        out_file = download_and_verify_asset(asset=asset, dest_dir=tmp_path, session=mock_session)
+        assert out_file.is_file()
+        assert out_file.read_bytes() == content
+
+
+def test_download_and_verify_asset_both_missing_refuses(tmp_path: Path) -> None:
+    """If BOTH GitHub API digest and hardcoded hash are missing, verification fails closed."""
+    content = b"Untrusted archive bytes with no hash anywhere"
+
+    asset = ReleaseAssetInfo(
+        name="untrusted-unhashed-asset.zip",
+        download_url="https://example.com/untrusted.zip",
+        size=len(content),
+        digest=None,  # Neither GitHub API...
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"Content-Length": str(len(content))}
+    mock_resp.iter_content.return_value = [content]
+    mock_resp.__enter__.return_value = mock_resp
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.get.return_value = mock_resp
+
+    # Ensure asset.name is NOT in KNOWN_PINNED_HASHES
+    with pytest.raises(RuntimeIntegrityError, match="Security violation: No authoritative SHA-256 digest available"):
+        download_and_verify_asset(asset=asset, dest_dir=tmp_path, session=mock_session)
+
+    # Invariant: Must fail closed - refuse to keep archive or partial file
+    assert not (tmp_path / "untrusted-unhashed-asset.zip").exists()
+    assert not (tmp_path / "untrusted-unhashed-asset.zip.part").exists()
+
+
+def test_download_and_verify_asset_cross_verify_mismatch_refuses(tmp_path: Path) -> None:
+    """If GitHub API digest and authoritative pinned hash contradict each other, refuse extraction."""
+    content = b"Archive bytes"
+    github_hash = "aaaa" * 16
+    pinned_hash = "bbbb" * 16
+
+    asset = ReleaseAssetInfo(
+        name="mismatch-asset.zip",
+        download_url="https://example.com/mismatch.zip",
+        size=len(content),
+        digest=f"sha256:{github_hash}",
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"Content-Length": str(len(content))}
+    mock_resp.iter_content.return_value = [content]
+    mock_resp.__enter__.return_value = mock_resp
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.get.return_value = mock_resp
+
+    with patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {asset.name: pinned_hash}):
+        with pytest.raises(RuntimeIntegrityError, match="Digest mismatch between GitHub API digest"):
+            download_and_verify_asset(asset=asset, dest_dir=tmp_path, session=mock_session)
+
+    assert not (tmp_path / "mismatch-asset.zip").exists()
+    assert not (tmp_path / "mismatch-asset.zip.part").exists()
+
+
 # ==============================================================================
 # Safe Extraction & Zip-Slip Protection Tests
 # ==============================================================================
@@ -270,6 +356,17 @@ def test_validate_runtime_binary(tmp_path: Path) -> None:
     assert validate_runtime_binary(tmp_path / "missing.exe") is False
 
 
+def test_validate_runtime_binary_timeout_hang(tmp_path: Path) -> None:
+    """Verify that a hanging binary triggers the 5s timeout, aborts cleanly, and returns False."""
+    exe = tmp_path / "hanging-server.exe"
+    exe.write_bytes(b"MZ...")
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[str(exe), "--version"], timeout=5.0)) as mock_run:
+        assert validate_runtime_binary(exe) is False
+        # Invariant: On timeout, must abort immediately without trying second flag (-h)
+        assert mock_run.call_count == 1
+
+
 # ==============================================================================
 # Idempotency & Cache Verification Tests
 # ==============================================================================
@@ -328,6 +425,7 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
         with (
             patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
             patch("core.runtime_manager.validate_runtime_binary", return_value=True),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
         ):
             final_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
 
@@ -371,6 +469,7 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
         with (
             patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
             patch("core.runtime_manager.validate_runtime_binary", return_value=False),  # Validation fails!
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
         ):
             with pytest.raises(RuntimeValidationError, match="failed to execute"):
                 ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
@@ -378,5 +477,65 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
             # Invariant: final runtime directory must NOT have been created
             assert not get_runtime_dir("b10930", "cpu").exists()
             # Staging directories must be wiped
+            staging_dirs = list(tmp_path.glob("staging_*"))
+            assert len(staging_dirs) == 0
+
+
+def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> None:
+    """Multi-archive CUDA staging: if companion cudart download fails after primary succeeds,
+    staging is completely wiped, manifest.json is never written, and install is invalid.
+    """
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
+        primary_zip = _create_test_zip({exe_name: b"primary binary"})
+        primary_digest = hashlib.sha256(primary_zip).hexdigest()
+
+        primary_name = "llama-b10930-bin-win-cuda-12.4-x64.zip"
+        cudart_name = "cudart-llama-bin-win-cuda-12.4-x64.zip"
+
+        mock_meta = {
+            primary_name: ReleaseAssetInfo(
+                name=primary_name,
+                download_url="https://mock/primary.zip",
+                size=len(primary_zip),
+                digest=f"sha256:{primary_digest}",
+            ),
+            cudart_name: ReleaseAssetInfo(
+                name=cudart_name,
+                download_url="https://mock/cudart.zip",
+                size=12345,
+                digest="sha256:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff",
+            ),
+        }
+
+        # Mock download_and_verify_asset: primary succeeds, cudart fails
+        def mock_download_and_verify(asset, dest_dir, session=None, progress_callback=None):
+            if asset.name == primary_name:
+                dest_file = dest_dir / primary_name
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                dest_file.write_bytes(primary_zip)
+                return dest_file
+            raise RuntimeDownloadError("Network error: CUDART download interrupted")
+
+        mock_session = MagicMock(spec=requests.Session)
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.download_and_verify_asset", side_effect=mock_download_and_verify),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {primary_name: primary_digest}),
+        ):
+            with pytest.raises(RuntimeDownloadError, match="CUDART download interrupted"):
+                ensure_runtime(backend="cuda", tag="b10930", session=mock_session)
+
+            # Invariant: final runtime directory must NOT exist
+            assert not get_runtime_dir("b10930", "cuda").exists()
+            assert is_runtime_installed("b10930", "cuda") is False
+            assert get_installed_runtime_path("b10930", "cuda") is None
+
+            # Invariant: manifest.json was never written
+            manifest_files = list(tmp_path.glob("**/manifest.json"))
+            assert len(manifest_files) == 0
+
+            # Invariant: all staging_* folders must be wiped
             staging_dirs = list(tmp_path.glob("staging_*"))
             assert len(staging_dirs) == 0

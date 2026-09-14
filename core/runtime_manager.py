@@ -294,26 +294,44 @@ def download_and_verify_asset(
 
     # Cryptographic Integrity Verification
     computed_hex = hasher.hexdigest().lower()
-    expected_hex: Optional[str] = None
+    github_hex = asset.digest.split(":")[-1].strip().lower() if asset.digest else None
+    pinned_hex = KNOWN_PINNED_HASHES.get(asset.name, "").lower() or None
 
-    if asset.digest:
-        expected_hex = asset.digest.split(":")[-1].strip().lower()
-    elif asset.name in KNOWN_PINNED_HASHES:
-        expected_hex = KNOWN_PINNED_HASHES[asset.name].lower()
+    # Cross-verify: if both GitHub API digest and pinned hash are available, they MUST match
+    if github_hex and pinned_hex and github_hex != pinned_hex:
+        if part_path.exists():
+            part_path.unlink()
+        err_msg = (
+            f"Security violation: Digest mismatch between GitHub API digest ({github_hex}) "
+            f"and authoritative pinned hash ({pinned_hex}) for '{asset.name}'. Aborting."
+        )
+        logger.error(err_msg)
+        raise RuntimeIntegrityError(err_msg)
 
-    if expected_hex:
-        if computed_hex != expected_hex:
-            if part_path.exists():
-                part_path.unlink()
-            err_msg = (
-                f"SHA-256 integrity verification FAILED for '{asset.name}'. "
-                f"Expected: {expected_hex}, Computed: {computed_hex}. Partial download removed."
-            )
-            logger.error(err_msg)
-            raise RuntimeIntegrityError(err_msg)
-        logger.info("SHA-256 integrity verified for %s (%s)", asset.name, computed_hex[:12])
-    else:
-        logger.warning("No SHA-256 digest available for %s; skipping integrity check", asset.name)
+    expected_hex = github_hex or pinned_hex
+
+    # FAIL-CLOSED: Refuse unverified extraction if no authoritative hash exists from any source
+    if not expected_hex:
+        if part_path.exists():
+            part_path.unlink()
+        err_msg = (
+            f"Security violation: No authoritative SHA-256 digest available for '{asset.name}' "
+            "(neither GitHub API digest nor hardcoded hash). Refusing unverified extraction."
+        )
+        logger.error(err_msg)
+        raise RuntimeIntegrityError(err_msg)
+
+    if computed_hex != expected_hex:
+        if part_path.exists():
+            part_path.unlink()
+        err_msg = (
+            f"SHA-256 integrity verification FAILED for '{asset.name}'. "
+            f"Expected: {expected_hex}, Computed: {computed_hex}. Partial download removed."
+        )
+        logger.error(err_msg)
+        raise RuntimeIntegrityError(err_msg)
+
+    logger.info("SHA-256 integrity verified for %s (%s)", asset.name, computed_hex[:12])
 
     # Finalize download
     if final_path.exists():
@@ -364,7 +382,8 @@ def validate_runtime_binary(exe_path: Path) -> bool:
     """Execute minimal sanity check to confirm the binary can initialize on this machine.
 
     Tests that dynamic libraries (e.g. CUDA runtime / Vulkan loaders) resolve properly
-    without a fatal DLL loader crash or missing dependency error.
+    without a fatal DLL loader crash or missing dependency error. Suppresses Windows
+    crash-report modal dialogs (WerFault) and enforces a strict 5.0s execution timeout.
 
     Args:
         exe_path: Path to llama-server executable.
@@ -377,22 +396,44 @@ def validate_runtime_binary(exe_path: Path) -> bool:
 
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
-    # Try --version first, then -h
-    for flag in ("--version", "-h"):
+    # Suppress Windows crash-report dialogs (SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
+    prev_mode = None
+    if sys.platform == "win32":
         try:
-            res = subprocess.run(
-                [str(exe_path), flag],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5.0,
-                creationflags=creationflags,
-            )
-            if res.returncode == 0:
-                return True
-        except Exception as exc:
-            logger.debug("Runtime validation check '%s' failed: %s", flag, exc)
+            import ctypes
+            # 0x0001 = SEM_FAILCRITICALERRORS, 0x0002 = SEM_NOGPFAULTERRORBOX
+            prev_mode = ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)
+        except Exception:
+            pass
 
-    return False
+    try:
+        # Try --version first, then -h
+        for flag in ("--version", "-h"):
+            try:
+                res = subprocess.run(
+                    [str(exe_path), flag],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5.0,
+                    creationflags=creationflags,
+                )
+                if res.returncode == 0:
+                    return True
+            except subprocess.TimeoutExpired:
+                logger.warning("Runtime validation timed out after 5.0s for %s with %s", exe_path, flag)
+                # On hang/timeout, abort immediately; do not wait another 5s for -h
+                return False
+            except Exception as exc:
+                logger.debug("Runtime validation check '%s' failed: %s", flag, exc)
+
+        return False
+    finally:
+        if prev_mode is not None:
+            try:
+                import ctypes
+                ctypes.windll.kernel32.SetErrorMode(prev_mode)
+            except Exception:
+                pass
 
 
 # ==============================================================================

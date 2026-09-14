@@ -367,6 +367,52 @@ def test_validate_runtime_binary_timeout_hang(tmp_path: Path) -> None:
         assert mock_run.call_count == 1
 
 
+def test_validate_runtime_binary_restores_error_mode(tmp_path: Path) -> None:
+    """Verify validate_runtime_binary restores original Win32 error mode on success, failure, and timeout."""
+    exe = tmp_path / "test-server.exe"
+    exe.write_bytes(b"MZ...")
+
+    if sys.platform == "win32":
+        import ctypes
+        initial_mode = ctypes.windll.kernel32.GetErrorMode()
+
+        # 1. Success path
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            res = validate_runtime_binary(exe)
+            assert res is True
+            assert ctypes.windll.kernel32.GetErrorMode() == initial_mode
+
+        # 2. Failure path (non-zero return code)
+        with patch("subprocess.run", return_value=MagicMock(returncode=1)):
+            res = validate_runtime_binary(exe)
+            assert res is False
+            assert ctypes.windll.kernel32.GetErrorMode() == initial_mode
+
+        # 3. Timeout / Hang path
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[str(exe), "--version"], timeout=5.0)):
+            res = validate_runtime_binary(exe)
+            assert res is False
+            assert ctypes.windll.kernel32.GetErrorMode() == initial_mode
+
+        # 4. Unexpected exception path
+        with patch("subprocess.run", side_effect=OSError("Process spawn failure")):
+            res = validate_runtime_binary(exe)
+            assert res is False
+            assert ctypes.windll.kernel32.GetErrorMode() == initial_mode
+    else:
+        # Cross-platform mock test for non-Windows environments
+        mock_kernel32 = MagicMock()
+        mock_kernel32.GetErrorMode.return_value = 0x8001
+        with (
+            patch("sys.platform", "win32"),
+            patch("ctypes.windll.kernel32", mock_kernel32, create=True),
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[str(exe), "--version"], timeout=5.0)),
+        ):
+            res = validate_runtime_binary(exe)
+            assert res is False
+            mock_kernel32.SetErrorMode.assert_called_with(0x8001)
+
+
 # ==============================================================================
 # Idempotency & Cache Verification Tests
 # ==============================================================================

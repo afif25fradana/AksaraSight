@@ -401,10 +401,16 @@ def validate_runtime_binary(exe_path: Path) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
+            # Query existing mode to preserve any existing process flags (e.g. SEM_NOOPENFILEERRORBOX)
+            prev_mode = ctypes.windll.kernel32.GetErrorMode()
             # 0x0001 = SEM_FAILCRITICALERRORS, 0x0002 = SEM_NOGPFAULTERRORBOX
-            prev_mode = ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)
+            ctypes.windll.kernel32.SetErrorMode(prev_mode | 0x0001 | 0x0002)
         except Exception:
-            pass
+            try:
+                import ctypes
+                prev_mode = ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)
+            except Exception:
+                pass
 
     try:
         # Try --version first, then -h

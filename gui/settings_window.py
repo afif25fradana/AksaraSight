@@ -10,7 +10,11 @@ from urllib.parse import urlsplit
 import customtkinter as ctk
 
 from config.settings import Settings
-from core.hardware import PINNED_LLAMA_BUILD, get_cached_hardware_profile
+from core.hardware import (
+    HardwareProfile,
+    PINNED_LLAMA_BUILD,
+    get_cached_hardware_profile,
+)
 from core.runtime_manager import (
     ensure_runtime,
     get_installed_runtime_path,
@@ -630,24 +634,34 @@ class SettingsWindow(ctk.CTkToplevel):
         self._frame_managed.grid_columnconfigure(1, weight=1)
 
         # Hardware readout
+        hw_title_box = ctk.CTkFrame(self._frame_managed, fg_color="transparent")
+        hw_title_box.grid(row=0, column=0, sticky="nw", padx=10, pady=(8, 2))
+
         lbl_hw_title = ctk.CTkLabel(
-            self._frame_managed,
+            hw_title_box,
             text="Detected Hardware:",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=COLOR_TEXT_PRIMARY,
             anchor="w",
         )
-        lbl_hw_title.grid(row=0, column=0, sticky="nw", padx=10, pady=(8, 2))
+        lbl_hw_title.pack(anchor="w")
 
-        hw = self._hardware_profile
-        if hw.gpu_name:
-            vram_str = f" ({hw.vram_mb / 1024:.1f} GB VRAM)" if hw.vram_mb else ""
-            driver_str = f" [Driver {hw.cuda_driver_version}]" if hw.cuda_driver_version else ""
-            hw_desc = f"{hw.gpu_name}{vram_str}{driver_str}\nRecommended Backend: {hw.recommended_backend.upper()}"
-        else:
-            cpu_model = hw.cpu_name or "Generic x86_64"
-            hw_desc = f"CPU ({cpu_model})\nRecommended Backend: CPU"
+        self._btn_refresh_hw = ctk.CTkButton(
+            hw_title_box,
+            text="Refresh",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            width=54,
+            height=20,
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            hover_color=COLOR_INTERACTIVE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=COLOR_SURFACE_BORDER,
+            command=self._on_refresh_hardware,
+        )
+        self._btn_refresh_hw.pack(anchor="w", pady=(2, 0))
 
+        hw_desc = self._format_hardware_description(self._hardware_profile)
         self._lbl_hw_desc = ctk.CTkLabel(
             self._frame_managed,
             text=hw_desc,
@@ -853,6 +867,22 @@ class SettingsWindow(ctk.CTkToplevel):
             return self._hardware_profile.recommended_backend
         return override
 
+    def _format_hardware_description(self, hw: HardwareProfile) -> str:
+        """Format a human-readable summary of detected hardware."""
+        if hw.gpu_name:
+            vram_str = f" ({hw.vram_mb / 1024:.1f} GB VRAM)" if hw.vram_mb else ""
+            driver_str = f" [Driver {hw.cuda_driver_version}]" if hw.cuda_driver_version else ""
+            return f"{hw.gpu_name}{vram_str}{driver_str}\nRecommended Backend: {hw.recommended_backend.upper()}"
+        cpu_model = hw.cpu_name or "Generic x86_64"
+        return f"CPU ({cpu_model})\nRecommended Backend: CPU"
+
+    def _on_refresh_hardware(self) -> None:
+        """Force-refresh hardware detection cache and update UI readout."""
+        self._hardware_profile = get_cached_hardware_profile(force_refresh=True)
+        if hasattr(self, "_lbl_hw_desc"):
+            self._lbl_hw_desc.configure(text=self._format_hardware_description(self._hardware_profile))
+        self._update_managed_status()
+
     def _update_managed_status(self, backend: Optional[str] = None) -> None:
         """Refresh the installation status badge, path label, and download button state."""
         target = backend or self._get_active_target_backend()
@@ -869,7 +899,7 @@ class SettingsWindow(ctk.CTkToplevel):
             if hasattr(self, "_lbl_managed_path"):
                 self._lbl_managed_path.configure(text=str(path) if path else "")
             if not self._is_downloading:
-                self._btn_download.configure(text="Re-download Runtime", state="normal")
+                self._btn_download.configure(text="Reinstall / Update", state="normal")
         else:
             self._lbl_managed_status.configure(
                 text="● Not Installed",
@@ -912,6 +942,9 @@ class SettingsWindow(ctk.CTkToplevel):
                 return
 
         target_backend = self._get_active_target_backend()
+        resolved_target = target_backend if target_backend != "auto" else self._hardware_profile.recommended_backend
+        force_download = is_runtime_installed(tag=PINNED_LLAMA_BUILD, backend=resolved_target)
+
         self._is_downloading = True
         self._btn_download.configure(text="Downloading...", state="disabled")
         self._lbl_download_status.configure(text="Initializing download...", text_color=COLOR_TEXT_MUTED)
@@ -946,6 +979,7 @@ class SettingsWindow(ctk.CTkToplevel):
                     backend=target_backend,
                     tag=PINNED_LLAMA_BUILD,
                     progress_callback=_progress_cb,
+                    force=force_download,
                 )
 
                 def _success_ui() -> None:

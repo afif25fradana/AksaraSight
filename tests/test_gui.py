@@ -2311,7 +2311,7 @@ def test_settings_window_closure_during_download(tmp_path):
                 win2 = SettingsWindow(parent, settings=managed_settings)
                 try:
                     assert "Installed" in win2._lbl_managed_status.cget("text")
-                    assert win2._btn_download.cget("text") == "Re-download Runtime"
+                    assert win2._btn_download.cget("text") == "Reinstall / Update"
                 finally:
                     win2.destroy()
     finally:
@@ -2339,6 +2339,97 @@ def test_app_on_closing_joins_download_thread():
         assert not thread.is_alive()
     finally:
         stop_event.set()
+
+
+def test_settings_window_reinstall_passes_force_flag(tmp_path):
+    """Verify clicking Reinstall / Update passes force=True to ensure_runtime."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    managed_settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+    )
+
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    win = SettingsWindow(parent, settings=managed_settings)
+    called_force_kwargs = []
+
+    def mock_ensure_runtime(*args, **kwargs):
+        called_force_kwargs.append(kwargs.get("force"))
+        return fake_exe
+
+    try:
+        with (
+            patch("gui.settings_window.is_runtime_installed", return_value=True),
+            patch("gui.settings_window.get_installed_runtime_path", return_value=fake_exe),
+            patch("gui.settings_window.ensure_runtime", side_effect=mock_ensure_runtime),
+        ):
+            win._update_managed_status()
+            assert win._btn_download.cget("text") == "Reinstall / Update"
+
+            win._on_download_runtime()
+            win.wait_for_download(timeout=2.0)
+
+            assert len(called_force_kwargs) == 1
+            assert called_force_kwargs[0] is True
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_hardware_refresh_updates_ui():
+    """Verify Refresh button invokes get_cached_hardware_profile(force_refresh=True) and updates readout."""
+    from core.hardware import HardwareProfile
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    initial_profile = HardwareProfile(
+        cpu_name="Initial CPU",
+        gpu_name="Initial GPU",
+        vram_mb=4096,
+        cuda_available=True,
+        cuda_driver_version="550.00",
+        cuda_driver_api_version=12040,
+        cuda_supported=True,
+        vulkan_available=True,
+        vulkan_device_name="Initial GPU",
+        recommended_backend="cuda",
+    )
+
+    refreshed_profile = HardwareProfile(
+        cpu_name="Refreshed CPU",
+        gpu_name="NVIDIA GeForce RTX 4090",
+        vram_mb=24576,
+        cuda_available=True,
+        cuda_driver_version="560.30",
+        cuda_driver_api_version=12060,
+        cuda_supported=True,
+        vulkan_available=True,
+        vulkan_device_name="NVIDIA GeForce RTX 4090",
+        recommended_backend="cuda",
+    )
+
+    with patch("gui.settings_window.get_cached_hardware_profile", return_value=initial_profile):
+        win = SettingsWindow(parent, settings=Settings())
+
+    try:
+        assert "Initial GPU" in win._lbl_hw_desc.cget("text")
+
+        with patch("gui.settings_window.get_cached_hardware_profile", return_value=refreshed_profile) as mock_get_hw:
+            win._on_refresh_hardware()
+            mock_get_hw.assert_called_once_with(force_refresh=True)
+            assert "RTX 4090" in win._lbl_hw_desc.cget("text")
+            assert "24.0 GB VRAM" in win._lbl_hw_desc.cget("text")
+    finally:
+        win.destroy()
+        parent.destroy()
 
 
 

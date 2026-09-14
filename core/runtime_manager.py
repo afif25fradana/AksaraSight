@@ -493,11 +493,12 @@ def ensure_runtime(
     tag: str = PINNED_LLAMA_BUILD,
     session: Optional[requests.Session] = None,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    force: bool = False,
 ) -> Path:
     """Ensure the target runtime is installed and verified, downloading only if needed.
 
     Orchestration Flow:
-    1. Check if valid runtime is already installed on disk -> return immediately if so.
+    1. Check if valid runtime is already installed on disk -> return immediately if so (unless force=True).
     2. Query GitHub Releases API for the pinned tag metadata.
     3. Stream download each required archive to downloads/ with incremental SHA-256 verification.
     4. Safely extract archives into an isolated temporary staging subdirectory.
@@ -511,6 +512,8 @@ def ensure_runtime(
         tag: Pinned release tag.
         session: Optional HTTP session.
         progress_callback: Optional callback(stage_message, bytes_done, total_bytes).
+        force: If True, bypasses the idempotency check and forces a fresh download,
+            verification, extraction, and installation even if already installed.
 
     Returns:
         Path: Path to the ready-to-execute llama-server binary.
@@ -521,11 +524,12 @@ def ensure_runtime(
     clean_backend = backend.strip().lower()
     clean_tag = tag.strip()
 
-    # 1. Idempotency check: Zero network calls if already installed
-    existing = get_installed_runtime_path(clean_tag, clean_backend)
-    if existing is not None:
-        logger.info("Runtime %s-%s already installed at %s", clean_tag, clean_backend, existing)
-        return existing
+    # 1. Idempotency check: Zero network calls if already installed and not forced
+    if not force:
+        existing = get_installed_runtime_path(clean_tag, clean_backend)
+        if existing is not None:
+            logger.info("Runtime %s-%s already installed at %s", clean_tag, clean_backend, existing)
+            return existing
 
     runtime_dir = get_runtime_dir(clean_tag, clean_backend)
     base_dir = get_runtime_base_dir()

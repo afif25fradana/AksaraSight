@@ -2158,6 +2158,190 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
         app._on_closing()
 
 
+def test_settings_window_runtime_source_switching():
+    """Verify SettingsWindow switches between Managed and Custom Path runtime views cleanly."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    managed_settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="auto",
+        llama_server_path=r"C:\bin\llama-server.exe",
+    )
+
+    win = SettingsWindow(parent, settings=managed_settings)
+    try:
+        # Initial view is Managed
+        assert win._seg_runtime_mode.get() == "Managed (Auto)"
+        assert win._frame_managed.winfo_manager() == "pack"
+        assert win._frame_custom.winfo_manager() == ""
+
+        # Switch to Custom Path
+        win._seg_runtime_mode.set("Custom Path")
+        win._on_runtime_mode_changed("Custom Path")
+
+        assert win._frame_custom.winfo_manager() == "pack"
+        assert win._frame_managed.winfo_manager() == ""
+
+        # Switch back to Managed
+        win._seg_runtime_mode.set("Managed (Auto)")
+        win._on_runtime_mode_changed("Managed (Auto)")
+
+        assert win._frame_managed.winfo_manager() == "pack"
+        assert win._frame_custom.winfo_manager() == ""
+
+        # Switch target backend override
+        win._seg_managed_backend.set("vulkan")
+        win._on_managed_backend_changed("vulkan")
+        assert win._get_active_target_backend() == "vulkan"
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_download_concurrency_guard(tmp_path):
+    """Verify runtime download concurrency guard rejects concurrent clicks and disables download button."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    managed_settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+    )
+
+    win = SettingsWindow(parent, settings=managed_settings)
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    start_event = threading.Event()
+    finish_event = threading.Event()
+    call_count = 0
+
+    def slow_ensure_runtime(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        start_event.set()
+        progress_cb = kwargs.get("progress_callback")
+        if progress_cb:
+            progress_cb("Downloading...", 50, 100)
+        finish_event.wait(timeout=3.0)
+        return fake_exe
+
+    try:
+        with patch("gui.settings_window.ensure_runtime", side_effect=slow_ensure_runtime):
+            win._on_download_runtime()
+            assert start_event.wait(timeout=2.0) is True
+
+            # While download is running: locked and disabled
+            assert win._is_downloading is True
+            assert win._btn_download.cget("state") == "disabled"
+            assert win._btn_download.cget("text") == "Downloading..."
+
+            # Second click while in progress is ignored
+            win._on_download_runtime()
+            assert call_count == 1
+
+            # Release worker
+            finish_event.set()
+            win.wait_for_download(timeout=3.0)
+
+            # Download finished
+            assert win._is_downloading is False
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_closure_during_download(tmp_path):
+    """Verify SettingsWindow closure during an active download lets thread finish without UI errors."""
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    managed_settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+    )
+
+    win = SettingsWindow(parent, settings=managed_settings)
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    start_event = threading.Event()
+    finish_event = threading.Event()
+    completed_event = threading.Event()
+
+    def slow_ensure_runtime(*args, **kwargs):
+        start_event.set()
+        progress_cb = kwargs.get("progress_callback")
+        if progress_cb:
+            progress_cb("Downloading archive...", 20, 100)
+        finish_event.wait(timeout=3.0)
+        if progress_cb:
+            progress_cb("Verifying binary...", 0, 0)
+        completed_event.set()
+        return fake_exe
+
+    try:
+        with patch("gui.settings_window.ensure_runtime", side_effect=slow_ensure_runtime):
+            win._on_download_runtime()
+            assert start_event.wait(timeout=2.0) is True
+
+            download_thread = win._download_thread
+            assert download_thread is not None
+            assert download_thread.is_alive()
+
+            # Close/destroy SettingsWindow while download is active
+            win.destroy()
+
+            # Signal worker to finish
+            finish_event.set()
+            download_thread.join(timeout=3.0)
+            assert not download_thread.is_alive()
+            assert completed_event.is_set()
+
+            # Reopen SettingsWindow after download completed
+            with patch("gui.settings_window.is_runtime_installed", return_value=True), \
+                 patch("gui.settings_window.get_installed_runtime_path", return_value=fake_exe):
+                win2 = SettingsWindow(parent, settings=managed_settings)
+                try:
+                    assert "Installed" in win2._lbl_managed_status.cget("text")
+                    assert win2._btn_download.cget("text") == "Re-download Runtime"
+                finally:
+                    win2.destroy()
+    finally:
+        parent.destroy()
+
+
+def test_app_on_closing_joins_download_thread():
+    """Verify GLMOCRStudioApp._on_closing joins any active _runtime_download_thread."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    stop_event = threading.Event()
+
+    def dummy_worker():
+        stop_event.wait(timeout=0.05)
+
+    thread = threading.Thread(target=dummy_worker, name="TestDownloadWorker", daemon=True)
+    thread.start()
+    app._runtime_download_thread = thread
+
+    try:
+        assert thread.is_alive()
+        app._on_closing()
+        assert not thread.is_alive()
+    finally:
+        stop_event.set()
+
+
+
 
 
 

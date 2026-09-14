@@ -389,3 +389,48 @@ def test_server_manager_log_buffer_caps_and_retrieves():
         assert recent[0] == "log line 240"
     finally:
         mgr.shutdown()
+
+
+def test_server_manager_start_managed_not_installed_raises_clear_error():
+    """Verify start() raises helpful error when managed runtime is not yet installed."""
+    settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    try:
+        with patch("core.runtime_manager.get_installed_runtime_path", return_value=None), \
+             patch("shutil.which", return_value=None):
+            with pytest.raises(FileNotFoundError, match="Managed llama.cpp runtime is not installed"):
+                mgr.start()
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_managed_installed_resolves_effective_path(tmp_path):
+    """Verify start() automatically resolves and invokes the installed managed runtime binary."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    try:
+        with patch("core.runtime_manager.get_installed_runtime_path", return_value=fake_exe), \
+             patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            mgr.start()
+            cmd_args = mock_popen.call_args[0][0]
+            assert cmd_args[0] == str(fake_exe)
+    finally:
+        mgr.shutdown()
+

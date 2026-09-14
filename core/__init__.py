@@ -21,7 +21,9 @@ from .formatter import (
 from .hardware import (
     HardwareProfile,
     PINNED_LLAMA_BUILD,
+    clear_hardware_cache,
     detect_hardware,
+    get_cached_hardware_profile,
 )
 from .models import (
     JobConfig,
@@ -98,9 +100,11 @@ __all__ = [
     "VisionClient",
     "ZipSlipSecurityError",
     "check_preflight",
+    "clear_hardware_cache",
     "detect_hardware",
     "ensure_runtime",
     "format_output",
+    "get_cached_hardware_profile",
     "get_installed_runtime_path",
     "ingest",
     "is_pdf",

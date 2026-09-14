@@ -423,13 +423,18 @@ class ServerManager:
             if self._process is not None and self._process.poll() is None:
                 raise RuntimeError("A managed server process is already running.")
 
-            # Resolve executable path
-            candidate_path = server_path or self.settings.llama_server_path
+            # Resolve executable path (uses effective_llama_server_path to support managed runtime)
+            candidate_path = server_path or self.settings.effective_llama_server_path
             if not candidate_path:
                 which_path = shutil.which("llama-server")
                 candidate_path = which_path
 
             if not candidate_path or not Path(candidate_path).is_file():
+                if self.settings.runtime_mode == "managed" and not server_path:
+                    raise FileNotFoundError(
+                        "Managed llama.cpp runtime is not installed. "
+                        "Open Settings to download the recommended runtime."
+                    )
                 raise FileNotFoundError(
                     f"llama-server executable not found at '{candidate_path}'. "
                     "Configure the path to llama-server.exe in Settings."

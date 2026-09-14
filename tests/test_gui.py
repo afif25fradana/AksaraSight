@@ -2475,8 +2475,8 @@ def test_theme_tokens_reexported_in_app():
 
 
 def test_segmented_button_styling_consistency():
-    """Verify all segmented buttons use Calm Trust COLOR_SURFACE_BORDER and border_width=1."""
-    from gui.theme import COLOR_SURFACE_BORDER
+    """Verify all segmented buttons use Calm Trust track colors and border_width=0 without harsh button borders."""
+    from gui.theme import COLOR_SURFACE_BORDER, COLOR_SURFACE_2
     from gui.settings_window import SettingsWindow
     from gui.app import OCRApp
 
@@ -2486,14 +2486,19 @@ def test_segmented_button_styling_consistency():
         win = SettingsWindow(parent, settings=Settings())
         for seg in [win._seg_backend, win._seg_runtime_mode, win._seg_managed_backend]:
             assert seg.cget("fg_color") == COLOR_SURFACE_BORDER
-            assert seg.cget("border_width") == 1
+            assert seg.cget("unselected_color") == COLOR_SURFACE_BORDER
+            assert seg.cget("border_width") == 0
+            for btn in seg._buttons_dict.values():
+                assert btn.cget("border_width") == 0
         win.destroy()
 
         app = OCRApp(engine=MagicMock())
         app.withdraw()
         try:
-            assert app._tabview._segmented_button.cget("fg_color") == COLOR_SURFACE_BORDER
-            assert app._tabview._segmented_button.cget("border_width") == 1
+            assert app._tabview._segmented_button.cget("fg_color") == COLOR_SURFACE_2
+            assert app._tabview._segmented_button.cget("border_width") == 0
+            for btn in app._tabview._segmented_button._buttons_dict.values():
+                assert btn.cget("border_width") == 0
         finally:
             app._on_closing()
     finally:

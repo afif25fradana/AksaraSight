@@ -3,6 +3,7 @@
 from collections import deque
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -544,5 +545,30 @@ def test_real_loopback_server_manager_and_vision_client_integration():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_real_win32_job_object_creation_and_assignment():
+    """Verify real unmocked Win32 Job Object creation, process assignment, and handle cleanup on Windows."""
+    if sys.platform != "win32":
+        pytest.skip("Win32 Job Objects are Windows-only")
+
+    from core.server_manager import _create_kill_on_close_job, _assign_process_to_job, _close_job_handle
+    import subprocess
+
+    job = _create_kill_on_close_job()
+    assert job is not None and job != 0
+
+    proc = subprocess.Popen(
+        ["cmd.exe", "/c", "exit", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    assigned = _assign_process_to_job(job, int(proc._handle))
+    proc.wait(timeout=5)
+    _close_job_handle(job)
+
+    assert assigned is True
+
 
 

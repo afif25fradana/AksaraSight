@@ -27,11 +27,6 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
-        "--test-server-supervision",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
         "input",
         type=Path,
         nargs="?",
@@ -146,33 +141,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.detect_hardware:
         profile = detect_hardware()
         sys.stdout.write(profile.format_summary() + "\n")
-        return 0
-
-    # Handle --test-server-supervision internal packaging diagnostic action
-    if args.test_server_supervision:
-        from core.server_manager import _create_kill_on_close_job, _assign_process_to_job
-        import subprocess
-        if sys.platform == "win32":
-            job = _create_kill_on_close_job()
-            if not job:
-                sys.stderr.write("FAILED: _create_kill_on_close_job returned 0\n")
-                return 1
-            cmd = ["cmd.exe", "/c", "exit", "0"]
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                cwd=str(Path(sys.executable).parent if getattr(sys, "frozen", False) else Path.cwd()),
-            )
-            assigned = _assign_process_to_job(job, int(proc._handle))
-            proc.wait(timeout=5)
-            if not assigned:
-                sys.stderr.write("FAILED: _assign_process_to_job returned False\n")
-                return 1
-            sys.stdout.write("OK: Win32 Job Object and subprocess creation verified\n")
-            return 0
-        sys.stdout.write("OK: Non-Windows platform\n")
         return 0
 
     # Ensure input argument was supplied

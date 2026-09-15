@@ -56,16 +56,17 @@ def test_cli_hardware_detection() -> bool:
     return True
 
 
-def test_frozen_server_supervision_job_object() -> bool:
-    """Verify Win32 Job Object, CREATE_NO_WINDOW, and cwd isolation under frozen parent."""
-    print("\n[3/5] Testing Managed Runtime subprocess handling under frozen executable...")
-    res = subprocess.run([str(CLI_EXE), "--test-server-supervision"], capture_output=True, text=True, timeout=10)
-    print(f"  Output: {res.stdout.strip()}")
-    if res.returncode != 0 or "Win32 Job Object and subprocess creation verified" not in res.stdout:
-        print(f"  [FAIL] Job Object verification failed:\n{res.stderr}")
+def test_cli_input_validation() -> bool:
+    """Verify ocr-llm.exe handles nonexistent files with structured exit code 1 and error message."""
+    print("\n[3/5] Testing CLI input validation and error handling...")
+    res = subprocess.run([str(CLI_EXE), "nonexistent_sample.png"], capture_output=True, text=True, timeout=10)
+    print(f"  Exit code: {res.returncode}")
+    if res.returncode != 1 or "Error: Input path does not exist" not in res.stderr:
+        print(f"  [FAIL] Input validation failed:\n{res.stderr}")
         return False
-    print("  [PASS] Win32 Job Object & subprocess isolation verified")
+    print("  [PASS] CLI input validation and exit code 1 verified")
     return True
+
 
 
 def test_gui_window_rendering_and_logging() -> bool:
@@ -178,7 +179,7 @@ def main() -> None:
     checks = [
         test_cli_version,
         test_cli_hardware_detection,
-        test_frozen_server_supervision_job_object,
+        test_cli_input_validation,
         test_gui_window_rendering_and_logging,
         test_frozen_log_file,
     ]

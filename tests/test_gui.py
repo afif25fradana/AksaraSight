@@ -2936,5 +2936,27 @@ def test_indeterminate_progress_mode_lifecycle(tmp_path):
         app._on_closing()
 
 
+def test_frozen_logging_setup(tmp_path, monkeypatch):
+    """Verify _setup_frozen_logging configures file handler when frozen, no-ops when unfrozen."""
+    from gui.app import _setup_frozen_logging
+
+    # 1. Unfrozen: returns None, touches nothing
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    assert _setup_frozen_logging() is None
+
+    # 2. Frozen: sets up log file under LOCALAPPDATA
+    fake_localapp = tmp_path / "LocalAppData"
+    monkeypatch.setenv("LOCALAPPDATA", str(fake_localapp))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    log_file = _setup_frozen_logging()
+    assert log_file is not None
+    assert log_file.is_file()
+    assert "app.log" in log_file.name
+    content = log_file.read_text(encoding="utf-8")
+    assert "Frozen application started" in content
+
+
+
 
 

@@ -1,6 +1,7 @@
 """Unit tests for config/settings.py."""
 
 from pathlib import Path
+import sys
 from unittest.mock import patch
 import pytest
 from config.settings import Settings, VALID_BACKENDS
@@ -519,4 +520,42 @@ def test_runtime_mode_env_round_trip(tmp_path, monkeypatch):
     loaded = Settings.from_env(env_file)
     assert loaded.runtime_mode == "managed"
     assert loaded.managed_backend_override == "vulkan"
+
+
+def test_frozen_env_path_resolution(tmp_path, monkeypatch):
+    """Verify _resolve_default_env_path prioritizes executable parent directory when frozen."""
+    from config.settings import _resolve_default_env_path
+
+    # Case 1: Non-frozen defaults to Path(".env")
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    assert _resolve_default_env_path() == Path(".env")
+
+    # Case 2: Frozen prioritizes sys.executable parent directory
+    dummy_exe = tmp_path / "bin" / "GLM-OCR.exe"
+    dummy_exe.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(dummy_exe))
+
+    resolved = _resolve_default_env_path()
+    assert resolved == tmp_path / "bin" / ".env"
+
+
+def test_frozen_from_and_save_to_env(tmp_path, monkeypatch):
+    """Verify Settings.from_env and save_to_env use executable directory when frozen."""
+    dummy_exe = tmp_path / "portable_app" / "GLM-OCR.exe"
+    dummy_exe.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(dummy_exe))
+
+    # Save to env in frozen mode with no explicit env_path
+    s = Settings(dpi=150)
+    saved_path = s.save_to_env()
+    expected_env = tmp_path / "portable_app" / ".env"
+    assert saved_path == expected_env.resolve()
+    assert expected_env.is_file()
+
+    # Load from env in frozen mode with no explicit env_path
+    loaded = Settings.from_env()
+    assert loaded.dpi == 150
+
 

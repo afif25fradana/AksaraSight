@@ -565,3 +565,23 @@ def test_cli_real_engine_integration(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "# Real Invoice Title" in captured.out
     assert "Line item text" in captured.out
 
+
+def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify 'ocr-llm --version' prints correct version string and exits."""
+    from core.constants import __version__
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert f"ocr-llm {__version__}" in captured.out
+
+
+def test_cli_test_server_supervision_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify --test-server-supervision diagnostic flag executes cleanly."""
+    exit_code = main(["--test-server-supervision"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "OK:" in captured.out
+
+

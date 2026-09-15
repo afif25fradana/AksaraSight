@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+import sys
 from typing import Any, Optional, Set
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
@@ -14,6 +15,19 @@ VALID_BACKENDS: Set[str] = {"llama-cpp", "ollama", "vllm"}
 VALID_RUNTIME_MODES: Set[str] = {"managed", "custom"}
 VALID_MANAGED_BACKENDS: Set[str] = {"auto", "cuda", "vulkan", "cpu"}
 LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
+
+
+def _resolve_default_env_path() -> Path:
+    """Resolve the default .env path.
+
+    When running from a PyInstaller frozen binary (getattr(sys, 'frozen', False) is True),
+    prioritizes the directory containing the executable (Path(sys.executable).parent / '.env').
+    If running from source, defaults to '.env' in the current working directory.
+    """
+    if getattr(sys, "frozen", False):
+        exe_env = Path(sys.executable).parent / ".env"
+        return exe_env
+    return Path(".env")
 
 
 def _to_bool(val: Any) -> bool:
@@ -242,6 +256,12 @@ class Settings:
         """
         if env_path is not None:
             load_dotenv(dotenv_path=env_path)
+        elif getattr(sys, "frozen", False):
+            default_env = _resolve_default_env_path()
+            if default_env.is_file():
+                load_dotenv(dotenv_path=default_env)
+            else:
+                load_dotenv()
         else:
             load_dotenv()
 
@@ -297,7 +317,10 @@ class Settings:
         Returns:
             Path: The resolved path of the updated .env file.
         """
-        target = Path(env_path).resolve() if env_path is not None else Path(".env").resolve()
+        if env_path is not None:
+            target = Path(env_path).resolve()
+        else:
+            target = _resolve_default_env_path().resolve()
 
         # Key mapping of managed settings
         managed: dict[str, str] = {

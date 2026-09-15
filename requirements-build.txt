@@ -1,0 +1,3 @@
+# Build and packaging dependencies for OCR-LLM-Local portable distribution
+pyinstaller>=6.10.0
+pyinstaller-hooks-contrib>=2025.1

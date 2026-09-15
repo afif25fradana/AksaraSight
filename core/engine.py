@@ -37,7 +37,26 @@ class OCREngine:
         """
         self.settings = settings or Settings()
         self.client = client or VisionClient(settings=self.settings)
+        self._multimodal_verified: bool = False
 
+    def invalidate_backend_verification(self) -> None:
+        """Reset the multimodal verification cache (e.g. on server restart, stop, or endpoint switch)."""
+        self._multimodal_verified = False
+
+    def verify_backend(self, force: bool = False) -> None:
+        """Verify that the backend is online and accepts multimodal vision requests.
+
+        Sends a lightweight 1x1 test image probe once per session (cached in self._multimodal_verified).
+        If force=True, bypasses the session cache and re-probes.
+
+        Raises:
+            ServerOfflineError: If the server is offline or unreachable.
+            ClientError: If the backend fails to process multimodal input.
+        """
+        if self._multimodal_verified and not force:
+            return
+        self.client.verify_multimodal_support()
+        self._multimodal_verified = True
 
     def process_document(
         self,

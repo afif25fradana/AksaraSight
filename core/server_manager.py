@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import requests
@@ -276,6 +276,7 @@ class ServerManager:
         self._lock = threading.Lock()
         self._atexit_hook = atexit.register(self.shutdown)
         self._job_handle: Optional[int] = None
+        self.on_lifecycle_change: Optional[Callable[[], None]] = None
 
     @property
     def status(self) -> ServerStatus:
@@ -379,6 +380,14 @@ class ServerManager:
             recent_logs=list(self._log_buffer),
         )
 
+    def _notify_lifecycle_change(self) -> None:
+        """Invoke lifecycle change callback if registered."""
+        if self.on_lifecycle_change:
+            try:
+                self.on_lifecycle_change()
+            except Exception as exc:
+                logger.debug("Error in on_lifecycle_change callback: %s", exc)
+
     def _diagnose_failure(self) -> str:
         """Analyze recent log buffer lines to diagnose the root cause of startup failure."""
         recent_text = "\n".join(list(self._log_buffer)[-25:]).lower()
@@ -418,6 +427,7 @@ class ServerManager:
                 self._status = cur_status
                 self._last_message = f"Connected to existing server ({cur_msg})"
                 logger.info("Server already running on %s; adopting as external", active_ep)
+                self._notify_lifecycle_change()
                 return
 
             if self._process is not None and self._process.poll() is None:
@@ -465,6 +475,26 @@ class ServerManager:
                 "-c", "8192",
                 "--parallel", "1",
             ]
+
+            # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
+            if model_flag == "-m":
+                model_path = Path(repo).resolve()
+                mmproj_candidates: List[Path] = []
+                if model_path.parent.is_dir():
+                    for p in model_path.parent.iterdir():
+                        if p.is_file() and p.suffix.lower() == ".gguf" and "mmproj" in p.name.lower():
+                            mmproj_candidates.append(p)
+
+                if mmproj_candidates:
+                    chosen_mmproj = sorted(mmproj_candidates)[0]
+                    cmd.extend(["--mmproj", str(chosen_mmproj)])
+                    logger.info("Auto-detected adjacent multimodal projector for local model: %s", chosen_mmproj.name)
+                else:
+                    logger.warning(
+                        "Local GGUF model '%s' specified without an adjacent mmproj file (*mmproj*.gguf). "
+                        "Multimodal image input will fail unless an explicit --mmproj projector is configured.",
+                        repo,
+                    )
 
             logger.info("Launching server subprocess: %s", " ".join(cmd))
             self._log_buffer.clear()
@@ -516,6 +546,7 @@ class ServerManager:
                 )
                 reader.start()
                 self._reader_thread = reader
+                self._notify_lifecycle_change()
 
             except Exception as spawn_exc:
                 self._status = ServerStatus.ERROR
@@ -558,6 +589,7 @@ class ServerManager:
                 self._status = ServerStatus.OFFLINE
                 self._last_message = "Server stopped"
                 self._log_buffer.append("[ServerManager] Server process stopped.")
+                self._notify_lifecycle_change()
 
     def shutdown(self) -> None:
         """Tear down all resources and terminate managed processes on application exit."""

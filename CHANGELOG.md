@@ -4,14 +4,26 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-## Current State: v1.0.0 (Production-Ready)
-- **345 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
+## Current State: v1.0.0 (Feature-Complete for Current Scope)
+- **361 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
+- **Serving Configuration & Multimodal Self-Test Hardening complete** (Empirically verified b10930 arguments, 1x1 multimodal probe, session caching, and local GGUF mmproj safeguards).
 
 ---
 
 ## Milestones
+
+### Serving Configuration & Multimodal Self-Test Hardening
+*Focus: Verified serving arguments, 1x1 multimodal probe, session caching, and local-GGUF mmproj safeguard.*
+- **Multimodal Startup Probe**: Added `VisionClient.verify_multimodal_support()` using a 1x1 test PNG to detect text-only servers (e.g. missing `mmproj`) before document processing.
+- **Session Caching & Lifecycle Invalidation**: Cached probe result in `OCREngine._multimodal_verified`; wired invalidation to `ServerManager.start()`/`stop()`, external server adoption, settings changes, and server status transitions.
+- **Local GGUF mmproj Safeguard**: Added auto-detection for adjacent `*mmproj*.gguf` files in `core/server_manager.py` with an explicit warning if missing.
+- **CLI & GUI Wiring**: Wired `verify_backend()` to run once prior to batch processing in CLI and before first job in GUI session.
+- **Documentation Refinements**: Softened absolute claims in `README.md`, clarified SHA-256 digest scope for Managed Runtime binaries vs model weights, and documented explicit manual server commands.
+- **Result:** **361 / 361 tests passing**.
+
+---
 
 ### Audit Round 7: UX & Accessibility Audit
 *Focus: First-run clarity, keyboard accessibility, preview accuracy, and visual polish.*

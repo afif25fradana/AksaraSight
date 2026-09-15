@@ -227,6 +227,100 @@ def test_server_manager_start_spawns_with_local_gguf_flag(tmp_path):
                 assert "-m" in cmd_args
                 assert str(fake_model) in cmd_args
                 assert "-hf" not in cmd_args
+                assert "--mmproj" not in cmd_args
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_auto_detects_adjacent_mmproj(tmp_path):
+    """Verify start() automatically detects and attaches adjacent mmproj for local GGUF."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
+    fake_model.write_text("weights", encoding="utf-8")
+    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_mmproj.write_text("vision-projector", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        model_repo=str(fake_model),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                mgr.start()
+                cmd_args = mock_popen.call_args[0][0]
+                assert "-m" in cmd_args
+                assert str(fake_model) in cmd_args
+                assert "--mmproj" in cmd_args
+                mmproj_idx = cmd_args.index("--mmproj")
+                assert cmd_args[mmproj_idx + 1] == str(fake_mmproj)
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_warns_when_local_gguf_missing_mmproj(tmp_path, caplog):
+    """Verify start() emits a helpful warning when local GGUF lacks an adjacent mmproj."""
+    import logging
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+    fake_model = tmp_path / "custom-model.gguf"
+    fake_model.write_text("weights", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        model_repo=str(fake_model),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    with caplog.at_level(logging.WARNING):
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+                with patch("subprocess.Popen", return_value=mock_proc):
+                    mgr.start()
+                    assert "Local GGUF model" in caplog.text
+                    assert "without an adjacent mmproj file" in caplog.text
+        finally:
+            mgr.shutdown()
+
+
+def test_server_manager_lifecycle_callback_on_start_and_stop(tmp_path):
+    """Verify on_lifecycle_change callback is triggered on both start() and stop()."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    callback_mock = MagicMock()
+    mgr.on_lifecycle_change = callback_mock
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                mgr.start()
+                assert callback_mock.call_count == 1
+
+        mgr.stop()
+        assert callback_mock.call_count == 2
     finally:
         mgr.shutdown()
 

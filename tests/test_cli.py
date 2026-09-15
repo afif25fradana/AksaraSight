@@ -577,3 +577,23 @@ def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert f"ocr-llm {__version__}" in captured.out
 
 
+def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify CLI aborts before processing documents if verify_backend fails."""
+    from core.client import ClientError
+
+    test_img = tmp_path / "doc.png"
+    test_img.write_bytes(b"dummy")
+
+    with patch("cli.main.OCREngine") as mock_engine_cls:
+        mock_engine = MagicMock()
+        mock_engine.verify_backend.side_effect = ClientError("Backend not responding correctly to image input")
+        mock_engine_cls.return_value = mock_engine
+
+        exit_code = main([str(test_img)])
+
+    assert exit_code == 1
+    assert mock_engine.process_document.call_count == 0
+    captured = capsys.readouterr()
+    assert "Error: Backend not responding correctly to image input" in captured.err
+
+

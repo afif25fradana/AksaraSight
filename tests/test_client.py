@@ -432,3 +432,43 @@ def test_response_parsing_error_message_truncation() -> None:
     assert err_str2.endswith("...")
     assert len(err_str2) <= 350
 
+
+# ==============================================================================
+# Multimodal Support Verification Tests
+# ==============================================================================
+
+def test_verify_multimodal_support_success() -> None:
+    """Verify verify_multimodal_support succeeds when server returns valid response."""
+    client = VisionClient()
+    with patch.object(client, "complete", return_value=("```markdown\nhello\n```", {}, 0.1)) as mock_comp:
+        client.verify_multimodal_support()
+        assert mock_comp.called
+        assert mock_comp.call_args[1]["max_tokens"] == 16
+
+
+def test_verify_multimodal_support_missing_mmproj_error() -> None:
+    """Verify verify_multimodal_support maps missing mmproj 500 error to clear hint."""
+    client = VisionClient()
+    err_msg = 'Local backend returned HTTP 500: {"error":{"message":"image input is not supported - hint: you may need to provide the mmproj"}}'
+    with patch.object(client, "complete", side_effect=ServerError(err_msg)):
+        with pytest.raises(ClientError) as exc_info:
+            client.verify_multimodal_support()
+        assert "Backend not responding correctly to image input" in str(exc_info.value)
+        assert "--mmproj" in str(exc_info.value)
+
+
+def test_verify_multimodal_support_server_offline() -> None:
+    """Verify verify_multimodal_support re-raises ServerOfflineError."""
+    client = VisionClient()
+    with patch.object(client, "complete", side_effect=ServerOfflineError("Offline")):
+        with pytest.raises(ServerOfflineError):
+            client.verify_multimodal_support()
+
+
+def test_verify_multimodal_support_null_content() -> None:
+    """Verify verify_multimodal_support raises ClientError if model returns None text."""
+    client = VisionClient()
+    with patch.object(client, "complete", return_value=(None, {}, 0.1)):
+        with pytest.raises(ClientError, match="null content"):
+            client.verify_multimodal_support()
+

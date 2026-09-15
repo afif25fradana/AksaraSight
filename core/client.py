@@ -53,6 +53,12 @@ class ResponseParsingError(ClientError):
     """
 
 
+# Minimal 1x1 white PNG Data URL for lightweight startup self-test probes (~68 bytes)
+_TINY_1X1_PNG_B64 = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
@@ -234,6 +240,31 @@ class VisionClient:
         raise ServerError(
             f"Local backend failed after {max_retries} retries (HTTP {last_error_status}): {last_error_text}"
         )
+
+    def verify_multimodal_support(self) -> None:
+        """Send a lightweight 1x1 test image probe to verify backend multimodal support.
+
+        Verifies that the inference server is running, accepting OpenAI-compatible
+        chat completions requests, and has a multimodal vision projector loaded.
+
+        Raises:
+            ServerOfflineError: If the server is offline or unreachable.
+            ClientError: If the server rejects image input or fails the probe.
+        """
+        try:
+            text, _, _ = self.complete(_TINY_1X1_PNG_B64, prompt="OCR:", max_tokens=16)
+            if text is None:
+                raise ClientError("Backend returned null content during multimodal self-test probe.")
+        except ServerOfflineError:
+            raise
+        except ClientError as exc:
+            err_str = str(exc).lower()
+            if "mmproj" in err_str or "image input is not supported" in err_str:
+                raise ClientError(
+                    "Backend not responding correctly to image input. "
+                    "Ensure the inference server was launched with multimodal vision projector support (--mmproj)."
+                ) from exc
+            raise ClientError(f"Backend not responding correctly to image input: {exc}") from exc
 
     def _parse_response(
         self,

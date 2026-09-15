@@ -345,3 +345,37 @@ def test_engine_forwards_dpi_and_max_image_dimension(mock_client: MagicMock) -> 
         custom_cfg = JobConfig(dpi=200, max_image_dimension=4096)
         engine.process_document("dummy.pdf", config=custom_cfg)
         mock_ingest.assert_called_with("dummy.pdf", dpi=200, max_image_dimension=4096)
+
+
+def test_engine_verify_backend_lifecycle_and_caching(mock_client: MagicMock) -> None:
+    """Verify OCREngine.verify_backend caches result and respects invalidation."""
+    engine = OCREngine(client=mock_client)
+    assert engine._multimodal_verified is False
+
+    # First call: runs probe
+    engine.verify_backend()
+    assert mock_client.verify_multimodal_support.call_count == 1
+    assert engine._multimodal_verified is True
+
+    # Second call: cached (no-op)
+    engine.verify_backend()
+    assert mock_client.verify_multimodal_support.call_count == 1
+
+    # Force bypasses cache
+    engine.verify_backend(force=True)
+    assert mock_client.verify_multimodal_support.call_count == 2
+
+    # Invalidation resets cache
+    engine.invalidate_backend_verification()
+    assert engine._multimodal_verified is False
+    engine.verify_backend()
+    assert mock_client.verify_multimodal_support.call_count == 3
+
+
+def test_engine_verify_backend_raises_on_failure(mock_client: MagicMock) -> None:
+    """Verify OCREngine.verify_backend raises error when client probe fails."""
+    mock_client.verify_multimodal_support.side_effect = ClientError("Backend failed multimodal self-test")
+    engine = OCREngine(client=mock_client)
+    with pytest.raises(ClientError, match="Backend failed multimodal self-test"):
+        engine.verify_backend()
+    assert engine._multimodal_verified is False

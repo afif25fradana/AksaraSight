@@ -220,6 +220,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.settings = settings or engine_settings or Settings.from_env()
         self.engine = engine or OCREngine(self.settings)
         self.server_manager = server_manager or ServerManager(settings=self.settings)
+        if hasattr(self.server_manager, "on_lifecycle_change") and hasattr(self.engine, "invalidate_backend_verification"):
+            self.server_manager.on_lifecycle_change = self.engine.invalidate_backend_verification
         self._settings_window: Optional[SettingsWindow] = None
         self._server_poller_thread: Optional[threading.Thread] = None
 
@@ -2085,6 +2087,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                         max_image_dimension=effective_settings.max_image_dimension,
                     )
 
+                    # Pre-flight startup self-test before processing first document in session
+                    if hasattr(self.engine, "verify_backend"):
+                        self.engine.verify_backend()
+
                     # Post STARTED event with effective job dpi
                     self._result_queue.put(
                         WorkerEvent(
@@ -2376,6 +2382,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return
         self._last_applied_server_status = (status, ownership)
 
+        if status != ServerStatus.READY and hasattr(self.engine, "invalidate_backend_verification"):
+            self.engine.invalidate_backend_verification()
+
         if status == ServerStatus.READY:
             ownership_lbl = " (Managed)" if ownership == ServerOwnership.MANAGED else " (Ext)"
             self._server_status_pill.configure(
@@ -2535,6 +2544,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Queue settings for safe inter-document update (SEC-3.1)
         self._pending_engine_settings = new_settings
+        if hasattr(self.engine, "invalidate_backend_verification"):
+            self.engine.invalidate_backend_verification()
         if self._current_cancel_event is None:
             self._apply_pending_engine_settings()
 

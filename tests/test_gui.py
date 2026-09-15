@@ -2957,6 +2957,26 @@ def test_frozen_logging_setup(tmp_path, monkeypatch):
     assert "Frozen application started" in content
 
 
+def test_gui_wires_server_manager_lifecycle_to_engine():
+    """Verify GUI sets up server_manager.on_lifecycle_change to invalidate engine verification."""
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        assert mock_sm.on_lifecycle_change == mock_engine.invalidate_backend_verification
+        # When status leaves READY, engine verification is invalidated
+        from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+        app._apply_server_status_update(
+            ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE, message="Offline")
+        )
+        assert mock_engine.invalidate_backend_verification.called
+    finally:
+        app._on_closing()
+
+
 
 
 

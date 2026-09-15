@@ -7,9 +7,9 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 ---
 
 ### Project Maturity & Status
-- **Production-Ready**: All 5 core architectural phases complete (Core Pipeline, CLI Interface, Desktop GUI Studio, Live Backend Integration, Server Supervision).
+- **Feature-Complete for Current Scope**: All 5 core architectural phases complete (Core Pipeline, CLI Interface, Desktop GUI Studio, Live Backend Integration, Server Supervision). Tested locally across 361 automated unit and integration tests (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
 - **Extensively Audited**: Hardened across 7 rigorous audit cycles: Security (2 rounds), Performance, Code Quality (Ponytail simplification), Correctness & Data Integrity, Test Coverage Gaps, UX & Accessibility, and a dedicated Managed Runtime supply-chain security review.
-- **Robust Test Suite**: 345 unit and integration tests passing with 100% pass rate.
+- **Robust Test Suite**: 361 unit and integration tests passing with 100% pass rate.
 - **Project History**: See [CHANGELOG.md](CHANGELOG.md) for the complete milestone evolution, audit breakdowns, and test history.
 
 ---
@@ -17,7 +17,7 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 ## Features
 
 - **Strictly Local & Offline** — Interacts exclusively with a local OpenAI-compatible vision backend (`llama-server` or Ollama). Zero cloud fallback by design.
-- **Zero-Setup Managed Runtime** — Automatically detects your hardware (NVIDIA CUDA 12.4+ / Vulkan / CPU), downloads the verified official `llama-server` release, cryptographically verifies SHA-256 digests, and supervises server lifecycle. No manual llama.cpp compilation or installation required.
+- **Zero-Setup Managed Runtime** — Automatically detects your hardware (NVIDIA CUDA 12.4+ / Vulkan / CPU), downloads the verified official `llama-server` release, cryptographically verifies SHA-256 digests for managed runtime binaries and libraries, and supervises server lifecycle. No manual llama.cpp compilation or installation required.
 - **Dual Interfaces** — A scriptable CLI for automation and pipelines, and an engineering-grade Desktop GUI Studio with drag-and-drop ingestion and live split preview.
 - **Batch Processing** — Ingest single files or entire directory trees recursively, with collision-safe artifact naming and background streaming exports.
 - **4-Tab Live Previews** — Raw Markdown, rich formatted text, paginated original page rasters, and structured JSON trees.
@@ -56,7 +56,7 @@ The fastest way to get started. You do **not** need to install `llama-server` or
 3. **Download Runtime**:
    - Under *Local Inference Engine*, **Runtime Source** defaults to `Managed (Auto)`.
    - Your GPU/CPU architecture is automatically detected and displayed.
-   - Click **Download Runtime**. The verified, pinned build of `llama-server` (and CUDA runtime libraries if applicable) will download, verify against pinned SHA-256 digests, and install to `%LOCALAPPDATA%\GLM-OCR\runtimes\`.
+   - Click **Download Runtime**. The verified, pinned build of `llama-server` (and companion CUDA runtime libraries if applicable) will download, cryptographically verify archive digests against pinned SHA-256 hashes, and install to `%LOCALAPPDATA%\GLM-OCR\runtimes\`.
 4. **Start & Process**:
    - Click **Start Server** in the main header (status pill turns `● READY`).
    - Drag and drop documents or entire folders into the drop zone.
@@ -93,7 +93,11 @@ If you already have a running `llama-server`, Ollama, or vLLM instance:
 
 1. **Launch your server** with GLM-OCR GGUF weights:
    ```powershell
+   # Option A: Automatic Hugging Face resolution (llama.cpp b10930+ auto-downloads matching mmproj)
    llama-server -hf ggml-org/GLM-OCR-GGUF --port 8080 -ngl 99 -c 8192 --parallel 1
+
+   # Option B: Local GGUF files (explicit --mmproj is REQUIRED for vision/OCR; --flash-attn off recommended for broader compatibility)
+   llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --port 8080 -ngl 99 -c 8192 --parallel 1 --flash-attn off
    ```
 2. **Point the tool to your server**:
    - In GUI: In **Preferences**, switch **Runtime Source** to `Custom Path` and set your `llama-server.exe` path or leave empty if managing externally.
@@ -169,7 +173,7 @@ A documented template is available in `.env.example`.
 
 - **Enforced Loopback by Default**: Outbound HTTP traffic is restricted strictly to loopback addresses (`localhost`, `127.0.0.1`, `::1`). Binding or connecting to remote IP addresses requires explicit opt-in (`--allow-remote` / `OCR_ALLOW_REMOTE=true`), and both CLI and GUI display prominent visual warnings when remote mode is active.
 - **Zero Cloud Fallback**: If the local backend process crashes or is unreachable, processing fails immediately with a clear error. Documents are never routed externally.
-- **Verified Supply-Chain Delivery**: Managed runtimes are downloaded exclusively from official GitHub release assets over HTTPS, validated against pinned SHA-256 cryptographic digests, protected against Zip-Slip path traversals during extraction, and executed with explicit CWD isolation.
+- **Verified Supply-Chain Delivery**: Managed runtime binaries and companion shared libraries (e.g. `llama-server.exe`, `cudart*.dll`) are downloaded exclusively from official GitHub release assets over HTTPS, validated against pinned SHA-256 cryptographic digests, protected against Zip-Slip path traversals during extraction, and executed with explicit CWD isolation. (Note: GGUF model weights are downloaded via llama.cpp's built-in Hugging Face downloader and are not currently pinned or hash-verified by this application.)
 - **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process is assigned to a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. Even if the GUI terminates abruptly or crashes, the OS kernel guarantees the server subprocess is terminated immediately, preventing orphaned background processes.
 - **Decompression-Bomb & Pixel-Bomb Defense**: Ingested images and PDF pages undergo dimension preflight validation before rasterization (`MAX_RASTER_PIXELS = 89,478,485 px`), preventing memory-exhaustion denial-of-service attacks.
 - **Atomic File Writing & Path Privacy**: Artifact writes utilize atomic temporary file replacement (`.tmp` + rename). Exported JSON metadata automatically relativizes local paths against the working directory or home folder to prevent leaking usernames in shared artifacts.
@@ -182,7 +186,7 @@ A documented template is available in `.env.example`.
 ## Known Limitations
 
 - **GLM-OCR Currency Symbol Omission (`$`)**: When currency amounts lack whitespace (e.g., `$100.00` or `$1,250.00`), the GLM-OCR tokenizer interprets `$` directly preceding digits as an unclosed inline LaTeX math delimiter, causing post-processing filters to strip the symbol (e.g., outputting `.00`). Amounts with whitespace (`$ 100.00`) or currency codes (`USD 100.00`) transcribe accurately. Always verify currency symbols in financial documents.
-- **Resolution vs. Latency Balance**: 100 DPI provides an optimal balance (~2.7s/page on RTX 3050 Laptop GPU, ~1.7 MP) with 100% character fidelity. 150 DPI (~3.8 MP) roughly doubles inference latency, while 72 DPI can degrade fine print.
+- **Resolution vs. Latency Balance**: 100 DPI provides an optimal balance (~2.7s/page on RTX 3050 Laptop GPU, ~1.7 MP) with 100% character fidelity on our synthetic dense-text benchmark contract. Real-world accuracy varies depending on document layout complexity, scan degradation, lighting, resolution, and language. 150 DPI (~3.8 MP) roughly doubles inference latency, while 72 DPI can degrade fine print.
 - **Cooperative Cancellation**: In-flight HTTP vision inference requests cannot be aborted mid-packet without corrupting the connection pool; cancellation requests are evaluated cooperatively at document page boundaries, preserving partial work completed up to that point.
 
 ## Testing & Development
@@ -190,7 +194,7 @@ A documented template is available in `.env.example`.
 Run the full automated unit, integration, and smoke test suite:
 
 ```powershell
-# Run the 345-test automated test suite
+# Run the automated test suite
 python -m pytest
 
 # Run GUI smoke test

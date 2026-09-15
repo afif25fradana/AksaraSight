@@ -211,6 +211,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # 5. Initialize Engine and process documents (streaming mode to prevent unbounded memory growth)
     engine = OCREngine(settings=settings)
+
+    # Pre-flight startup self-test before processing the first document
+    try:
+        engine.verify_backend()
+    except Exception as probe_exc:
+        sys.stderr.write(f"Error: {probe_exc}\n")
+        return 1
+
     has_aborted = False
     all_success = True
     total_files = len(file_list)

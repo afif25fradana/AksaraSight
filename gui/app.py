@@ -192,7 +192,7 @@ def _init_tkinterdnd(tkroot: Any) -> str:
 
 
 class OCRApp(ctk.CTk, tdnd.DnDWrapper):
-    """GLM-OCR Local desktop studio application window.
+    """AksaraSight Local desktop studio application window.
 
     Implements a responsive 2-column layout:
     - Left: Native drag-and-drop ingestion card & scrollable queue manager table.
@@ -228,7 +228,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Window appearance and geometry
         ctk.set_appearance_mode("dark")
         self.configure(fg_color=COLOR_CANVAS_BG)
-        self.title("GLM-OCR Local Studio")
+        self.title("AksaraSight Local Studio")
         for candidate in [
             Path(__file__).parent / "assets" / "icon.ico",
             Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
@@ -327,7 +327,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         title_label = ctk.CTkLabel(
             title_box,
-            text="GLM-OCR Local Studio",
+            text="AksaraSight Local Studio",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=COLOR_TEXT_PRIMARY,
         )
@@ -1343,7 +1343,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self._set_textbox_content(self._tb_json, item.result.to_json())
             else:
                 if target_tab == "Raw Markdown":
-                    md_text = f"[{item.file_path.name} is currently being processed by GLM-OCR vision engine...]"
+                    md_text = f"[{item.file_path.name} is currently being processed by AksaraSight (GLM-OCR)...]"
                     self._set_textbox_content(self._tb_markdown, md_text)
                 elif target_tab == "Text Preview":
                     prev_text = (
@@ -1958,7 +1958,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             ("All Files", "*.*"),
         ]
         selected_paths = filedialog.askopenfilenames(
-            title="Select Documents for GLM-OCR",
+            title="Select Documents for AksaraSight",
             filetypes=file_types,
         )
         for p in selected_paths:
@@ -2679,14 +2679,14 @@ def _setup_frozen_logging() -> Optional[Path]:
 
     Only active when running inside a PyInstaller frozen bundle
     (getattr(sys, 'frozen', False) is True). Captures unhandled
-    exceptions via sys.excepthook to %LOCALAPPDATA%\\GLM-OCR\\logs\\app.log.
+    exceptions via sys.excepthook to %LOCALAPPDATA%\\AksaraSight\\logs\\app.log.
     """
     if not getattr(sys, "frozen", False):
         return None
     try:
         app_data = os.environ.get("LOCALAPPDATA")
         base_dir = Path(app_data) if app_data else (Path.home() / "AppData" / "Local")
-        log_dir = base_dir / "GLM-OCR" / "logs"
+        log_dir = base_dir / "AksaraSight" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "app.log"
 
@@ -2715,9 +2715,9 @@ def _setup_frozen_logging() -> Optional[Path]:
 
 
 def main() -> None:
-    """Run the GLM-OCR Local GUI application."""
+    """Run the AksaraSight Local GUI application."""
     if "--help" in sys.argv or "-h" in sys.argv:
-        print("GLM-OCR Local Studio Desktop GUI")
+        print("AksaraSight Local Studio Desktop GUI")
         print("Usage: python -m gui.app")
         return
     _setup_frozen_logging()

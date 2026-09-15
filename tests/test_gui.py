@@ -56,7 +56,7 @@ def test_app_initialization_and_clean_shutdown():
     app.withdraw()  # Headless execution
 
     try:
-        assert app.title() == "GLM-OCR Local Studio"
+        assert app.title() == "AksaraSight Local Studio"
         assert app._worker_thread.is_alive()
         assert not app._is_shutting_down
         assert not app._shutdown_event.is_set()
@@ -2357,7 +2357,7 @@ def test_settings_window_closure_during_download(tmp_path):
 
 
 def test_app_on_closing_joins_download_thread():
-    """Verify GLMOCRStudioApp._on_closing joins any active _runtime_download_thread."""
+    """Verify OCRApp._on_closing joins any active _runtime_download_thread."""
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2481,7 +2481,7 @@ def test_gui_app_launch_subprocess():
         timeout=10,
     )
     assert result.returncode == 0, f"gui.app failed to launch:\n{result.stderr}"
-    assert "GLM-OCR Local Studio Desktop GUI" in result.stdout
+    assert "AksaraSight Local Studio Desktop GUI" in result.stdout
 
 
 def test_gui_settings_window_clean_import_subprocess():
@@ -2509,7 +2509,7 @@ def test_gui_pkg_launch_subprocess():
         timeout=10,
     )
     assert result.returncode == 0, f"gui package launch failed:\n{result.stderr}"
-    assert "GLM-OCR Local Studio Desktop GUI" in result.stdout
+    assert "AksaraSight Local Studio Desktop GUI" in result.stdout
 
 
 def test_smoke_test_gui_script_subprocess():

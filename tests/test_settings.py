@@ -531,7 +531,7 @@ def test_frozen_env_path_resolution(tmp_path, monkeypatch):
     assert _resolve_default_env_path() == Path(".env")
 
     # Case 2: Frozen prioritizes sys.executable parent directory
-    dummy_exe = tmp_path / "bin" / "GLM-OCR.exe"
+    dummy_exe = tmp_path / "bin" / "AksaraSight.exe"
     dummy_exe.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(dummy_exe))
@@ -542,7 +542,7 @@ def test_frozen_env_path_resolution(tmp_path, monkeypatch):
 
 def test_frozen_from_and_save_to_env(tmp_path, monkeypatch):
     """Verify Settings.from_env and save_to_env use executable directory when frozen."""
-    dummy_exe = tmp_path / "portable_app" / "GLM-OCR.exe"
+    dummy_exe = tmp_path / "portable_app" / "AksaraSight.exe"
     dummy_exe.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(dummy_exe))

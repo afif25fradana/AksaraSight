@@ -1,6 +1,6 @@
 # Changelog & Project Evolution
 
-A chronological overview of the development, architecture, security hardening, and audit milestones for **OCR-LLM-Local**.
+A chronological overview of the development, architecture, security hardening, and audit milestones for **AksaraSight**.
 
 ---
 
@@ -68,7 +68,7 @@ A chronological overview of the development, architecture, security hardening, a
 ### Managed Runtime Feature (Stages 1–4 & Security Review)
 *Focus: Zero-setup local inference without requiring manual llama.cpp installation.*
 - **Stage 1 (Hardware Detection)**: Implemented `core/hardware.py` with zero-dependency NVIDIA GPU detection (`nvidia-smi` + `nvcuda.dll` ctypes probe with strict CUDA 12.4+ driver checks) and Vulkan discrete GPU detection (`vulkan-1.dll`). Added `--detect-hardware` CLI flag. (290 tests passing).
-- **Stage 2 (Verified Downloader)**: Implemented `core/runtime_manager.py` downloading pinned release build `b10930`. Added streaming download to `.part` files, strict SHA-256 digest validation against pinned known hashes, Zip-Slip path traversal protection, staging directories, and atomic installation to `%LOCALAPPDATA%\GLM-OCR\runtimes\`. (306 tests passing).
+- **Stage 2 (Verified Downloader)**: Implemented `core/runtime_manager.py` downloading pinned release build `b10930`. Added streaming download to `.part` files, strict SHA-256 digest validation against pinned known hashes, Zip-Slip path traversal protection, staging directories, and atomic installation to `%LOCALAPPDATA%\AksaraSight\runtimes\`. (306 tests passing).
 - **Stage 3 (GUI Supervision Integration)**: Added *Runtime Source* segmented control (`Managed (Auto)` vs `Custom Path`), live status badges, download progress bar, force-reinstall capability, and interactive hardware refresh. (320 tests passing).
 - **Stage 4 (Supply-Chain Security Review)**: Enforced explicit subprocess CWD isolation to prevent DLL search hijacking on Windows, prioritized `System32` for `nvidia-smi`, enforced fail-closed pinned hash verification, and added post-install `.zip` cleanup. (322 tests passing).
 - **Result:** **322 / 322 tests passing**.

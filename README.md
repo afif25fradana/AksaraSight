@@ -1,6 +1,6 @@
-# OCR-LLM-Local
+# AksaraSight
 
-Lightweight, 100% local OCR tool powered by GLM-OCR (0.9B parameters). Converts scanned documents, forms, receipts, and images into clean Markdown and structured JSON — entirely on your own machine.
+**AksaraSight** is a lightweight, 100% local OCR tool powered by GLM-OCR (0.9B parameters). Converts scanned documents, forms, receipts, and images into clean Markdown and structured JSON — entirely on your own machine.
 
 No cloud APIs. No telemetry. If the local inference backend is unreachable, the tool fails with a clear error instead of quietly sending your documents anywhere.
 
@@ -34,8 +34,8 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 ## Installation
 
 ```powershell
-git clone <your-repo-url> OCR-LLM-Local
-cd OCR-LLM-Local
+git clone <your-repo-url> AksaraSight
+cd AksaraSight
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -56,7 +56,7 @@ The fastest way to get started. You do **not** need to install `llama-server` or
 3. **Download Runtime**:
    - Under *Local Inference Engine*, **Runtime Source** defaults to `Managed (Auto)`.
    - Your GPU/CPU architecture is automatically detected and displayed.
-   - Click **Download Runtime**. The verified, pinned build of `llama-server` (and companion CUDA runtime libraries if applicable) will download, cryptographically verify archive digests against pinned SHA-256 hashes, and install to `%LOCALAPPDATA%\GLM-OCR\runtimes\`.
+   - Click **Download Runtime**. The verified, pinned build of `llama-server` (and companion CUDA runtime libraries if applicable) will download, cryptographically verify archive digests against pinned SHA-256 hashes, and install to `%LOCALAPPDATA%\AksaraSight\runtimes\`.
 4. **Start & Process**:
    - Click **Start Server** in the main header (status pill turns `● READY`).
    - Drag and drop documents or entire folders into the drop zone.
@@ -210,10 +210,10 @@ python scripts/smoke_test_gui.py
 | `gui/` | CustomTkinter desktop studio (`app.py`, `settings_window.py`, `theme.py`). |
 | `config/` | Immutable, validated `Settings` dataclass with comment-preserving `.env` persistence. |
 | `scripts/` | Benchmark harnesses, screenshot generation utilities, and headless smoke tests. |
-| `tests/` | 345 unit and integration tests covering all modules and failure modes. |
+| `tests/` | 361 unit and integration tests covering all modules and failure modes. |
 
 ## License
 
-The source code of OCR-LLM-Local is licensed under the [MIT License](LICENSE).
+The source code of AksaraSight is licensed under the [MIT License](LICENSE).
 
 Model weights (`ggml-org/GLM-OCR-GGUF`) are created by upstream publishers and governed by their respective model licenses.

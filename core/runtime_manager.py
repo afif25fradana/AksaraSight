@@ -97,17 +97,17 @@ class InstalledRuntimeInfo:
 def get_runtime_base_dir() -> Path:
     """Return the root base directory for all managed local runtimes.
 
-    Windows: %LOCALAPPDATA%\\GLM-OCR\\runtimes\\llama-cpp\\
-    POSIX:   ~/.local/share/glm-ocr/runtimes/llama-cpp/
+    Windows: %LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-cpp\\
+    POSIX:   ~/.local/share/aksarasight/runtimes/llama-cpp/
     """
     if sys.platform == "win32":
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:
-            base = Path(local_app_data) / "GLM-OCR" / "runtimes" / "llama-cpp"
+            base = Path(local_app_data) / "AksaraSight" / "runtimes" / "llama-cpp"
         else:
-            base = Path.home() / "AppData" / "Local" / "GLM-OCR" / "runtimes" / "llama-cpp"
+            base = Path.home() / "AppData" / "Local" / "AksaraSight" / "runtimes" / "llama-cpp"
     else:
-        base = Path.home() / ".local" / "share" / "glm-ocr" / "runtimes" / "llama-cpp"
+        base = Path.home() / ".local" / "share" / "aksarasight" / "runtimes" / "llama-cpp"
 
     return base.resolve()
 
@@ -176,7 +176,7 @@ def fetch_release_assets_metadata(
     http_client = session if session is not None else requests
 
     headers = {
-        "User-Agent": "GLM-OCR-Local-Desktop",
+        "User-Agent": "AksaraSight-Local-Desktop",
         "Accept": "application/vnd.github.v3+json",
     }
 
@@ -263,7 +263,7 @@ def download_and_verify_asset(
         part_path.unlink()
 
     http_client = session if session is not None else requests
-    headers = {"User-Agent": "GLM-OCR-Local-Desktop"}
+    headers = {"User-Agent": "AksaraSight-Local-Desktop"}
     hasher = hashlib.sha256()
 
     logger.info("Starting download of %s (%s bytes)...", asset.name, asset.size)

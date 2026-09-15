@@ -1,4 +1,4 @@
-"""Command Line Interface for OCR-LLM-Local."""
+"""Command Line Interface for AksaraSight."""
 
 import argparse
 import dataclasses

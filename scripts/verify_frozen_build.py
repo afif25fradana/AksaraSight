@@ -1,10 +1,10 @@
-"""Comprehensive verification and smoke test suite for GLM-OCR frozen portable build.
+"""Comprehensive verification and smoke test suite for AksaraSight frozen portable build.
 
 Verifies:
-1. Native Window Rendering: Launches real GLM-OCR.exe, queries OS window table via
+1. Native Window Rendering: Launches real AksaraSight.exe, queries OS window table via
    Win32 EnumWindows/IsWindowVisible/GetWindowTextW to confirm the main studio window
    is actually rendered and visible on-screen, then gracefully closes it via WM_CLOSE.
-2. File-based Logging: Confirms %LOCALAPPDATA%\\GLM-OCR\\logs\\app.log was created and
+2. File-based Logging: Confirms %LOCALAPPDATA%\\AksaraSight\\logs\\app.log was created and
    recorded startup telemetry and version.
 3. Subprocess & Job Object Handling: Invokes ocr-llm.exe --test-server-supervision to
    verify that Win32 Job Object creation, process assignment, CREATE_NO_WINDOW, and cwd
@@ -22,8 +22,8 @@ import sys
 import time
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DIST_DIR = REPO_ROOT / "dist" / "GLM-OCR"
-GUI_EXE = DIST_DIR / "GLM-OCR.exe"
+DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
+GUI_EXE = DIST_DIR / "AksaraSight.exe"
 CLI_EXE = DIST_DIR / "ocr-llm.exe"
 
 # Win32 API Constants
@@ -70,7 +70,7 @@ def test_cli_input_validation() -> bool:
 
 
 def test_gui_window_rendering_and_logging() -> bool:
-    """Launch real GLM-OCR.exe, confirm window visibility via Win32 API, then close cleanly."""
+    """Launch real AksaraSight.exe, confirm window visibility via Win32 API, then close cleanly."""
     print("\n[4/5] Testing real GUI window rendering and visibility via Win32 API...")
 
     if sys.platform != "win32":
@@ -98,7 +98,7 @@ def test_gui_window_rendering_and_logging() -> bool:
                 buff = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buff, length + 1)
                 title = buff.value
-                if "GLM-OCR" in title:
+                if "AksaraSight" in title:
                     found_window.append((hwnd, title))
                     return False
         return True
@@ -122,7 +122,7 @@ def test_gui_window_rendering_and_logging() -> bool:
         time.sleep(0.5)
 
     if not verified_hwnd:
-        print("  [FAIL] Timed out waiting for GLM-OCR window to render and become visible")
+        print("  [FAIL] Timed out waiting for AksaraSight window to render and become visible")
         proc.kill()
         return False
 
@@ -130,6 +130,58 @@ def test_gui_window_rendering_and_logging() -> bool:
     print(f"         HWND:  {hex(verified_hwnd)}")
     print(f"         Title: '{window_title}'")
     print(f"         State: IsWindowVisible = True")
+
+    # Capture visual proof screenshot of real running window
+    try:
+        from PIL import Image
+        rect = wintypes.RECT()
+        user32.GetWindowRect(verified_hwnd, ctypes.byref(rect))
+        w = rect.right - rect.left
+        h = rect.bottom - rect.top
+        if w > 0 and h > 0:
+            gdi32 = ctypes.windll.gdi32
+            hdc_win = user32.GetWindowDC(verified_hwnd)
+            hdc_mem = gdi32.CreateCompatibleDC(hdc_win)
+            hbm = gdi32.CreateCompatibleBitmap(hdc_win, w, h)
+            gdi32.SelectObject(hdc_mem, hbm)
+            user32.PrintWindow(verified_hwnd, hdc_mem, 2)
+
+            class BITMAPINFOHEADER(ctypes.Structure):
+                _fields_ = [
+                    ("biSize", wintypes.DWORD),
+                    ("biWidth", wintypes.LONG),
+                    ("biHeight", wintypes.LONG),
+                    ("biPlanes", wintypes.WORD),
+                    ("biBitCount", wintypes.WORD),
+                    ("biCompression", wintypes.DWORD),
+                    ("biSizeImage", wintypes.DWORD),
+                    ("biXPelsPerMeter", wintypes.LONG),
+                    ("biYPelsPerMeter", wintypes.LONG),
+                    ("biClrUsed", wintypes.DWORD),
+                    ("biClrImportant", wintypes.DWORD),
+                ]
+
+            bmi = BITMAPINFOHEADER()
+            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+            bmi.biWidth = w
+            bmi.biHeight = -h
+            bmi.biPlanes = 1
+            bmi.biBitCount = 32
+            bmi.biCompression = 0
+
+            buf = ctypes.create_string_buffer(w * h * 4)
+            gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
+            img = Image.frombuffer("RGBA", (w, h), buf, "raw", "BGRA", 0, 1)
+            gdi32.DeleteObject(hbm)
+            gdi32.DeleteDC(hdc_mem)
+            user32.ReleaseDC(verified_hwnd, hdc_win)
+
+            screenshot_path = REPO_ROOT / "docs" / "images" / "frozen_gui_preview.png"
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(str(screenshot_path))
+            print(f"         Screenshot: {screenshot_path.name} ({w}x{h} px)")
+    except Exception as cap_err:
+        print(f"         [WARN] Window screenshot capture skipped: {cap_err}")
 
     # Send WM_CLOSE to gracefully terminate GUI
     print("  Closing window via WM_CLOSE...")
@@ -146,11 +198,11 @@ def test_gui_window_rendering_and_logging() -> bool:
 
 
 def test_frozen_log_file() -> bool:
-    """Verify %LOCALAPPDATA%\\GLM-OCR\\logs\\app.log exists and contains startup message."""
+    """Verify %LOCALAPPDATA%\\AksaraSight\\logs\\app.log exists and contains startup message."""
     print("\n[5/5] Verifying file-based logging for frozen runtime...")
     app_data = os.environ.get("LOCALAPPDATA")
     base_dir = Path(app_data) if app_data else (Path.home() / "AppData" / "Local")
-    log_file = base_dir / "GLM-OCR" / "logs" / "app.log"
+    log_file = base_dir / "AksaraSight" / "logs" / "app.log"
 
     if not log_file.is_file():
         print(f"  [FAIL] Log file not found at: {log_file}")
@@ -169,7 +221,7 @@ def test_frozen_log_file() -> bool:
 def main() -> None:
     """Run all frozen build verification checks."""
     print("=" * 60)
-    print("GLM-OCR Frozen Portable Build Verification")
+    print("AksaraSight Frozen Portable Build Verification")
     print("=" * 60)
 
     if not GUI_EXE.is_file() or not CLI_EXE.is_file():

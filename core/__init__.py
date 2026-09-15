@@ -1,4 +1,4 @@
-"""Core domain logic, models, and orchestration for OCR-LLM-Local."""
+"""Core domain logic, models, and orchestration for AksaraSight."""
 
 from .client import (
     BadRequestError,

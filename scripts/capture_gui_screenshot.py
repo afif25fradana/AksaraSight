@@ -1,4 +1,4 @@
-"""Capture a high-fidelity visual screenshot of the refined GLM-OCR Local Studio GUI."""
+"""Capture a high-fidelity visual screenshot of the refined AksaraSight Local Studio GUI."""
 
 import ctypes
 from ctypes import wintypes
@@ -86,7 +86,7 @@ def capture_window_to_image(app: OCRApp) -> Image.Image:
 
 def main() -> None:
     """Initialize GUI with representative document states and capture visual preview."""
-    temp_dir = Path(tempfile.mkdtemp(prefix="glm_ocr_preview_"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="aksarasight_preview_"))
 
     try:
         # Create dummy sample files on disk with realistic sizes

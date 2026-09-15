@@ -1,4 +1,4 @@
-"""Preferences and runtime settings modal window for GLM-OCR Local Desktop Studio."""
+"""Preferences and runtime settings modal window for AksaraSight Local Desktop Studio."""
 
 import logging
 from pathlib import Path

@@ -23,7 +23,7 @@ from gui.app import OCRApp
 
 def main() -> None:
     print("=" * 60)
-    print("GLM-OCR Local Studio - GUI Shell & Worker Smoke Test")
+    print("AksaraSight Local Studio - GUI Shell & Worker Smoke Test")
     print("=" * 60)
 
     # Configure mock engine to avoid requiring live local LLM backend for smoke test

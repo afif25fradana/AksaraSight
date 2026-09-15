@@ -1,1 +1,1 @@
-"""GUI package for OCR-LLM-Local desktop application."""
+"""GUI package for AksaraSight desktop application."""

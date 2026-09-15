@@ -1,4 +1,4 @@
-"""Calm Trust design system color tokens for GLM-OCR Local Desktop Studio.
+"""Calm Trust design system color tokens for AksaraSight Local Desktop Studio.
 
 WCAG 2.1 AA / AAA compliant palette. Provides base surfaces, borders,
 text colors, accent colors, status dot indicators, and file-type chips.

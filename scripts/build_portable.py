@@ -1,11 +1,11 @@
-"""Automated build and packaging script for GLM-OCR Local Portable Windows Distribution.
+"""Automated build and packaging script for AksaraSight Local Portable Windows Distribution.
 
 Orchestrates:
 1. Pre-build environment and dependency validation.
 2. Clean build directory initialization.
 3. PyInstaller compilation using build_portable.spec.
 4. Post-build binary and asset integrity checks.
-5. Portable zip archive packaging (GLM-OCR-v<version>-windows-x64.zip).
+5. Portable zip archive packaging (AksaraSight-v<version>-windows-x64.zip).
 """
 
 import os
@@ -26,7 +26,7 @@ from core.constants import __version__
 def check_environment() -> None:
     """Validate that required build dependencies are installed."""
     print("=" * 60)
-    print(f"GLM-OCR Portable Distribution Builder — v{__version__}")
+    print(f"AksaraSight Portable Distribution Builder — v{__version__}")
     print("=" * 60)
     print(f"Python Runtime: {sys.version.split()[0]} ({sys.platform})")
     print(f"Repository Root: {REPO_ROOT}")
@@ -40,9 +40,9 @@ def check_environment() -> None:
 
 
 def clean_build_directories() -> None:
-    """Remove previous build artifacts and dist/GLM-OCR directory."""
+    """Remove previous build artifacts and dist/AksaraSight directory."""
     print("\n[1/4] Cleaning previous build artifacts...")
-    for folder_name in ["build", "dist/GLM-OCR"]:
+    for folder_name in ["build", "dist/AksaraSight"]:
         target = REPO_ROOT / folder_name
         if target.exists():
             print(f"  Removing {target}...")
@@ -74,7 +74,7 @@ def run_pyinstaller() -> None:
 def verify_bundle_integrity() -> Path:
     """Verify that expected binaries and required runtime assets were collected."""
     print("\n[3/4] Verifying bundle integrity...")
-    dist_dir = REPO_ROOT / "dist" / "GLM-OCR"
+    dist_dir = REPO_ROOT / "dist" / "AksaraSight"
     if not dist_dir.is_dir():
         sys.stderr.write(f"ERROR: Expected distribution directory not found: {dist_dir}\n")
         sys.exit(1)
@@ -86,7 +86,7 @@ def verify_bundle_integrity() -> Path:
         pass
 
     # 1. Executables check
-    gui_exe = dist_dir / "GLM-OCR.exe"
+    gui_exe = dist_dir / "AksaraSight.exe"
     cli_exe = dist_dir / "ocr-llm.exe"
 
     for exe, label in [(gui_exe, "Desktop Studio GUI"), (cli_exe, "Console CLI")]:
@@ -127,9 +127,9 @@ def verify_bundle_integrity() -> Path:
 
 
 def package_zip_archive(dist_dir: Path) -> Path:
-    """Package the dist/GLM-OCR folder into a portable zip archive."""
+    """Package the dist/AksaraSight folder into a portable zip archive."""
     print("\n[4/4] Creating portable distribution zip archive...")
-    zip_name = f"GLM-OCR-v{__version__}-windows-x64.zip"
+    zip_name = f"AksaraSight-v{__version__}-windows-x64.zip"
     zip_path = REPO_ROOT / "dist" / zip_name
 
     if zip_path.exists():
@@ -143,7 +143,7 @@ def package_zip_archive(dist_dir: Path) -> Path:
         for root, dirs, files in os.walk(dist_dir):
             for file in files:
                 file_path = Path(root) / file
-                arcname = Path("GLM-OCR") / file_path.relative_to(dist_dir)
+                arcname = Path("AksaraSight") / file_path.relative_to(dist_dir)
                 zf.write(file_path, arcname=str(arcname))
                 file_count += 1
                 total_bytes += file_path.stat().st_size

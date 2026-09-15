@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec file for GLM-OCR Local Portable Windows Distribution.
+"""PyInstaller spec file for AksaraSight Local Portable Windows Distribution.
 
 Builds a unified, zero-installer portable bundle containing:
-1. GLM-OCR.exe: Desktop Studio GUI (windowed mode, console=False).
+1. AksaraSight.exe: Desktop Studio GUI (windowed mode, console=False).
 2. ocr-llm.exe: Command Line Interface (console mode, console=True).
-Both executables reside in dist/GLM-OCR/ and share dist/GLM-OCR/_internal/.
+Both executables reside in dist/AksaraSight/ and share dist/AksaraSight/_internal/.
 """
 
 import sys
@@ -42,7 +42,7 @@ for pkg in ['customtkinter', 'tkinterdnd2', 'pypdfium2', 'pypdfium2_raw']:
     all_hiddenimports.extend(pkg_hiddenimports)
 
 # ------------------------------------------------------------------------------
-# 1. Target: Desktop Studio GUI (GLM-OCR.exe, windowed, console=False)
+# 1. Target: Desktop Studio GUI (AksaraSight.exe, windowed, console=False)
 # ------------------------------------------------------------------------------
 a_gui = Analysis(
     ['gui/__main__.py'],
@@ -67,7 +67,7 @@ exe_gui = EXE(
     a_gui.scripts,
     [],
     exclude_binaries=True,
-    name='GLM-OCR',
+    name='AksaraSight',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -122,7 +122,7 @@ exe_cli = EXE(
 )
 
 # ------------------------------------------------------------------------------
-# 3. Unified Distribution Collector (dist/GLM-OCR/)
+# 3. Unified Distribution Collector (dist/AksaraSight/)
 # ------------------------------------------------------------------------------
 coll = COLLECT(
     exe_gui,
@@ -136,5 +136,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='GLM-OCR',
+    name='AksaraSight',
 )

@@ -10,7 +10,7 @@ from .client import (
     VisionClient,
     resolve_chat_endpoint,
 )
-from .constants import SUPPORTED_EXTENSIONS
+from .constants import SUPPORTED_EXTENSIONS, __version__
 from .engine import OCREngine
 from .formatter import (
     format_output,
@@ -114,6 +114,7 @@ __all__ = [
     "resolve_unique_stem",
     "sanitize_filename_stem",
     "save_artifacts",
+    "__version__",
 ]
 
 

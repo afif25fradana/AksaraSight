@@ -25,7 +25,7 @@ import tkinterdnd2.TkinterDnD as tdnd
 import pypdfium2 as pdfium
 
 from config.settings import Settings
-from core.constants import SUPPORTED_EXTENSIONS
+from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.engine import OCREngine
 from core.formatter import format_output, resolve_unique_stem, save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
@@ -227,6 +227,17 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         ctk.set_appearance_mode("dark")
         self.configure(fg_color=COLOR_CANVAS_BG)
         self.title("GLM-OCR Local Studio")
+        for candidate in [
+            Path(__file__).parent / "assets" / "icon.ico",
+            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
+            Path(sys.executable).parent / "assets" / "icon.ico",
+        ]:
+            if candidate.is_file():
+                try:
+                    self.iconbitmap(str(candidate))
+                    break
+                except Exception:
+                    pass
         self.geometry("1020x680")
         self.minsize(820, 520)
 
@@ -322,7 +333,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         version_badge = ctk.CTkLabel(
             title_box,
-            text="v0.1",
+            text=f"v{__version__}",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLOR_TEXT_SUBTLE,
         )
@@ -2652,12 +2663,53 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.destroy()
 
 
+def _setup_frozen_logging() -> Optional[Path]:
+    """Configure file-based logging when running as a frozen executable.
+
+    Only active when running inside a PyInstaller frozen bundle
+    (getattr(sys, 'frozen', False) is True). Captures unhandled
+    exceptions via sys.excepthook to %LOCALAPPDATA%\\GLM-OCR\\logs\\app.log.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        app_data = os.environ.get("LOCALAPPDATA")
+        base_dir = Path(app_data) if app_data else (Path.home() / "AppData" / "Local")
+        log_dir = base_dir / "GLM-OCR" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "app.log"
+
+        handler = logging.FileHandler(str(log_file), encoding="utf-8", mode="a")
+        formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s")
+        handler.setFormatter(formatter)
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(handler)
+
+        def _handle_unhandled_exception(exc_type, exc_value, exc_traceback):
+            if issubclass(exc_type, KeyboardInterrupt):
+                sys.__excepthook__(exc_type, exc_value, exc_traceback)
+                return
+            logging.getLogger("crash").critical(
+                "Unhandled exception in frozen GUI runtime",
+                exc_info=(exc_type, exc_value, exc_traceback),
+            )
+
+        sys.excepthook = _handle_unhandled_exception
+        logging.getLogger("app").info("Frozen application started (v%s)", __version__)
+        return log_file
+    except Exception:
+        return None
+
+
 def main() -> None:
     """Run the GLM-OCR Local GUI application."""
     if "--help" in sys.argv or "-h" in sys.argv:
         print("GLM-OCR Local Studio Desktop GUI")
         print("Usage: python -m gui.app")
         return
+    _setup_frozen_logging()
     app = OCRApp()
     try:
         app.mainloop()

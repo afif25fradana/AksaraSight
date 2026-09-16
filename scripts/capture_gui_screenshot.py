@@ -16,6 +16,7 @@ from PIL import Image
 
 from config.settings import Settings
 from core.models import JobStatus, OCRResult, PageResult
+from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from gui.app import (
     COLOR_INTERACTIVE_NEUTRAL,
     COLOR_ROW_SELECTED_BG,
@@ -197,7 +198,7 @@ def main() -> None:
 
         # Select the success item to display full preview, markdown, JSON, and enabled export buttons
         app._select_queue_item(id_success)
-        app._tabview.set("Text Preview")
+        app.select_tab("Text Preview")
 
         # Allow layout calculations and animations to stabilize
         app.update()
@@ -225,8 +226,99 @@ def main() -> None:
         # Clean shutdown
         app._on_closing()
 
+        # Capture live backend scenario
+        capture_live_backend_preview(temp_dir, out_dir, artifact_dir)
+
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Path) -> None:
+    """Capture live backend scenario with managed server status and completed contract extraction."""
+    f_contract = temp_dir / "sample_contract.pdf"
+    f_contract.write_bytes(b"x" * 59_800)
+
+    mock_engine = MagicMock()
+    app = OCRApp(settings=Settings(auto_start_server=False), engine=mock_engine)
+    app.geometry("1020x640+20+10")
+    app._task_queue.put = lambda item, *args, **kwargs: None
+
+    app.enqueue_file(f_contract)
+    id_contract = str(f_contract.resolve())
+
+    contract_md = (
+        "MASTER SERVICES AGREEMENT\n\n"
+        "This Agreement is entered into on September 13, 2026, by and between:\n"
+        "Client: Enterprise Global LLC\n"
+        "Vendor: AI Local Solutions Inc.\n\n"
+        "1. SCOPE OF SERVICES\n"
+        "The Vendor shall provide local vision and OCR pipeline development services, including on-device document intelligence and schema extraction.\n\n"
+        "2. DELIVERABLES\n"
+        "Deliverable 1: Local Vision Inference Client (llama.cpp integration)\n"
+        "Deliverable 2: Batch PDF Rasterization Pipeline (pypdfium2)\n"
+        "Deliverable 3: Desktop GUI Studio (CustomTkinter)\n\n"
+        "[Page 1 of 2]\n\n"
+        "---\n\n"
+        "3. PAYMENT & FEES\n"
+        "The Client agrees to compensate the Vendor within 30 days of invoice delivery. Total Contract Value: $7,500.00 USD.\n\n"
+        "4. CONFIDENTIALITY\n"
+        "All document data processed locally shall remain strictly on-premise. No telemetry or external network calls are permitted under any circumstances.\n\n"
+        "SIGNATURES\n\n"
+        "Client Representative: ____________  Date: 2026-09-13\n"
+        "Vendor Representative: ____________  Date: 2026-09-13\n\n"
+        "[Page 2 of 2]"
+    )
+
+    parts = contract_md.split("---")
+    res = OCRResult(
+        file_path=id_contract,
+        status=JobStatus.SUCCESS,
+        total_duration=5.2,
+        pages=[
+            PageResult(page_num=1, markdown=parts[0].strip(), latency=2.6),
+            PageResult(page_num=2, markdown=parts[1].strip(), latency=2.6),
+        ],
+    )
+    item = app._queue_items[id_contract]
+    item.status = QueueItemStatus.SUCCESS
+    item.duration = 5.2
+    item.result = res
+    item.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
+    item.detail_label.configure(text=app._format_queue_item_meta(item))
+
+    # Configure server status as READY (Managed)
+    info = ServerStatusInfo(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Server is operational and responsive",
+        endpoint="http://127.0.0.1:8080/v1",
+    )
+    app._apply_server_status_update(info)
+
+    # Update queue counter header & footer
+    app._total_count = 1
+    app._success_count = 1
+    app._failed_count = 0
+    app._update_queue_header()
+    app._update_footer("Done: sample_contract.pdf (SUCCESS)")
+
+    # Select the contract item and activate Raw Markdown tab
+    app._select_queue_item(id_contract)
+    app.select_tab("Raw Markdown")
+
+    # Allow layout to stabilize
+    app.update()
+    app.update_idletasks()
+    time.sleep(0.5)
+    app.update()
+
+    img_live = capture_window_to_image(app)
+    out_live = out_dir / "gui_live_backend_preview.png"
+    img_live.save(out_live)
+    img_live.save(artifact_dir / "gui_live_backend_preview.png")
+    print(f"Captured live backend screenshot to: {out_live} (size: {img_live.size})")
+
+    app._on_closing()
 
 
 if __name__ == "__main__":

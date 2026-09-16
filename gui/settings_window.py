@@ -57,6 +57,17 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
         self.minsize(480, 300)
         self.configure(fg_color=COLOR_CANVAS_BG)
         self.resizable(False, False)
+        for candidate in [
+            Path(__file__).parent / "assets" / "icon.ico",
+            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
+            Path(sys.executable).parent / "assets" / "icon.ico",
+        ]:
+            if candidate.is_file():
+                try:
+                    self.iconbitmap(str(candidate))
+                    break
+                except Exception:
+                    pass
 
         try:
             self.transient(parent)

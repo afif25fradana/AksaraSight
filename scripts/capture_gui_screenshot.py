@@ -116,15 +116,10 @@ def main() -> None:
         time.sleep(0.3)
         app.update()
 
-        img_empty = capture_window_to_image(app)
         out_dir = Path("docs/images")
         out_dir.mkdir(parents=True, exist_ok=True)
-        img_empty.save(out_dir / "gui_empty_queue_preview.png")
-
         artifact_dir = Path("docs/images/_generated")
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        img_empty.save(artifact_dir / "gui_empty_queue_preview.png")
-        print("Captured empty queue state screenshot.")
 
         # Enqueue sample files
         app.enqueue_file(f_success)

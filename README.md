@@ -33,7 +33,7 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 ## Installation
 
 ```powershell
-git clone <your-repo-url> AksaraSight
+git clone https://github.com/afif25fradana/AksaraSight
 cd AksaraSight
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1

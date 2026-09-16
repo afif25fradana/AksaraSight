@@ -13,7 +13,7 @@ from PIL import Image
 import customtkinter as ctk
 
 from config.settings import Settings
-from gui.settings_window import SettingsWindow
+from gui.settings_window import SecurityConfirmationDialog, SettingsWindow
 
 
 def capture_window_to_image(window) -> Image.Image:
@@ -124,6 +124,20 @@ def main() -> None:
     img.save(artifact_path, format="PNG")
     artifact_scrolled_path = artifact_dir / "settings_window_scrolled_preview.png"
     img_scrolled.save(artifact_scrolled_path, format="PNG")
+
+    # Capture SecurityConfirmationDialog
+    sec_dialog = SecurityConfirmationDialog(win)
+    sec_dialog.update_idletasks()
+    sec_dialog.update()
+    time.sleep(0.3)
+    img_sec = capture_window_to_image(sec_dialog)
+    out_sec_path = Path("docs/images/security_confirmation_preview.png").resolve()
+    img_sec.save(out_sec_path, format="PNG")
+    artifact_sec_path = artifact_dir / "security_confirmation_preview.png"
+    img_sec.save(artifact_sec_path, format="PNG")
+    print(f"Saved security preview to: {out_sec_path} ({img_sec.width}x{img_sec.height})")
+    sec_dialog.destroy()
+
     print(f"Saved generated previews to: {artifact_dir}")
 
     win.destroy()

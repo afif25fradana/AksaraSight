@@ -597,3 +597,228 @@ def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytes
     assert "Error: Backend not responding correctly to image input" in captured.err
 
 
+# ==============================================================================
+# Doctor Flag Tests (--doctor)
+# ==============================================================================
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.probe_server_health")
+@patch("cli.main.get_installed_runtime_path")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_all_pass(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_get_path: MagicMock,
+    mock_probe: MagicMock,
+    mock_engine_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor reports healthy status and returns exit code 0 when all checks pass."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(
+        gpu_name="NVIDIA RTX 4070",
+        vram_mb=8192,
+        cuda_available=True,
+        cuda_supported=True,
+        cuda_driver_version="576.88",
+        cpu_name="Test CPU",
+        recommended_backend="cuda",
+        details="CUDA 12.4 supported",
+    )
+    mock_is_installed.return_value = True
+    mock_get_path.return_value = Path("C:/runtimes/llama-server.exe")
+    mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
+
+    mock_engine = MagicMock()
+    mock_engine.verify_backend.return_value = None
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main(["--doctor"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "AKSARASIGHT DIAGNOSTIC REPORT" in captured.out
+    assert "1. Configuration" in captured.out
+    assert "[PASS] Backend:             llama-cpp" in captured.out
+    assert "2. Hardware Detection" in captured.out
+    assert "[PASS] Primary GPU:         NVIDIA RTX 4070 (8192 MB)" in captured.out
+    assert "3. Runtime Installation (Managed Mode)" in captured.out
+    assert "[PASS] Managed Runtime:     b10930-cuda (INSTALLED)" in captured.out
+    assert "4. Server Reachability" in captured.out
+    assert "[PASS] Endpoint Health:     READY (http://localhost:8080/health)" in captured.out
+    assert "5. Multimodal Vision Probe" in captured.out
+    assert "[PASS] 1x1 Image Test:      VERIFIED (Vision projector active, inference operational)" in captured.out
+    assert "STATUS: HEALTHY - All checks passed (5/5)." in captured.out
+
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.probe_server_health")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_custom_runtime_mode(
+    mock_detect: MagicMock,
+    mock_probe: MagicMock,
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Step 3 reports Custom Path existence and does NOT call is_runtime_installed."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(
+        cpu_name="Test CPU",
+        recommended_backend="cpu",
+        details="CPU inference",
+    )
+    mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
+    mock_engine = MagicMock()
+    mock_engine.verify_backend.return_value = None
+    mock_engine_cls.return_value = mock_engine
+
+    # Case A: Valid custom binary exists
+    custom_exe = tmp_path / "custom-llama-server.exe"
+    custom_exe.write_bytes(b"MZ_DUMMY_EXE")
+
+    monkeypatch.setenv("OCR_RUNTIME_MODE", "custom")
+    monkeypatch.setenv("OCR_LLAMA_SERVER_PATH", str(custom_exe))
+
+    with patch("cli.main.is_runtime_installed") as mock_managed_check:
+        exit_code = main(["--doctor"])
+        # Crucial check: is_runtime_installed must NOT be called in custom mode
+        mock_managed_check.assert_not_called()
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "3. Runtime Installation (Custom Path)" in captured.out
+    assert "[PASS] Custom Binary:       FOUND" in captured.out
+    assert str(custom_exe) in captured.out
+    assert "STATUS: HEALTHY" in captured.out
+
+    # Case B: Custom binary does NOT exist
+    missing_exe = tmp_path / "nonexistent.exe"
+    monkeypatch.setenv("OCR_LLAMA_SERVER_PATH", str(missing_exe))
+
+    exit_code = main(["--doctor"])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "3. Runtime Installation (Custom Path)" in captured.out
+    assert "[FAIL] Custom Binary:       NOT FOUND" in captured.out
+    assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
+    assert f"Verify the custom binary path exists: '{missing_exe}'." in captured.out
+
+
+@patch("cli.main.probe_server_health")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_server_offline(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_probe: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor handles offline server, skips multimodal probe, and exits with 1."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(cpu_name="CPU", recommended_backend="cpu")
+    mock_is_installed.return_value = True
+    mock_probe.return_value = (ServerStatus.OFFLINE, "Connection refused (server not running)")
+
+    with patch("cli.main.get_installed_runtime_path", return_value=Path("C:/llama-server.exe")), \
+         patch("cli.main.OCREngine") as mock_engine_cls:
+        exit_code = main(["--doctor"])
+        mock_engine_cls.assert_not_called()
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "[FAIL] Endpoint Health:     OFFLINE" in captured.out
+    assert "Connection refused (server not running)" in captured.out
+    assert "[SKIP] 1x1 Image Test:      SKIPPED (Server is not ready)" in captured.out
+    assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
+    assert "Start the backend server via GUI or run 'llama-server'" in captured.out
+
+
+@patch("cli.main.probe_server_health")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_runtime_not_installed(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_probe: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor reports missing managed runtime and exits with 1."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(cpu_name="CPU", recommended_backend="cpu")
+    mock_is_installed.return_value = False
+    mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
+
+    with patch("cli.main.OCREngine") as mock_engine_cls:
+        mock_engine = MagicMock()
+        mock_engine.verify_backend.return_value = None
+        mock_engine_cls.return_value = mock_engine
+
+        exit_code = main(["--doctor"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "[FAIL] Managed Runtime:     b10930-cpu (NOT INSTALLED)" in captured.out
+    assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
+    assert "Install the managed runtime 'b10930-cpu' via GUI Settings" in captured.out
+
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.probe_server_health")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_vision_probe_fails(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_probe: MagicMock,
+    mock_engine_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor captures ClientError during multimodal probe and exits with 1."""
+    from core.client import ClientError
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(cpu_name="CPU", recommended_backend="cpu")
+    mock_is_installed.return_value = True
+    mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
+
+    mock_engine = MagicMock()
+    mock_engine.verify_backend.side_effect = ClientError("Missing --mmproj projector")
+    mock_engine_cls.return_value = mock_engine
+
+    with patch("cli.main.get_installed_runtime_path", return_value=Path("C:/llama-server.exe")):
+        exit_code = main(["--doctor"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "[FAIL] 1x1 Image Test:      FAILED (Missing --mmproj projector)" in captured.out
+    assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
+    assert "Ensure the backend was launched with multimodal vision projector support (--mmproj)." in captured.out
+
+
+def test_cli_doctor_config_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify --doctor handles non-loopback endpoint security error and exits with 1."""
+    exit_code = main(["--doctor", "--endpoint", "http://remote-machine.internal:8080/v1"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "1. Configuration" in captured.out
+    assert "[FAIL] Configuration:       Invalid settings:" in captured.out
+    assert "Security violation: Non-loopback endpoint" in captured.out
+    assert "3. Runtime Installation" in captured.out
+    assert "[SKIP] Runtime Check:       SKIPPED (Configuration error)" in captured.out
+    assert "STATUS: UNHEALTHY" in captured.out
+
+
+

@@ -7,11 +7,18 @@ import sys
 from typing import List, Optional, Sequence, Set
 
 from config.settings import Settings, VALID_BACKENDS
+from core.client import ClientError, ServerOfflineError
 from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.formatter import save_artifacts
-from core.hardware import detect_hardware
+from core.hardware import PINNED_LLAMA_BUILD, detect_hardware
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
+from core.runtime_manager import (
+    get_installed_runtime_path,
+    get_runtime_dir,
+    is_runtime_installed,
+)
+from core.server_manager import ServerStatus, probe_server_health, resolve_base_url
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--detect-hardware",
         action="store_true",
         help="Detect system GPU/CPU hardware and recommend the optimal local inference runtime backend.",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run a diagnostic health-check of the local OCR environment and print a report.",
     )
     parser.add_argument(
         "-o",
@@ -125,6 +137,193 @@ def discover_files(input_dir: Path, recursive: bool = False) -> List[Path]:
     return files
 
 
+def run_doctor(args: argparse.Namespace) -> int:
+    """Execute a comprehensive diagnostic health-check and print a human-readable report.
+
+    Verifies configuration, hardware detection, runtime installation (managed or custom),
+    server reachability, and multimodal vision processing capability.
+
+    Returns:
+        int: 0 if all diagnostic checks pass, 1 if any check fails.
+    """
+    lines = [
+        "==================================================",
+        "           AKSARASIGHT DIAGNOSTIC REPORT          ",
+        "==================================================",
+    ]
+    failed_checks = 0
+    remediations: List[str] = []
+
+    # 1. Configuration
+    lines.append("1. Configuration")
+    config_ok = False
+    settings: Optional[Settings] = None
+    try:
+        base_settings = Settings.from_env()
+        overrides = {}
+        if args.backend:
+            overrides["backend"] = args.backend
+        if args.endpoint:
+            overrides["local_endpoint"] = args.endpoint
+        if args.allow_remote:
+            overrides["allow_remote"] = True
+        settings = dataclasses.replace(base_settings, **overrides)
+
+        loopback_str = "yes" if settings.is_loopback else "no (WARNING: non-loopback)"
+        lines.append(f"   [PASS] Backend:             {settings.backend}")
+        if settings.runtime_mode == "managed":
+            lines.append(f"   [PASS] Runtime Mode:        managed (target: {settings.managed_backend_override})")
+        else:
+            lines.append("   [PASS] Runtime Mode:        custom")
+        lines.append(f"   [PASS] Endpoint:            {settings.local_endpoint} (loopback: {loopback_str})")
+        config_ok = True
+    except ValueError as exc:
+        lines.append(f"   [FAIL] Configuration:       Invalid settings: {exc}")
+        failed_checks += 1
+        remediations.append("Fix invalid configuration in .env or provide valid CLI arguments.")
+
+    # 2. Hardware Detection
+    lines.append("\n2. Hardware Detection")
+    profile = detect_hardware()
+    cpu_label = profile.cpu_name or "Unknown"
+    gpu_label = profile.gpu_name or "None (CPU fallback)"
+    if profile.vram_mb:
+        gpu_label += f" ({profile.vram_mb} MB)"
+    lines.append(f"   [PASS] CPU:                 {cpu_label}")
+    lines.append(f"   [PASS] Primary GPU:         {gpu_label}")
+    if profile.cuda_available:
+        if profile.cuda_supported:
+            driver_str = f" (driver: {profile.cuda_driver_version})" if profile.cuda_driver_version else ""
+            lines.append(f"   [PASS] Acceleration:        CUDA 12.4 Compatible{driver_str}")
+        else:
+            reason = f": {profile.cuda_incompatibility_reason}" if profile.cuda_incompatibility_reason else ""
+            lines.append(f"   [WARN] Acceleration:        CUDA Incompatible{reason}")
+    elif profile.vulkan_available:
+        dev_name = f" ({profile.vulkan_device_name})" if profile.vulkan_device_name else ""
+        lines.append(f"   [PASS] Acceleration:        Vulkan Compatible{dev_name}")
+    else:
+        lines.append("   [INFO] Acceleration:        CPU inference only")
+
+    lines.append(f"   [PASS] Recommended Backend: {profile.recommended_backend.upper()}")
+
+    # 3. Runtime Installation (branching on runtime_mode)
+    if not config_ok or settings is None:
+        lines.append("\n3. Runtime Installation")
+        lines.append("   [SKIP] Runtime Check:       SKIPPED (Configuration error)")
+    elif settings.runtime_mode == "custom":
+        lines.append("\n3. Runtime Installation (Custom Path)")
+        custom_path_str = settings.effective_llama_server_path
+        if custom_path_str:
+            custom_path = Path(custom_path_str)
+            if custom_path.is_file():
+                lines.append("   [PASS] Custom Binary:       FOUND")
+                lines.append(f"          Path:                {custom_path.resolve()}")
+            else:
+                lines.append("   [FAIL] Custom Binary:       NOT FOUND")
+                lines.append(f"          Path:                {custom_path_str}")
+                failed_checks += 1
+                remediations.append(f"Verify the custom binary path exists: '{custom_path_str}'.")
+        else:
+            lines.append("   [FAIL] Custom Binary:       NOT CONFIGURED")
+            lines.append("          Path:                None")
+            failed_checks += 1
+            remediations.append("Configure OCR_LLAMA_SERVER_PATH in .env or switch to managed runtime mode.")
+    else:  # settings.runtime_mode == "managed"
+        lines.append("\n3. Runtime Installation (Managed Mode)")
+        target_backend = settings.managed_backend_override
+        if target_backend == "auto":
+            target_backend = profile.recommended_backend
+
+        tag = PINNED_LLAMA_BUILD
+        installed = is_runtime_installed(tag=tag, backend=target_backend)
+        installed_path = get_installed_runtime_path(tag=tag, backend=target_backend)
+
+        if installed and installed_path is not None:
+            lines.append(f"   [PASS] Managed Runtime:     {tag}-{target_backend} (INSTALLED)")
+            lines.append(f"          Executable:          {installed_path}")
+        else:
+            expected_dir = get_runtime_dir(tag, target_backend)
+            exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+            expected_path = expected_dir / exe_name
+            lines.append(f"   [FAIL] Managed Runtime:     {tag}-{target_backend} (NOT INSTALLED)")
+            lines.append(f"          Executable:          {expected_path}")
+            failed_checks += 1
+            remediations.append(
+                f"Install the managed runtime '{tag}-{target_backend}' via GUI Settings or download to '{expected_dir}'."
+            )
+
+    # 4. Server Reachability
+    lines.append("\n4. Server Reachability")
+    server_ready = False
+    if not config_ok or settings is None:
+        lines.append("   [SKIP] Endpoint Health:     SKIPPED (Configuration error)")
+    else:
+        health_status, health_msg = probe_server_health(settings.local_endpoint, timeout=1.5)
+        base_url = resolve_base_url(settings.local_endpoint)
+        health_url = f"{base_url}/health"
+
+        if health_status == ServerStatus.READY:
+            lines.append(f"   [PASS] Endpoint Health:     READY ({health_url})")
+            lines.append(f"          Details:             {health_msg}")
+            server_ready = True
+        elif health_status == ServerStatus.STARTING:
+            lines.append(f"   [WARN] Endpoint Health:     STARTING ({health_url})")
+            lines.append(f"          Details:             {health_msg}")
+            failed_checks += 1
+            remediations.append("Server is starting or loading model weights; wait a moment and re-run --doctor.")
+        elif health_status == ServerStatus.OFFLINE:
+            lines.append(f"   [FAIL] Endpoint Health:     OFFLINE ({health_url})")
+            lines.append(f"          Details:             {health_msg}")
+            failed_checks += 1
+            remediations.append("Start the backend server via GUI or run 'llama-server' before processing documents.")
+        else:  # ServerStatus.ERROR
+            lines.append(f"   [FAIL] Endpoint Health:     ERROR ({health_url})")
+            lines.append(f"          Details:             {health_msg}")
+            failed_checks += 1
+            remediations.append(f"Server returned an error during health check: {health_msg}")
+
+    # 5. Multimodal Vision Probe
+    lines.append("\n5. Multimodal Vision Probe")
+    if not config_ok or settings is None or not server_ready:
+        skip_reason = "Configuration error" if not config_ok else "Server is not ready"
+        lines.append(f"   [SKIP] 1x1 Image Test:      SKIPPED ({skip_reason})")
+    else:
+        engine = OCREngine(settings=settings)
+        try:
+            engine.verify_backend(force=True)
+            lines.append("   [PASS] 1x1 Image Test:      VERIFIED (Vision projector active, inference operational)")
+        except ServerOfflineError as exc:
+            lines.append(f"   [FAIL] 1x1 Image Test:      FAILED (Server offline: {exc})")
+            failed_checks += 1
+            remediations.append("Server became unreachable during multimodal vision probe.")
+        except ClientError as exc:
+            lines.append(f"   [FAIL] 1x1 Image Test:      FAILED ({exc})")
+            failed_checks += 1
+            remediations.append("Ensure the backend was launched with multimodal vision projector support (--mmproj).")
+        except Exception as exc:
+            lines.append(f"   [FAIL] 1x1 Image Test:      FAILED ({exc})")
+            failed_checks += 1
+            remediations.append(f"Unexpected probe error: {exc}")
+
+    # Final Result & Summary
+    lines.append("==================================================")
+    total_checks = 5
+    if failed_checks == 0:
+        lines.append(f"STATUS: HEALTHY - All checks passed ({total_checks}/{total_checks}). Ready for OCR processing.")
+        exit_code = 0
+    else:
+        s_plural = "s" if failed_checks > 1 else ""
+        lines.append(f"STATUS: UNHEALTHY - {failed_checks} check{s_plural} failed.")
+        if remediations:
+            lines.append("Remediation:")
+            for item in remediations:
+                lines.append(f"  - {item}")
+        exit_code = 1
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    return exit_code
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Execute the CLI application.
 
@@ -142,6 +341,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         profile = detect_hardware()
         sys.stdout.write(profile.format_summary() + "\n")
         return 0
+
+    # Handle --doctor standalone diagnostic health-check
+    if args.doctor:
+        return run_doctor(args)
 
     # Ensure input argument was supplied
     if not args.input:

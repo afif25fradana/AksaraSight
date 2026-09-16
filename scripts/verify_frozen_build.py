@@ -6,10 +6,10 @@ Verifies:
    is actually rendered and visible on-screen, then gracefully closes it via WM_CLOSE.
 2. File-based Logging: Confirms %LOCALAPPDATA%\\AksaraSight\\logs\\app.log was created and
    recorded startup telemetry and version.
-3. Subprocess & Job Object Handling: Invokes ocr-llm.exe --test-server-supervision to
+3. Subprocess & Job Object Handling: Invokes AksaraSight-CLI.exe --test-server-supervision to
    verify that Win32 Job Object creation, process assignment, CREATE_NO_WINDOW, and cwd
    isolation function under a frozen parent process.
-4. CLI Functionality: Confirms ocr-llm.exe --version, --help, and --detect-hardware.
+4. CLI Functionality: Confirms AksaraSight-CLI.exe --version, --help, and --detect-hardware.
 5. Zero-Network Invariant: Asserts hardware detection and startup complete with zero external calls.
 """
 
@@ -24,18 +24,18 @@ import time
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
 GUI_EXE = DIST_DIR / "AksaraSight.exe"
-CLI_EXE = DIST_DIR / "ocr-llm.exe"
+CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
 
 # Win32 API Constants
 WM_CLOSE = 0x0010
 
 
 def test_cli_version() -> bool:
-    """Verify ocr-llm.exe --version outputs expected version."""
+    """Verify AksaraSight-CLI.exe --version outputs expected version."""
     print("[1/5] Testing CLI binary version output...")
     res = subprocess.run([str(CLI_EXE), "--version"], capture_output=True, text=True, timeout=10)
     print(f"  Stdout: {res.stdout.strip()}")
-    if res.returncode != 0 or "ocr-llm 1.0.0" not in res.stdout:
+    if res.returncode != 0 or "AksaraSight-CLI 1.0.0" not in res.stdout:
         print("  [FAIL] CLI version test failed")
         return False
     print("  [PASS] CLI version verified")
@@ -43,7 +43,7 @@ def test_cli_version() -> bool:
 
 
 def test_cli_hardware_detection() -> bool:
-    """Verify ocr-llm.exe --detect-hardware runs with zero network and outputs report."""
+    """Verify AksaraSight-CLI.exe --detect-hardware runs with zero network and outputs report."""
     print("\n[2/5] Testing CLI hardware detection (zero-network invariant)...")
     res = subprocess.run([str(CLI_EXE), "--detect-hardware"], capture_output=True, text=True, timeout=10)
     if res.returncode != 0:
@@ -57,7 +57,7 @@ def test_cli_hardware_detection() -> bool:
 
 
 def test_cli_input_validation() -> bool:
-    """Verify ocr-llm.exe handles nonexistent files with structured exit code 1 and error message."""
+    """Verify AksaraSight-CLI.exe handles nonexistent files with structured exit code 1 and error message."""
     print("\n[3/5] Testing CLI input validation and error handling...")
     res = subprocess.run([str(CLI_EXE), "nonexistent_sample.png"], capture_output=True, text=True, timeout=10)
     print(f"  Exit code: {res.returncode}")

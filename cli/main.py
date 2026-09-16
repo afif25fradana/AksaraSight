@@ -17,7 +17,7 @@ from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
 def build_parser() -> argparse.ArgumentParser:
     """Construct the command-line argument parser."""
     parser = argparse.ArgumentParser(
-        prog="ocr-llm",
+        prog="AksaraSight-CLI",
         description="Lightweight local OCR tool powered by OpenAI-compatible vision models.",
     )
     parser.add_argument(
@@ -146,7 +146,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Ensure input argument was supplied
     if not args.input:
         parser.print_usage(sys.stderr)
-        sys.stderr.write("ocr-llm: error: the following arguments are required: input\n")
+        sys.stderr.write("AksaraSight-CLI: error: the following arguments are required: input\n")
         return 1
 
     input_path: Path = args.input

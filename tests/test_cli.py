@@ -567,14 +567,14 @@ def test_cli_real_engine_integration(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
-    """Verify 'ocr-llm --version' prints correct version string and exits."""
+    """Verify 'AksaraSight-CLI --version' prints correct version string and exits."""
     from core.constants import __version__
 
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
-    assert f"ocr-llm {__version__}" in captured.out
+    assert f"AksaraSight-CLI {__version__}" in captured.out
 
 
 def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

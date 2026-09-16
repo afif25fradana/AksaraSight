@@ -87,7 +87,7 @@ def verify_bundle_integrity() -> Path:
 
     # 1. Executables check
     gui_exe = dist_dir / "AksaraSight.exe"
-    cli_exe = dist_dir / "ocr-llm.exe"
+    cli_exe = dist_dir / "AksaraSight-CLI.exe"
 
     for exe, label in [(gui_exe, "Desktop Studio GUI"), (cli_exe, "Console CLI")]:
         if not exe.is_file():

@@ -3,7 +3,7 @@
 
 Builds a unified, zero-installer portable bundle containing:
 1. AksaraSight.exe: Desktop Studio GUI (windowed mode, console=False).
-2. ocr-llm.exe: Command Line Interface (console mode, console=True).
+2. AksaraSight-CLI.exe: Command Line Interface (console mode, console=True).
 Both executables reside in dist/AksaraSight/ and share dist/AksaraSight/_internal/.
 """
 
@@ -83,7 +83,7 @@ exe_gui = EXE(
 )
 
 # ------------------------------------------------------------------------------
-# 2. Target: Command Line Interface (ocr-llm.exe, console=True)
+# 2. Target: Command Line Interface (AksaraSight-CLI.exe, console=True)
 # ------------------------------------------------------------------------------
 a_cli = Analysis(
     ['cli/main.py'],
@@ -108,7 +108,7 @@ exe_cli = EXE(
     a_cli.scripts,
     [],
     exclude_binaries=True,
-    name='ocr-llm',
+    name='AksaraSight-CLI',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -7,9 +7,8 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 ---
 
 ### Project Maturity & Status
-- **Feature-Complete for Current Scope**: All 5 core architectural phases complete (Core Pipeline, CLI Interface, Desktop GUI Studio, Live Backend Integration, Server Supervision). Tested locally across 361 automated unit and integration tests (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
-- **Extensively Audited**: Hardened across 7 rigorous audit cycles: Security (2 rounds), Performance, Code Quality (Ponytail simplification), Correctness & Data Integrity, Test Coverage Gaps, UX & Accessibility, and a dedicated Managed Runtime supply-chain security review.
-- **Robust Test Suite**: 361 unit and integration tests passing with 100% pass rate.
+- **Feature-Complete for Current Scope**: Core pipeline, CLI, and Desktop GUI Studio are complete, with live local backend integration and full server lifecycle supervision.
+- **Robust Test Suite**: 367 unit and integration tests passing with 100% pass rate (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
 - **Project History**: See [CHANGELOG.md](CHANGELOG.md) for the complete milestone evolution, audit breakdowns, and test history.
 
 ---
@@ -71,6 +70,9 @@ The CLI supports single files, piping, and recursive batch directory processing:
 ```powershell
 # Detect hardware and check recommended backend
 python -m cli.main --detect-hardware
+
+# Run a full diagnostic checklist (config, hardware, runtime, server, vision probe)
+python -m cli.main --doctor
 
 # Process a single document and stream Markdown to stdout
 python -m cli.main document.png
@@ -136,6 +138,7 @@ python -m cli.main [input] [options]
 | `--prompt` | Custom model instruction prompt (overrides preset). | `None` |
 | `-r, --recursive` | Recursively scan subdirectories for documents. | `False` |
 | `--detect-hardware` | Probe system hardware, print recommended backend, and exit. | `False` |
+| `--doctor` | Run a diagnostic checklist (configuration, hardware, runtime installation, server reachability, multimodal vision probe) and exit. | `False` |
 | `--backend` | Inference backend: `llama-cpp`, `ollama`, or `vllm`. | `llama-cpp` |
 | `--endpoint` | OpenAI-compatible API base URL. | `http://localhost:8080/v1` |
 | `--allow-remote` | Explicitly permit non-loopback endpoints (see Security). | `False` |
@@ -210,7 +213,7 @@ python scripts/smoke_test_gui.py
 | `gui/` | CustomTkinter desktop studio (`app.py`, `settings_window.py`, `theme.py`). |
 | `config/` | Immutable, validated `Settings` dataclass with comment-preserving `.env` persistence. |
 | `scripts/` | Benchmark harnesses, screenshot generation utilities, and headless smoke tests. |
-| `tests/` | 361 unit and integration tests covering all modules and failure modes. |
+| `tests/` | 367 unit and integration tests covering all modules and failure modes. |
 
 ## License
 

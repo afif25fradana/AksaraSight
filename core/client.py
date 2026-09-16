@@ -119,6 +119,10 @@ class VisionClient:
             self._owns_session = False
         else:
             self._session = requests.Session()
+            # Disable environment proxies (HTTP_PROXY/HTTPS_PROXY) to enforce local-only
+            # loopback communication and prevent document exfiltration through external proxies.
+            # Reconsider if authenticated/proxied remote-endpoint support is ever added.
+            self._session.trust_env = False
             adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10)
             self._session.mount("http://", adapter)
             self._session.mount("https://", adapter)

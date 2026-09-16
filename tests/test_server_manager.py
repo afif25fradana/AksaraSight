@@ -228,6 +228,8 @@ def test_server_manager_start_spawns_with_local_gguf_flag(tmp_path):
                 assert str(fake_model) in cmd_args
                 assert "-hf" not in cmd_args
                 assert "--mmproj" not in cmd_args
+                assert "--host" in cmd_args
+                assert cmd_args[cmd_args.index("--host") + 1] == "127.0.0.1"
     finally:
         mgr.shutdown()
 
@@ -663,6 +665,16 @@ def test_real_win32_job_object_creation_and_assignment():
     _close_job_handle(job)
 
     assert assigned is True
+
+
+def test_server_manager_trust_env_disabled() -> None:
+    """Verify ServerManager default session has trust_env=False to block proxy leaks."""
+    mgr = ServerManager()
+    try:
+        assert mgr._session.trust_env is False
+    finally:
+        mgr.shutdown()
+
 
 
 

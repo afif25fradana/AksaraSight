@@ -125,6 +125,37 @@ def test_cli_single_file_stdout_json_quiet_pipeable(
 
 
 @patch("cli.main.OCREngine")
+def test_cli_single_file_stdout_json_sanitizes_path(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify single-file JSON stdout streaming sanitizes file_path and error strings."""
+    doc_file = tmp_path / "user_private" / "invoice.png"
+    doc_file.parent.mkdir(parents=True, exist_ok=True)
+    doc_file.write_bytes(b"\x89PNG\r\n\x1a\nFakePNG")
+
+    raw_error = f"Error processing '{doc_file}'"
+    mock_result = OCRResult(
+        file_path=str(doc_file),
+        pages=[PageResult(page_num=1, markdown="# Invoice", status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+        error=raw_error,
+    )
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_result
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(doc_file), "-f", "json", "--quiet"])
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert parsed["file_path"] != str(doc_file.resolve())
+    assert str(doc_file.resolve()) not in parsed["error"]
+
+
+@patch("cli.main.OCREngine")
 def test_cli_single_file_save_to_output_dir(
     mock_engine_cls: MagicMock,
     dummy_png: Path,

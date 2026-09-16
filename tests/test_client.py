@@ -472,3 +472,12 @@ def test_verify_multimodal_support_null_content() -> None:
         with pytest.raises(ClientError, match="null content"):
             client.verify_multimodal_support()
 
+
+def test_vision_client_trust_env_disabled() -> None:
+    """Verify VisionClient default session has trust_env=False to block proxy leaks."""
+    client = VisionClient()
+    try:
+        assert client._session.trust_env is False
+    finally:
+        client.close()
+

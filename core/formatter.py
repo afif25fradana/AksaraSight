@@ -123,6 +123,56 @@ def sanitize_export_path(
     return target.name
 
 
+def sanitize_export_error(
+    error: Optional[str],
+    file_path: Optional[Union[str, Path]] = None,
+    base_dir: Optional[Union[str, Path]] = None,
+) -> Optional[str]:
+    """Sanitize an error string in exported JSON to avoid leaking local user home paths.
+
+    Args:
+        error: Raw error message string.
+        file_path: Optional associated document path to match and relativize.
+        base_dir: Optional reference directory for path relativization.
+
+    Returns:
+        Optional[str]: Sanitized error message without absolute user home paths.
+    """
+    if not error:
+        return error
+
+    sanitized = str(error)
+
+    # 1. If file_path is provided, replace occurrences of its raw and resolved forms
+    if file_path and str(file_path) not in ("<in-memory>", "<bytes>", ""):
+        raw_str = str(file_path)
+        sanitized_path = sanitize_export_path(file_path, base_dir=base_dir)
+
+        variants = {raw_str, raw_str.replace("\\", "/"), raw_str.replace("/", "\\")}
+        try:
+            resolved_str = str(Path(file_path).resolve())
+            variants.update({resolved_str, resolved_str.replace("\\", "/"), resolved_str.replace("/", "\\")})
+        except Exception:
+            pass
+
+        for var in sorted(variants, key=len, reverse=True):
+            if var and var in sanitized:
+                sanitized = sanitized.replace(var, sanitized_path)
+
+    # 2. Defense-in-depth: replace user home directory if still present
+    try:
+        home_dir = str(Path.home().resolve())
+        if home_dir and home_dir in sanitized:
+            sanitized = sanitized.replace(home_dir, "~")
+        home_dir_fwd = home_dir.replace("\\", "/")
+        if home_dir_fwd and home_dir_fwd in sanitized:
+            sanitized = sanitized.replace(home_dir_fwd, "~")
+    except Exception:
+        pass
+
+    return sanitized
+
+
 def format_output(
     result: OCRResult,
     output_format: OutputFormat,
@@ -153,6 +203,13 @@ def format_output(
         if sanitize_path:
             data = result.to_dict()
             data["file_path"] = sanitize_export_path(result.file_path, base_dir=base_dir)
+            if data.get("error"):
+                data["error"] = sanitize_export_error(data["error"], file_path=result.file_path, base_dir=base_dir)
+            for page_dict in data.get("pages", []):
+                if page_dict.get("error"):
+                    page_dict["error"] = sanitize_export_error(
+                        page_dict["error"], file_path=result.file_path, base_dir=base_dir
+                    )
             outputs["json"] = json.dumps(data, indent=2, ensure_ascii=False)
         else:
             outputs["json"] = result.to_json()

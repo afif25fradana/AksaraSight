@@ -117,14 +117,14 @@ def main() -> None:
     img_scrolled.save(out_scrolled_path, format="PNG")
     print(f"Saved scrolled preview to: {out_scrolled_path} ({img_scrolled.width}x{img_scrolled.height})")
 
-    # Also copy to artifacts directory
-    artifact_dir = Path(r"docs/images/_generated")
-    if artifact_dir.exists():
-        artifact_path = artifact_dir / "settings_window_preview.png"
-        img.save(artifact_path, format="PNG")
-        artifact_scrolled_path = artifact_dir / "settings_window_scrolled_preview.png"
-        img_scrolled.save(artifact_scrolled_path, format="PNG")
-        print(f"Saved artifact previews to: {artifact_dir}")
+    # Also copy to local generated directory
+    artifact_dir = Path("docs/images/_generated")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / "settings_window_preview.png"
+    img.save(artifact_path, format="PNG")
+    artifact_scrolled_path = artifact_dir / "settings_window_scrolled_preview.png"
+    img_scrolled.save(artifact_scrolled_path, format="PNG")
+    print(f"Saved generated previews to: {artifact_dir}")
 
     win.destroy()
     root.destroy()

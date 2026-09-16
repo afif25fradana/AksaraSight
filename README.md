@@ -56,6 +56,11 @@ The fastest way to get started. You do **not** need to install `llama-server` or
    - Under *Local Inference Engine*, **Runtime Source** defaults to `Managed (Auto)`.
    - Your GPU/CPU architecture is automatically detected and displayed.
    - Click **Download Runtime**. The verified, pinned build of `llama-server` (and companion CUDA runtime libraries if applicable) will download, cryptographically verify archive digests against pinned SHA-256 hashes, and install to `%LOCALAPPDATA%\AksaraSight\runtimes\`.
+
+   ![Preferences settings preview](docs/images/settings_window_preview.png)
+
+   ![Managed runtime supervision preview](docs/images/settings_window_scrolled_preview.png)
+
 4. **Start & Process**:
    - Click **Start Server** in the main header (status pill turns `● READY`).
    - Drag and drop documents or entire folders into the drop zone.
@@ -123,6 +128,8 @@ If you already have a running `llama-server`, Ollama, or vLLM instance:
   - *JSON Tree*: Structured document metadata, timing benchmarks, and per-page status.
 - **Action Bar & Footer** — Copy to Clipboard, Export Selected, background multi-threaded Export All with progress reporting, Clear Finished, and on-device privacy guarantee.
 
+![Live backend processing preview](docs/images/gui_live_backend_preview.png)
+
 ## CLI Reference
 
 ```
@@ -175,6 +182,9 @@ A documented template is available in `.env.example`.
 ## Security & Privacy
 
 - **Enforced Loopback by Default**: Outbound HTTP traffic is restricted strictly to loopback addresses (`localhost`, `127.0.0.1`, `::1`). Binding or connecting to remote IP addresses requires explicit opt-in (`--allow-remote` / `OCR_ALLOW_REMOTE=true`), and both CLI and GUI display prominent visual warnings when remote mode is active.
+
+  ![Security confirmation preview](docs/images/security_confirmation_preview.png)
+
 - **Zero Cloud Fallback**: If the local backend process crashes or is unreachable, processing fails immediately with a clear error. Documents are never routed externally.
 - **Verified Supply-Chain Delivery**: Managed runtime binaries and companion shared libraries (e.g. `llama-server.exe`, `cudart*.dll`) are downloaded exclusively from official GitHub release assets over HTTPS, validated against pinned SHA-256 cryptographic digests, protected against Zip-Slip path traversals during extraction, and executed with explicit CWD isolation. (Note: GGUF model weights are downloaded via llama.cpp's built-in Hugging Face downloader and are not currently pinned or hash-verified by this application.)
 - **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process is assigned to a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. Even if the GUI terminates abruptly or crashes, the OS kernel guarantees the server subprocess is terminated immediately, preventing orphaned background processes.

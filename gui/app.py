@@ -2721,6 +2721,12 @@ def main() -> None:
         print("Usage: python -m gui.app")
         return
     _setup_frozen_logging()
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aksarasight.localstudio.gui.1.0")
+        except Exception:
+            pass
     app = OCRApp()
     try:
         app.mainloop()

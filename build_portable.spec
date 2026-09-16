@@ -16,6 +16,7 @@ block_cipher = None
 # Collect all non-Python data files and native C-extensions
 all_datas = [
     ('gui/assets/icon.ico', 'gui/assets'),
+    ('gui/assets/icon.png', 'gui/assets'),
 ]
 all_binaries = []
 all_hiddenimports = [

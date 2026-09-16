@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+import sys
 import threading
 from tkinter import filedialog
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -228,6 +229,17 @@ class SettingsWindow(ctk.CTkToplevel):
         self.title("Preferences & Serving Configuration")
         self.geometry("640x740")
         self.minsize(560, 560)
+        for candidate in [
+            Path(__file__).parent / "assets" / "icon.ico",
+            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
+            Path(sys.executable).parent / "assets" / "icon.ico",
+        ]:
+            if candidate.is_file():
+                try:
+                    self.iconbitmap(str(candidate))
+                    break
+                except Exception:
+                    pass
         self.configure(fg_color=COLOR_CANVAS_BG)
 
         # Position dialog over parent window

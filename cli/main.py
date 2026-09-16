@@ -10,7 +10,7 @@ from config.settings import Settings, VALID_BACKENDS
 from core.client import ClientError, ServerOfflineError
 from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS, __version__
-from core.formatter import save_artifacts
+from core.formatter import format_output, save_artifacts
 from core.hardware import PINNED_LLAMA_BUILD, detect_hardware
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
 from core.runtime_manager import (
@@ -456,17 +456,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if result.status == JobStatus.FAILED and not result.pages:
                 sys.stderr.write(f"Processing failed: {result.error}\n")
             else:
-                md = result.markdown
+                formatted = format_output(result, output_fmt, sanitize_path=True)
                 if output_fmt == OutputFormat.MARKDOWN:
+                    md = formatted["markdown"]
                     sys.stdout.write(md)
                     if not md.endswith("\n"):
                         sys.stdout.write("\n")
                 elif output_fmt == OutputFormat.JSON:
-                    sys.stdout.write(result.to_json() + "\n")
+                    sys.stdout.write(formatted["json"] + "\n")
                 else:  # BOTH to stdout
-                    sys.stdout.write(md)
+                    sys.stdout.write(formatted["markdown"])
                     sys.stdout.write("\n\n---\n\n")
-                    sys.stdout.write(result.to_json() + "\n")
+                    sys.stdout.write(formatted["json"] + "\n")
                 sys.stdout.flush()
 
         # If processing was aborted due to backend offline, fail fast immediately

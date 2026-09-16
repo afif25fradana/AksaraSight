@@ -262,6 +262,10 @@ class ServerManager:
             self._owns_session = False
         else:
             self._session = requests.Session()
+            # Disable environment proxies (HTTP_PROXY/HTTPS_PROXY) to enforce local-only
+            # loopback communication and prevent document exfiltration through external proxies.
+            # Reconsider if authenticated/proxied remote-endpoint support is ever added.
+            self._session.trust_env = False
             adapter = HTTPAdapter(pool_connections=2, pool_maxsize=2)
             self._session.mount("http://", adapter)
             self._session.mount("https://", adapter)
@@ -470,6 +474,7 @@ class ServerManager:
             cmd = [
                 resolved_path,
                 model_flag, repo,
+                "--host", "127.0.0.1",
                 "--port", str(port),
                 "-ngl", "99",
                 "-c", "8192",

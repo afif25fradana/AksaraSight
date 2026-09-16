@@ -236,12 +236,16 @@ def test_sanitize_export_path_relative_to_base_and_cwd(tmp_path: Path) -> None:
     assert sanitize_export_path("") == ""
 
 
-def test_save_artifacts_path_privacy_sanitization(tmp_path: Path) -> None:
-    """Verify save_artifacts sanitizes file_path in exported JSON by default without mutating OCRResult."""
+def test_save_artifacts_sanitizes_path_default(tmp_path: Path) -> None:
+    """Verify save_artifacts sanitizes file_path and error strings in exported JSON by default without mutating OCRResult."""
     raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    error_msg = f"File is empty (0 bytes): '{raw_path}'"
+    page_error_msg = f"Failed to render frame 1 for '{raw_path}'"
     result = OCRResult(
         file_path=str(raw_path),
-        pages=[PageResult(page_num=1, markdown="Secret", status=JobStatus.SUCCESS)],
+        pages=[PageResult(page_num=1, markdown="Secret", status=JobStatus.FAILED, error=page_error_msg)],
+        error=error_msg,
+        status=JobStatus.FAILED,
     )
     config = JobConfig(output_format=OutputFormat.JSON)
 
@@ -254,12 +258,18 @@ def test_save_artifacts_path_privacy_sanitization(tmp_path: Path) -> None:
     )
     exported_json = json.loads(saved["json"].read_text(encoding="utf-8"))
     assert exported_json["file_path"] == "secret_doc.pdf"
+    assert exported_json["error"] == "File is empty (0 bytes): 'secret_doc.pdf'"
+    assert exported_json["pages"][0]["error"] == "Failed to render frame 1 for 'secret_doc.pdf'"
+    assert str(raw_path) not in exported_json["error"]
+    assert str(raw_path) not in exported_json["pages"][0]["error"]
 
     # Verify OCRResult internal data model was NOT mutated
     assert result.file_path == str(raw_path)
+    assert result.error == error_msg
     assert result.to_dict()["file_path"] == str(raw_path)
+    assert result.to_dict()["error"] == error_msg
 
-    # 2. Explicit sanitize_path=False preserves absolute path
+    # 2. Explicit sanitize_path=False preserves absolute path and error
     saved_raw = save_artifacts(
         result,
         config,
@@ -268,6 +278,8 @@ def test_save_artifacts_path_privacy_sanitization(tmp_path: Path) -> None:
     )
     exported_raw_json = json.loads(saved_raw["json"].read_text(encoding="utf-8"))
     assert exported_raw_json["file_path"] == str(raw_path)
+    assert exported_raw_json["error"] == error_msg
+    assert exported_raw_json["pages"][0]["error"] == page_error_msg
 
 
 def test_save_artifacts_atomic_write_preserves_existing_on_error(

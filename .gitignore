@@ -16,3 +16,11 @@ currency_test.png
 dpi_benchmark_results.json
 .coverage*
 coverage.json
+docs/images/_generated/
+.vscode/
+.idea/
+.antigravity/
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.gguf

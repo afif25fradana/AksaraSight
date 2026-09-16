@@ -5,7 +5,7 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Current State: v1.0.0 (Feature-Complete for Current Scope)
-- **361 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
+- **370 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
 - **Serving Configuration & Multimodal Self-Test Hardening complete** (Empirically verified b10930 arguments, 1x1 multimodal probe, session caching, and local GGUF mmproj safeguards).
@@ -13,6 +13,24 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Milestones
+
+### Security Hardening Pass (Loopback Host Binding, Proxy Defense, JSON Path & Error Sanitization)
+*Focus: Defense-in-depth isolation, loopback binding enforcement, proxy interception prevention, and path sanitization in JSON exports.*
+- **Explicit Loopback Host Binding**: Added explicit `"--host", "127.0.0.1"` to `llama-server` subprocess launch in `core/server_manager.py`, eliminating reliance on upstream binary default host behavior.
+- **Proxy Interception Defense**: Set `trust_env = False` on `requests.Session` instances in `core/client.py` and `core/server_manager.py`, guaranteeing OS-level proxy environment variables (`HTTP_PROXY`/`HTTPS_PROXY`) cannot intercept local loopback inference traffic.
+- **JSON Export Path & Error Sanitization**: Added `sanitize_export_error()` to `core/formatter.py` to redact absolute local filesystem paths embedded within error messages (`data["error"]` and `page["error"]`) when `sanitize_path=True`. Ensured single-file CLI JSON output routes through `format_output()`.
+- **Result:** **370 / 370 tests passing**.
+
+---
+
+### CLI Diagnostic Health-Check (`--doctor`)
+*Focus: Operational self-diagnostics, hardware capability reporting, runtime validation, and end-to-end vision probing.*
+- **Standalone Diagnostic Flag**: Added `--doctor` flag to `AksaraSight-CLI` (`AksaraSight-CLI.exe` / `python -m cli.main`).
+- **5-Stage Comprehensive Health Check**: Evaluates configuration sanity, hardware/GPU detection (`detect_hardware()`), runtime installation status (managed build vs custom binary), server reachability (`probe_server_health()`), and end-to-end multimodal inference (`OCREngine.verify_backend()` with 1x1 test image probe).
+- **Executable Rebrand**: Renamed CLI target to `AksaraSight-CLI.exe` in `build_portable.spec` and `scripts/build_portable.py` for branding consistency.
+- **Result:** **367 / 367 tests passing** (+6 new unit tests in `tests/test_cli.py`).
+
+---
 
 ### Serving Configuration & Multimodal Self-Test Hardening
 *Focus: Verified serving arguments, 1x1 multimodal probe, session caching, and local-GGUF mmproj safeguard.*

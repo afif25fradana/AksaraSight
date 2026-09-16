@@ -120,9 +120,9 @@ def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         img_empty.save(out_dir / "gui_empty_queue_preview.png")
 
-        artifact_dir = Path(r"docs/images/_generated")
-        if artifact_dir.exists():
-            img_empty.save(artifact_dir / "gui_empty_queue_preview.png")
+        artifact_dir = Path("docs/images/_generated")
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        img_empty.save(artifact_dir / "gui_empty_queue_preview.png")
         print("Captured empty queue state screenshot.")
 
         # Enqueue sample files
@@ -216,11 +216,11 @@ def main() -> None:
         print(f"Captured screenshot to: {local_png} (size: {img.size})")
 
         # Also copy to local generated directory
-        artifact_dir = Path(r"docs/images/_generated")
-        if artifact_dir.exists():
-            artifact_png = artifact_dir / "gui_refined_preview.png"
-            img.save(artifact_png)
-            print(f"Copied screenshot to artifact directory: {artifact_png}")
+        artifact_dir = Path("docs/images/_generated")
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_png = artifact_dir / "gui_refined_preview.png"
+        img.save(artifact_png)
+        print(f"Copied screenshot to generated directory: {artifact_png}")
 
         # Clean shutdown
         app._on_closing()

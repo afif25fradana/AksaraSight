@@ -8,7 +8,7 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 
 ### Project Maturity & Status
 - **Feature-Complete for Current Scope**: Core pipeline, CLI, and Desktop GUI Studio are complete, with live local backend integration and full server lifecycle supervision.
-- **Robust Test Suite**: 367 unit and integration tests passing with 100% pass rate (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
+- **Robust Test Suite**: 370 unit and integration tests passing with 100% pass rate (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
 - **Project History**: See [CHANGELOG.md](CHANGELOG.md) for the complete milestone evolution, audit breakdowns, and test history.
 
 ---
@@ -213,7 +213,7 @@ python scripts/smoke_test_gui.py
 | `gui/` | CustomTkinter desktop studio (`app.py`, `settings_window.py`, `theme.py`). |
 | `config/` | Immutable, validated `Settings` dataclass with comment-preserving `.env` persistence. |
 | `scripts/` | Benchmark harnesses, screenshot generation utilities, and headless smoke tests. |
-| `tests/` | 367 unit and integration tests covering all modules and failure modes. |
+| `tests/` | 370 unit and integration tests covering all modules and failure modes. |
 
 ## License
 

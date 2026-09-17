@@ -181,15 +181,15 @@ A documented template is available in `.env.example`.
 
 ## Security & Privacy
 
-- **Enforced Loopback by Default**: Outbound HTTP traffic is restricted strictly to loopback addresses (`localhost`, `127.0.0.1`, `::1`). Binding or connecting to remote IP addresses requires explicit opt-in (`--allow-remote` / `OCR_ALLOW_REMOTE=true`), and both CLI and GUI display prominent visual warnings when remote mode is active.
+- **Loopback by default.** Outbound connections are restricted strictly to loopback addresses (`localhost`, `127.0.0.1`, `::1`). Connecting to a remote endpoint requires explicit opt-in (`--allow-remote` or `OCR_ALLOW_REMOTE=true`), and both the CLI and GUI warn loudly when remote mode is enabled.
 
   ![Security confirmation preview](docs/images/security_confirmation_preview.png)
 
-- **Zero Cloud Fallback**: If the local backend process crashes or is unreachable, processing fails immediately with a clear error. Documents are never routed externally.
-- **Verified Supply-Chain Delivery**: Managed runtime binaries and companion shared libraries (e.g. `llama-server.exe`, `cudart*.dll`) are downloaded exclusively from official GitHub release assets over HTTPS, validated against pinned SHA-256 cryptographic digests, protected against Zip-Slip path traversals during extraction, and executed with explicit CWD isolation. (Note: GGUF model weights are downloaded via llama.cpp's built-in Hugging Face downloader and are not currently pinned or hash-verified by this application.)
-- **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process is assigned to a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. Even if the GUI terminates abruptly or crashes, the OS kernel guarantees the server subprocess is terminated immediately, preventing orphaned background processes.
-- **Decompression-Bomb & Pixel-Bomb Defense**: Ingested images and PDF pages undergo dimension preflight validation before rasterization (`MAX_RASTER_PIXELS = 89,478,485 px`), preventing memory-exhaustion denial-of-service attacks.
-- **Atomic File Writing & Path Privacy**: Artifact writes utilize atomic temporary file replacement (`.tmp` + rename). Exported JSON metadata automatically relativizes local paths against the working directory or home folder to prevent leaking usernames in shared artifacts.
+- **No cloud fallback.** If the local backend crashes or goes offline, processing stops immediately with a clear error. Documents are never routed out to an external service.
+- **Verified runtime downloads.** In managed mode, `llama-server.exe` and companion libraries (like `cudart*.dll`) are downloaded directly from official GitHub release assets over HTTPS, checked against pinned SHA-256 hashes before extraction, protected against Zip-Slip path traversal, and executed with isolated working directories. (Note: GGUF model weights are fetched by llama.cpp's built-in Hugging Face downloader and are not currently pinned or hash-verified by AksaraSight.)
+- **Clean process lifecycle.** On Windows, the managed `llama-server` process runs inside a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. Even if the GUI crashes or is killed abruptly, the operating system kernel closes the server process immediately so no orphaned instances linger in the background.
+- **Pixel-bomb protection.** Oversized images and PDFs are rejected before rasterization — any page over 89,478,485 pixels (`MAX_RASTER_PIXELS`) is blocked so malicious or corrupted files cannot exhaust memory.
+- **Atomic writes and path privacy.** File exports write to temporary files (`.tmp`) first and rename them into place atomically, so partial writes never corrupt existing files. Exported JSON paths are automatically relativized against the working directory or user home folder to avoid leaking local usernames.
 
 ## Output Formats
 

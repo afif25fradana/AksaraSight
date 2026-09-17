@@ -1,0 +1,6 @@
+[run]
+source = core,cli,gui,config
+omit = tests/*
+
+[report]
+show_missing = True

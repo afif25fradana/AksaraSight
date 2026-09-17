@@ -199,9 +199,9 @@ A documented template is available in `.env.example`.
 
 ## Known Limitations
 
-- **GLM-OCR Currency Symbol Omission (`$`)**: When currency amounts lack whitespace (e.g., `$100.00` or `$1,250.00`), the GLM-OCR tokenizer interprets `$` directly preceding digits as an unclosed inline LaTeX math delimiter, causing post-processing filters to strip the symbol (e.g., outputting `.00`). Amounts with whitespace (`$ 100.00`) or currency codes (`USD 100.00`) transcribe accurately. Always verify currency symbols in financial documents.
-- **Resolution vs. Latency Balance**: 100 DPI provides an optimal balance (~2.7s/page on RTX 3050 Laptop GPU, ~1.7 MP) with 100% character fidelity on our synthetic dense-text benchmark contract. Real-world accuracy varies depending on document layout complexity, scan degradation, lighting, resolution, and language. 150 DPI (~3.8 MP) roughly doubles inference latency, while 72 DPI can degrade fine print.
-- **Cooperative Cancellation**: In-flight HTTP vision inference requests cannot be aborted mid-packet without corrupting the connection pool; cancellation requests are evaluated cooperatively at document page boundaries, preserving partial work completed up to that point.
+- **Missing currency symbols (`$`) without spaces.** When currency figures lack spaces (like `$100.00` or `$1,250.00`), GLM-OCR's tokenizer treats the `$` before digits as an unclosed inline LaTeX math delimiter, and the post-processing filter strips the symbol (producing `.00` or `,250.00`). Figures with spaces (`$ 100.00`) or ISO codes (`USD 100.00`) transcribe normally. Check financial scans manually for missing dollar signs.
+- **DPI and speed trade-offs.** The default 100 DPI (~1.7 MP) takes roughly ~2.7s per page on an RTX 3050 Laptop GPU and hits 100% character accuracy on our synthetic dense-text benchmark document. Stepping up to 150 DPI (~3.8 MP) roughly doubles processing time, while dropping to 72 DPI can blur fine print. Real-world accuracy depends on scan quality, lighting, and layout complexity.
+- **Page-boundary cancellation.** An active HTTP vision request cannot be safely aborted mid-transfer without tearing down the connection pool. When you cancel a multi-page job, the engine stops as soon as the current page finishes, saving whatever pages completed before the cancel.
 
 ## Testing & Development
 

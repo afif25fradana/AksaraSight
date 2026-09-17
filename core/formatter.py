@@ -1,10 +1,12 @@
 """Serialization and disk persistence helpers for OCR document results."""
 
-from pathlib import Path
+import dataclasses
 import json
+from pathlib import Path
 import re
 from typing import Dict, Optional, Set, Union
 
+from core.docx_export import export_to_docx_bytes
 from core.models import JobConfig, OCRResult, OutputFormat
 
 # Reserved device names on Windows operating systems (case-insensitive)
@@ -71,6 +73,7 @@ def resolve_unique_stem(
         stem in tracked_stems
         or (out_dir / f"{stem}.md").exists()
         or (out_dir / f"{stem}.json").exists()
+        or (out_dir / f"{stem}.docx").exists()
     ):
         counter += 1
         stem = f"{safe_base}_{counter}"
@@ -173,28 +176,64 @@ def sanitize_export_error(
     return sanitized
 
 
+def _reconstruct_sanitized_exception(
+    exc: Exception,
+    file_path: Optional[Union[str, Path]] = None,
+    base_dir: Optional[Union[str, Path]] = None,
+) -> Exception:
+    """Reconstruct an exception with sanitized path representation without crashing or losing OSError attributes.
+
+    For OSError / PermissionError / FileNotFoundError instances with standard (errno, strerror, filename)
+    signatures, reconstructs with sanitized filename and message while preserving errno.
+    For other exception types, attempts reconstruction with the sanitized string or safely falls back
+    to OSError(sanitized_str) to prevent TypeError on custom exception signatures.
+    """
+    raw_str = str(exc)
+    sanitized_str = sanitize_export_error(raw_str, file_path=file_path, base_dir=base_dir) or raw_str
+
+    if isinstance(exc, OSError):
+        errno_val = getattr(exc, "errno", None)
+        strerror_val = getattr(exc, "strerror", None)
+        filename_val = getattr(exc, "filename", None)
+        if errno_val is not None and strerror_val is not None and filename_val is not None:
+            sanitized_fn = sanitize_export_path(filename_val, base_dir=base_dir)
+            sanitized_err = sanitize_export_error(strerror_val, file_path=file_path, base_dir=base_dir) or strerror_val
+            try:
+                # Reconstruct standard OS exception preserving errno, strerror, and sanitized filename
+                new_exc = type(exc)(errno_val, sanitized_err, sanitized_fn)
+                return new_exc
+            except Exception:
+                pass
+
+    try:
+        return type(exc)(sanitized_str)
+    except Exception:
+        return OSError(sanitized_str)
+
+
 def format_output(
     result: OCRResult,
     output_format: OutputFormat,
     sanitize_path: bool = False,
     base_dir: Optional[Union[str, Path]] = None,
-) -> Dict[str, str]:
-    """Format an OCRResult into output strings according to the requested format.
+) -> Dict[str, Union[str, bytes]]:
+    """Format an OCRResult into output strings or bytes according to the requested format.
 
-    Reuses OCRResult.to_markdown() and OCRResult.to_json() without duplicating
-    formatting or joining logic.
+    Reuses OCRResult.to_markdown(), OCRResult.to_json(), and export_to_docx_bytes()
+    without duplicating formatting or joining logic.
 
     Args:
         result: Aggregated document OCRResult instance.
-        output_format: Target format (MARKDOWN, JSON, or BOTH).
-        sanitize_path: If True, relativizes file_path in exported JSON to avoid leaking
+        output_format: Target format (MARKDOWN, JSON, BOTH, or DOCX).
+        sanitize_path: If True, relativizes file_path in exported JSON and DOCX to avoid leaking
             local user home directories.
         base_dir: Optional reference directory for path relativization.
 
     Returns:
-        Dict[str, str]: Mapping of format name ('markdown', 'json') to serialized content.
+        Dict[str, Union[str, bytes]]: Mapping of format name ('markdown', 'json', 'docx')
+            to serialized content (strings for markdown/json, binary bytes for docx).
     """
-    outputs: Dict[str, str] = {}
+    outputs: Dict[str, Union[str, bytes]] = {}
 
     if output_format in (OutputFormat.MARKDOWN, OutputFormat.BOTH):
         outputs["markdown"] = result.markdown
@@ -214,6 +253,14 @@ def format_output(
         else:
             outputs["json"] = result.to_json()
 
+    if output_format == OutputFormat.DOCX:
+        if sanitize_path and result.error:
+            sanitized_err = sanitize_export_error(result.error, file_path=result.file_path, base_dir=base_dir)
+            sanitized_result = dataclasses.replace(result, error=sanitized_err)
+            outputs["docx"] = export_to_docx_bytes(sanitized_result)
+        else:
+            outputs["docx"] = export_to_docx_bytes(result)
+
     return outputs
 
 
@@ -230,7 +277,7 @@ def save_artifacts(
 
     Determines file stem from base_name or result.file_path, ensures the target
     directory exists, guarantees collision-free unique stems, and writes the configured
-    format artifacts as UTF-8 files.
+    format artifacts as UTF-8 files (for text) or binary files (for docx).
 
     Args:
         result: Aggregated document OCRResult.
@@ -272,8 +319,10 @@ def save_artifacts(
         try:
             temp_file.write_text(formatted["markdown"], encoding="utf-8")
             temp_file.replace(md_file)
-        except Exception:
+        except Exception as exc:
             temp_file.unlink(missing_ok=True)
+            if sanitize_path:
+                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
             raise
         saved_paths["markdown"] = md_file.resolve()
 
@@ -283,9 +332,24 @@ def save_artifacts(
         try:
             temp_file.write_text(formatted["json"], encoding="utf-8")
             temp_file.replace(json_file)
-        except Exception:
+        except Exception as exc:
             temp_file.unlink(missing_ok=True)
+            if sanitize_path:
+                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
             raise
         saved_paths["json"] = json_file.resolve()
+
+    if "docx" in formatted:
+        docx_file = out_dir / f"{safe_stem}.docx"
+        temp_file = docx_file.with_suffix(".docx.tmp")
+        try:
+            temp_file.write_bytes(formatted["docx"])
+            temp_file.replace(docx_file)
+        except Exception as exc:
+            temp_file.unlink(missing_ok=True)
+            if sanitize_path:
+                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
+            raise
+        saved_paths["docx"] = docx_file.resolve()
 
     return saved_paths

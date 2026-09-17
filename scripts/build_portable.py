@@ -123,6 +123,13 @@ def verify_bundle_integrity() -> Path:
         sys.exit(1)
     print(f"  [OK] TkinterDnD2 binaries: {tkdnd_dirs[0].relative_to(dist_dir)}")
 
+    # 6. python-docx template check (default.docx)
+    docx_templates = list(internal_dir.rglob("default.docx"))
+    if not docx_templates:
+        sys.stderr.write("ERROR: python-docx default.docx template not found in _internal!\n")
+        sys.exit(1)
+    print(f"  [OK] python-docx template: {docx_templates[0].relative_to(dist_dir)}")
+
     return dist_dir
 
 

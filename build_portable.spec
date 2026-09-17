@@ -28,6 +28,7 @@ all_hiddenimports = [
     'core.runtime_manager',
     'core.server_manager',
     'core.formatter',
+    'core.docx_export',
     'core.models',
     'core.constants',
     'gui.theme',
@@ -35,8 +36,8 @@ all_hiddenimports = [
     'gui.settings_window',
 ]
 
-# Explicitly collect packages with native DLLs, themes, fonts, or Tcl scripts
-for pkg in ['customtkinter', 'tkinterdnd2', 'pypdfium2', 'pypdfium2_raw']:
+# Explicitly collect packages with native DLLs, themes, fonts, data templates, or Tcl scripts
+for pkg in ['customtkinter', 'tkinterdnd2', 'pypdfium2', 'pypdfium2_raw', 'docx', 'markdown_it', 'mdurl', 'lxml']:
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(pkg)
     all_datas.extend(pkg_datas)
     all_binaries.extend(pkg_binaries)

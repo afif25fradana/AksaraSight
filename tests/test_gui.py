@@ -621,6 +621,179 @@ def test_save_artifacts_signature_compatibility():
     assert bound.arguments["base_name"] == "custom_stem"
 
 
+def test_export_format_selector_default_state():
+    """Verify export format selector defaults to BOTH and exposes exactly 2 options."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+    try:
+        assert hasattr(app, "_opt_export_format")
+        # (1) Default value is Markdown & JSON
+        assert app._opt_export_format.get() == "Markdown & JSON (.md + .json)"
+        # (2) Maps to OutputFormat.BOTH
+        assert app._get_selected_export_format() == OutputFormat.BOTH
+        # (3) Exactly 2 options available
+        assert app._opt_export_format._values == [
+            "Markdown & JSON (.md + .json)",
+            "Word Document (.docx)",
+        ]
+    finally:
+        app._on_closing()
+
+
+def test_export_selected_with_docx_format(tmp_path: Path):
+    """Verify single-document export passes OutputFormat.DOCX to save_artifacts and creates valid .docx."""
+    from docx import Document
+
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        f = tmp_path / "single_doc.png"
+        f.write_bytes(b"data")
+        app.enqueue_file(f)
+
+        file_id = str(f.resolve())
+        res = OCRResult(
+            file_path=file_id,
+            status=JobStatus.SUCCESS,
+            pages=[PageResult(page_num=1, markdown="# Word Document Heading\nParagraph content.")],
+        )
+        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_items[file_id].result = res
+        app._select_queue_item(file_id)
+
+        # Switch format selector to Word Document (.docx)
+        app._opt_export_format.set("Word Document (.docx)")
+        assert app._get_selected_export_format() == OutputFormat.DOCX
+
+        out_dir = tmp_path / "docx_single_out"
+        out_dir.mkdir()
+
+        with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)):
+            app._on_export_selected()
+
+        docx_file = out_dir / "single_doc.docx"
+        assert docx_file.exists()
+
+        doc = Document(str(docx_file))
+        doc_text = " ".join(p.text for p in doc.paragraphs)
+        assert "Word Document Heading" in doc_text
+        assert "Paragraph content." in doc_text
+        assert app._btn_export_selected.cget("text") == "Exported!"
+    finally:
+        app._on_closing()
+
+
+def test_export_all_with_docx_format(tmp_path: Path):
+    """Verify batch export passes OutputFormat.DOCX to save_artifacts for all items."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        f1 = tmp_path / "batch1.png"
+        f2 = tmp_path / "batch2.png"
+        f1.write_bytes(b"1")
+        f2.write_bytes(b"2")
+
+        app.enqueue_file(f1)
+        app.enqueue_file(f2)
+
+        id1, id2 = str(f1.resolve()), str(f2.resolve())
+        res1 = OCRResult(file_path=id1, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# Doc 1")])
+        res2 = OCRResult(file_path=id2, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# Doc 2")])
+
+        app._queue_items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_items[id1].result = res1
+        app._queue_items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_items[id2].result = res2
+
+        # Switch format selector to Word Document (.docx)
+        app._opt_export_format.set("Word Document (.docx)")
+        assert app._get_selected_export_format() == OutputFormat.DOCX
+
+        out_dir = tmp_path / "docx_batch_out"
+        out_dir.mkdir()
+
+        with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
+             patch("gui.app.save_artifacts", return_value={"docx": out_dir / "doc.docx"}) as mock_save:
+            app._on_export_all()
+            app.wait_for_export()
+
+            assert mock_save.call_count == 2
+            mock_save.assert_has_calls([
+                call(res1, config=JobConfig(output_format=OutputFormat.DOCX), output_dir=out_dir, base_name="batch1"),
+                call(res2, config=JobConfig(output_format=OutputFormat.DOCX), output_dir=out_dir, base_name="batch2"),
+            ], any_order=True)
+            assert app._btn_export_all.cget("text") == "Exported All!"
+    finally:
+        app._on_closing()
+
+
+def test_export_all_docx_failure_during_batch_preserves_remaining_and_sanitizes(tmp_path: Path):
+    """Verify a failure in one file during batch export doesn't crash the loop, preserves remaining, and sanitizes footer error."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        f1 = tmp_path / "fail_item.pdf"
+        f2 = tmp_path / "success_item.pdf"
+        f1.write_bytes(b"fail")
+        f2.write_bytes(b"success")
+
+        app.enqueue_file(f1)
+        app.enqueue_file(f2)
+
+        id1, id2 = str(f1.resolve()), str(f2.resolve())
+        private_path = tmp_path / "user_home_dir" / "secret.pdf"
+        res1 = OCRResult(file_path=str(private_path), status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Doc 1")])
+        res2 = OCRResult(file_path=id2, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Doc 2")])
+
+        app._queue_items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_items[id1].result = res1
+        app._queue_items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_items[id2].result = res2
+
+        app._opt_export_format.set("Word Document (.docx)")
+
+        out_dir = tmp_path / "batch_fail_out"
+        out_dir.mkdir()
+
+        # Simulate doc1 raising PermissionError as sanitized by save_artifacts, and doc2 succeeding
+        from core.formatter import _reconstruct_sanitized_exception
+
+        def side_effect_save(result, *args, **kwargs):
+            if result is res1:
+                raise _reconstruct_sanitized_exception(
+                    PermissionError(13, "Permission denied", str(private_path)),
+                    file_path=result.file_path,
+                    base_dir=tmp_path / "user_home_dir",
+                )
+            return {"docx": out_dir / "success_item.docx"}
+
+        with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
+             patch("gui.app.save_artifacts", side_effect=side_effect_save) as mock_save:
+            app._on_export_all()
+            app.wait_for_export()
+
+            # (1) Both files were attempted — loop was NOT aborted by first failure!
+            assert mock_save.call_count == 2
+
+            # (2) Footer reports partial completion with sanitized error
+            footer_text = app._footer_status.cget("text")
+            assert "1/2 succeeded" in footer_text
+            assert "1 failed" in footer_text
+            assert "Permission denied" in footer_text
+            # (3) Sanitization check: raw private path must NOT leak into footer
+            assert str(private_path) not in footer_text
+            assert "secret.pdf" in footer_text
+    finally:
+        app._on_closing()
+
+
 def test_drop_zone_hover_enter_leave():
     """Verify drop zone border color brightens on mouse enter and reverts on leave."""
     mock_engine = MagicMock()

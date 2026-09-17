@@ -1,9 +1,11 @@
 """Unit tests for output formatting and artifact saving (core/formatter.py)."""
 
+import io
 import json
 from pathlib import Path
 from unittest.mock import patch
 import pytest
+from docx import Document
 
 from core.formatter import (
     WINDOWS_RESERVED_NAMES,
@@ -342,6 +344,383 @@ def test_save_artifacts_json_atomic_replace_preserves_existing_on_error(
     # Verify original json file was not corrupted and no lingering .tmp files remain
     assert json_file.read_text(encoding="utf-8") == orig_json_content
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_format_output_docx_returns_raw_bytes(sample_ocr_result: OCRResult) -> None:
+    """Verify format_output returns raw bytes for OutputFormat.DOCX without str encoding."""
+    outputs = format_output(sample_ocr_result, OutputFormat.DOCX)
+
+    assert "docx" in outputs
+    assert "markdown" not in outputs
+    assert "json" not in outputs
+    assert isinstance(outputs["docx"], bytes)
+    assert len(outputs["docx"]) > 0
+
+    # Verify binary payload is a valid DOCX loadable by python-docx Document()
+    doc = Document(io.BytesIO(outputs["docx"]))
+    assert len(doc.paragraphs) > 0
+
+
+def test_format_output_both_untouched_never_produces_docx(sample_ocr_result: OCRResult) -> None:
+    """Verify OutputFormat.BOTH still strictly produces markdown and json only, never docx."""
+    outputs = format_output(sample_ocr_result, OutputFormat.BOTH)
+
+    assert "markdown" in outputs
+    assert "json" in outputs
+    assert "docx" not in outputs
+
+
+def test_resolve_unique_stem_checks_existing_docx(tmp_path: Path) -> None:
+    """Verify resolve_unique_stem increments suffix when an existing .docx file exists on disk."""
+    # Pre-create foo.docx
+    existing_docx = tmp_path / "foo.docx"
+    existing_docx.write_bytes(b"mock docx binary content")
+
+    stem = resolve_unique_stem("foo", output_dir=tmp_path)
+    assert stem == "foo_2", f"Expected 'foo_2' when 'foo.docx' exists, got '{stem}'"
+
+    # Pre-create foo_2.docx as well
+    (tmp_path / "foo_2.docx").write_bytes(b"mock docx 2")
+    stem2 = resolve_unique_stem("foo", output_dir=tmp_path)
+    assert stem2 == "foo_3"
+
+
+def test_save_artifacts_docx_only(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts saves .docx file in binary mode when OutputFormat.DOCX is configured."""
+    config = JobConfig(output_format=OutputFormat.DOCX)
+    saved = save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+
+    assert "docx" in saved
+    assert "markdown" not in saved
+    assert "json" not in saved
+
+    expected_docx = tmp_path / "financial_audit.docx"
+    assert saved["docx"] == expected_docx.resolve()
+    assert expected_docx.exists()
+
+    # Reopen document to verify it is valid Word OpenXML
+    doc = Document(str(expected_docx))
+    assert any("Financial Report 2026" in p.text for p in doc.paragraphs)
+    assert any("Expenses Breakdown" in p.text for p in doc.paragraphs)
+
+
+def test_save_artifacts_docx_atomic_write_and_tmp_cleanup_on_error(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts unlinks .docx.tmp and preserves existing .docx on write error."""
+    config = JobConfig(output_format=OutputFormat.DOCX)
+
+    # 1. Clean run writes docx file
+    saved = save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+    docx_file = saved["docx"]
+    assert docx_file.exists()
+    orig_bytes = docx_file.read_bytes()
+
+    # 2. Simulate failure during write_bytes on .docx.tmp
+    real_write_bytes = Path.write_bytes
+
+    def failing_write_bytes(self, data, *args, **kwargs):
+        if str(self).endswith(".docx.tmp"):
+            raise OSError("Simulated disk error during docx temp write")
+        return real_write_bytes(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_bytes", side_effect=failing_write_bytes, autospec=True):
+        with pytest.raises(OSError, match="Simulated disk error during docx temp write"):
+            save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+
+    # Verify original file preserved and no lingering .tmp files
+    assert docx_file.read_bytes() == orig_bytes
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_save_artifacts_docx_sanitizes_path_leak_on_error(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts sanitizes absolute user paths when DOCX write fails."""
+    config = JobConfig(output_format=OutputFormat.DOCX)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_bytes = Path.write_bytes
+
+    def failing_write_bytes(self, data, *args, **kwargs):
+        if str(self).endswith(".docx.tmp"):
+            # Raise an error containing the raw absolute private path
+            raise OSError(f"Permission denied on private file: '{raw_path}'")
+        return real_write_bytes(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_bytes", side_effect=failing_write_bytes, autospec=True):
+        with pytest.raises(OSError) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+        err_str = str(exc_info.value)
+        # Verify the raw absolute path was sanitized to relativized form and not leaked
+        assert str(raw_path) not in err_str
+        assert "secret_doc.pdf" in err_str
+
+
+def test_save_artifacts_docx_sanitizes_real_oserror_with_attributes(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts handles real multi-arg PermissionError without crashing and preserves attributes."""
+    config = JobConfig(output_format=OutputFormat.DOCX)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_bytes = Path.write_bytes
+
+    def failing_write_bytes(self, data, *args, **kwargs):
+        if str(self).endswith(".docx.tmp"):
+            # Standard multi-arg OS exception: (errno, strerror, filename)
+            raise PermissionError(13, "Permission denied", str(raw_path))
+        return real_write_bytes(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_bytes", side_effect=failing_write_bytes, autospec=True):
+        with pytest.raises(PermissionError) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    exc = exc_info.value
+    # (a) Confirm reconstruction did not crash and preserved the exact exception class
+    assert isinstance(exc, PermissionError)
+    # (b) Confirm OS attributes are preserved and filename is sanitized
+    assert exc.errno == 13
+    assert exc.filename == "secret_doc.pdf"
+    assert str(raw_path) not in (exc.filename or "")
+    # (c) Confirm str(exc) does not leak the absolute path
+    err_str = str(exc)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
+def test_save_artifacts_docx_sanitizes_custom_multi_arg_exception(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts falls back cleanly without TypeError when exception has non-single-string init."""
+    class CustomMultiArgError(Exception):
+        def __init__(self, code: int, details: str):
+            super().__init__(code, details)
+            self.code = code
+            self.details = details
+
+    config = JobConfig(output_format=OutputFormat.DOCX)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_bytes = Path.write_bytes
+
+    def failing_write_bytes(self, data, *args, **kwargs):
+        if str(self).endswith(".docx.tmp"):
+            raise CustomMultiArgError(500, f"Critical storage fault on '{raw_path}'")
+        return real_write_bytes(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_bytes", side_effect=failing_write_bytes, autospec=True):
+        with pytest.raises(Exception) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    err_str = str(exc_info.value)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
+def test_format_output_docx_sanitizes_embedded_error_message(tmp_path: Path) -> None:
+    """Verify format_output redacts user home directories when rendering an OCRResult with error into DOCX."""
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    error_msg = f"Fatal pipeline error processing '{raw_path}'"
+    result = OCRResult(
+        file_path=str(raw_path),
+        pages=[],
+        error=error_msg,
+        status=JobStatus.FAILED,
+    )
+
+    outputs = format_output(
+        result,
+        OutputFormat.DOCX,
+        sanitize_path=True,
+        base_dir=tmp_path / "private_user_dir",
+    )
+
+    assert "docx" in outputs
+    assert isinstance(outputs["docx"], bytes)
+
+    # Reopen document and inspect error paragraph text
+    doc = Document(io.BytesIO(outputs["docx"]))
+    doc_text = " ".join(p.text for p in doc.paragraphs)
+    assert str(raw_path) not in doc_text
+    assert "secret_doc.pdf" in doc_text
+
+
+def test_save_artifacts_markdown_sanitizes_real_oserror_with_attributes(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts handles real multi-arg PermissionError without crashing and preserves attributes on markdown write."""
+    config = JobConfig(output_format=OutputFormat.MARKDOWN)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, data, *args, **kwargs):
+        if str(self).endswith(".md.tmp"):
+            raise PermissionError(13, "Permission denied", str(raw_path))
+        return real_write_text(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(PermissionError) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    exc = exc_info.value
+    assert isinstance(exc, PermissionError)
+    assert exc.errno == 13
+    assert exc.filename == "secret_doc.pdf"
+    assert str(raw_path) not in (exc.filename or "")
+    err_str = str(exc)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
+def test_save_artifacts_markdown_sanitizes_custom_multi_arg_exception(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts falls back cleanly without TypeError when exception has non-single-string init on markdown write."""
+    class CustomMultiArgError(Exception):
+        def __init__(self, code: int, details: str):
+            super().__init__(code, details)
+            self.code = code
+            self.details = details
+
+    config = JobConfig(output_format=OutputFormat.MARKDOWN)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, data, *args, **kwargs):
+        if str(self).endswith(".md.tmp"):
+            raise CustomMultiArgError(500, f"Critical storage fault on '{raw_path}'")
+        return real_write_text(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(Exception) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    err_str = str(exc_info.value)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
+def test_save_artifacts_json_sanitizes_real_oserror_with_attributes(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts handles real multi-arg PermissionError without crashing and preserves attributes on json write."""
+    config = JobConfig(output_format=OutputFormat.JSON)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, data, *args, **kwargs):
+        if str(self).endswith(".json.tmp"):
+            raise PermissionError(13, "Permission denied", str(raw_path))
+        return real_write_text(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(PermissionError) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    exc = exc_info.value
+    assert isinstance(exc, PermissionError)
+    assert exc.errno == 13
+    assert exc.filename == "secret_doc.pdf"
+    assert str(raw_path) not in (exc.filename or "")
+    err_str = str(exc)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
+def test_save_artifacts_json_sanitizes_custom_multi_arg_exception(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts falls back cleanly without TypeError when exception has non-single-string init on json write."""
+    class CustomMultiArgError(Exception):
+        def __init__(self, code: int, details: str):
+            super().__init__(code, details)
+            self.code = code
+            self.details = details
+
+    config = JobConfig(output_format=OutputFormat.JSON)
+    raw_path = tmp_path / "private_user_dir" / "secret_doc.pdf"
+    sample_ocr_result.file_path = str(raw_path)
+
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, data, *args, **kwargs):
+        if str(self).endswith(".json.tmp"):
+            raise CustomMultiArgError(500, f"Critical storage fault on '{raw_path}'")
+        return real_write_text(self, data, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(Exception) as exc_info:
+            save_artifacts(
+                sample_ocr_result,
+                config,
+                output_dir=tmp_path / "out",
+                base_dir=tmp_path / "private_user_dir",
+                sanitize_path=True,
+            )
+
+    err_str = str(exc_info.value)
+    assert str(raw_path) not in err_str
+    assert "secret_doc.pdf" in err_str
+
+
 
 
 

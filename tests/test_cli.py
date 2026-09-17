@@ -1,13 +1,13 @@
-"""Unit and functional tests for the Command Line Interface (cli/main.py)."""
-
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
+from docx import Document
 import pytest
 
-from cli.main import SUPPORTED_EXTENSIONS, discover_files, main
+from cli.main import SUPPORTED_EXTENSIONS, build_parser, discover_files, main
 from core.models import JobStatus, OCRResult, OutputFormat, PageResult
 
 
@@ -850,6 +850,131 @@ def test_cli_doctor_config_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert "3. Runtime Installation" in captured.out
     assert "[SKIP] Runtime Check:       SKIPPED (Configuration error)" in captured.out
     assert "STATUS: UNHEALTHY" in captured.out
+
+
+# ==============================================================================
+# DOCX Export CLI Tests
+# ==============================================================================
+
+def test_cli_parser_docx_choice() -> None:
+    """Verify CLI parser accepts 'docx' as a valid -f/--format choice."""
+    parser = build_parser()
+    args = parser.parse_args(["sample.pdf", "-f", "docx"])
+    assert args.format == "docx"
+
+
+@patch("cli.main.OCREngine")
+def test_cli_single_file_docx_output_dir(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify CLI writes {stem}.docx when -o is provided, readable back by Document()."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    out_dir = tmp_path / "docx_out"
+    exit_code = main([str(dummy_png), "-f", "docx", "-o", str(out_dir)])
+
+    assert exit_code == 0
+    expected_docx = out_dir / f"{dummy_png.stem}.docx"
+    assert expected_docx.exists()
+
+    # Read back and verify valid Document with expected content
+    doc = Document(str(expected_docx))
+    doc_text = " ".join(p.text for p in doc.paragraphs)
+    assert "Sample OCR Output" in doc_text
+    assert "Recognized text line." in doc_text
+
+
+@patch("cli.main.OCREngine")
+def test_cli_single_file_docx_stdout_terminal_isatty_refused(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify CLI refuses to dump binary DOCX to a terminal (isatty=True) and exits with 1."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    with patch.object(sys.stdout, "isatty", return_value=True):
+        exit_code = main([str(dummy_png), "-f", "docx"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Cannot write binary DOCX output to a terminal" in captured.err
+    # Ensure no binary data was written to stdout
+    assert captured.out == ""
+
+
+@patch("cli.main.OCREngine")
+def test_cli_single_file_docx_stdout_piped_writes_buffer(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify CLI streams raw binary bytes to sys.stdout.buffer when redirected (isatty=False)."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    mock_buffer = io.BytesIO()
+    fake_stdout = MagicMock()
+    fake_stdout.isatty.return_value = False
+    fake_stdout.buffer = mock_buffer
+
+    with patch("sys.stdout", fake_stdout):
+        exit_code = main([str(dummy_png), "-f", "docx"])
+
+    assert exit_code == 0
+    # Verify write was called on buffer, not sys.stdout.write
+    fake_stdout.write.assert_not_called()
+
+    # Verify raw bytes written to buffer represent a valid Word OpenXML document
+    binary_data = mock_buffer.getvalue()
+    assert len(binary_data) > 0
+    doc = Document(io.BytesIO(binary_data))
+    doc_text = " ".join(p.text for p in doc.paragraphs)
+    assert "Sample OCR Output" in doc_text
+    assert "Recognized text line." in doc_text
+
+
+@patch("cli.main.OCREngine")
+def test_cli_existing_formats_untouched(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify markdown, json, and both format outputs retain existing stdout behavior."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    # 1. Markdown
+    exit_code = main([str(dummy_png), "-f", "markdown"])
+    assert exit_code == 0
+    out_md = capsys.readouterr().out
+    assert "# Sample OCR Output" in out_md
+
+    # 2. JSON
+    exit_code = main([str(dummy_png), "-f", "json", "-q"])
+    assert exit_code == 0
+    out_json = capsys.readouterr().out
+    data = json.loads(out_json)
+    assert data["status"] == "SUCCESS"
+
+    # 3. BOTH
+    exit_code = main([str(dummy_png), "-f", "both"])
+    assert exit_code == 0
+    out_both = capsys.readouterr().out
+    assert "# Sample OCR Output" in out_both
+    assert "\n\n---\n\n" in out_both
+    assert '"status": "SUCCESS"' in out_both
 
 
 

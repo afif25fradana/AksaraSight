@@ -140,7 +140,7 @@ python -m cli.main [input] [options]
 | --- | --- | --- |
 | `input` | Path to file or directory to process. | *Required* |
 | `-o, --output` | Output directory. Required when `input` is a directory; omit for stdout. | `None` |
-| `-f, --format` | Export format: `markdown`, `json`, or `both`. | `markdown` |
+| `-f, --format` | Export format: `markdown`, `json`, `both`, or `docx`. | `markdown` |
 | `-p, --prompt-mode` | Transcription preset: `text`, `table`, or `formula`. | `text` |
 | `--prompt` | Custom model instruction prompt (overrides preset). | `None` |
 | `-r, --recursive` | Recursively scan subdirectories for documents. | `False` |

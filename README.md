@@ -195,6 +195,7 @@ A documented template is available in `.env.example`.
 
 - **Markdown (`.md`)**: Full text transcription preserving document hierarchy, headers, lists, tables, and mathematical formulas.
 - **JSON (`.json`)**: Structured document payload containing document metadata, per-page transcriptions, page statuses, execution durations, processed DPI, and token usage summaries.
+- **Word Document (`.docx`)**: Formatted Microsoft Word document with headings mapped to Word styles (`Heading 1–3`), GFM pipe tables with repeating headers across page splits (`w:tblHeader`) and row-split prevention (`w:cantSplit`), monospace code blocks, and page breaks inserted strictly between scanned pages.
 
 ## Known Limitations
 

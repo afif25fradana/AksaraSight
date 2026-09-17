@@ -16,7 +16,12 @@ from core.models import (
 def test_job_config_presets():
     """Verify standard prompt presets resolution."""
     config_text = JobConfig(prompt_mode="text")
-    assert config_text.effective_prompt == "Text Recognition:"
+    expected_text_prompt = (
+        "Text Recognition: Transcribe the document into Markdown. "
+        "Format any tabular, grid, or checklist content (including checkbox columns) "
+        "using GFM pipe tables (| ... |)."
+    )
+    assert config_text.effective_prompt == expected_text_prompt
 
     config_table = JobConfig(prompt_mode="table")
     assert config_table.effective_prompt == "Table Recognition:"

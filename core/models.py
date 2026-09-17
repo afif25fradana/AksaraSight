@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 PROMPT_PRESETS: Dict[str, str] = {
-    "text": "Text Recognition:",
+    "text": (
+        "Text Recognition: Transcribe the document into Markdown. "
+        "Format any tabular, grid, or checklist content (including checkbox columns) "
+        "using GFM pipe tables (| ... |)."
+    ),
     "table": "Table Recognition:",
     "formula": "Formula Recognition:",
 }

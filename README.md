@@ -15,12 +15,12 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 
 ## Features
 
-- **Strictly Local & Offline** — Interacts exclusively with a local OpenAI-compatible vision backend (`llama-server` or Ollama). Zero cloud fallback by design.
-- **Zero-Setup Managed Runtime** — Automatically detects your hardware (NVIDIA CUDA 12.4+ / Vulkan / CPU), downloads the verified official `llama-server` release, cryptographically verifies SHA-256 digests for managed runtime binaries and libraries, and supervises server lifecycle. No manual llama.cpp compilation or installation required.
-- **Dual Interfaces** — A scriptable CLI for automation and pipelines, and an engineering-grade Desktop GUI Studio with drag-and-drop ingestion and live split preview.
-- **Batch Processing** — Ingest single files or entire directory trees recursively, with collision-safe artifact naming and background streaming exports.
-- **4-Tab Live Previews** — Raw Markdown, rich formatted text, paginated original page rasters, and structured JSON trees.
-- **Comprehensive Safety Rails** — Loopback-only endpoints enforced by default, PDF pixel-bomb protection, atomic temporary-file writes, and privacy-sanitized JSON paths.
+- **100% local inference.** Connects strictly to a local OpenAI-compatible vision backend (`llama-server` or Ollama). There is no cloud fallback — if the local model isn't running, it fails with a clear error instead of phoning home.
+- **Zero-setup runtime.** Automatically detects your hardware (NVIDIA CUDA 12.4+, Vulkan, or CPU) and downloads the matching official `llama-server` build. Binaries and companion libraries are cryptographically verified against pinned SHA-256 hashes before they run.
+- **Two ways to work.** Use the scriptable CLI in terminal pipelines, or launch the desktop GUI studio for drag-and-drop ingestion and live inspection.
+- **Single files or full trees.** Process individual scans or recursively walk nested folders. Exports run in the background with collision-safe file naming so nothing gets overwritten.
+- **Four live preview tabs.** Inspect raw Markdown, rich rendered text, paginated rasters of the original pages, or structured JSON trees.
+- **Safe defaults.** Connections are restricted to loopback addresses (`127.0.0.1`) out of the box. Includes PDF pixel-bomb dimension guards, atomic temporary-file writes, and path sanitization in exported JSON.
 
 ## Requirements
 
@@ -44,33 +44,33 @@ pip install -r requirements.txt
 
 ### 1. Desktop GUI Studio (Recommended — Zero-Setup)
 
-The fastest way to get started. You do **not** need to install `llama-server` or configure CUDA manually:
+The quickest way to get started. You don't need to install `llama-server` or configure CUDA beforehand:
 
 1. **Launch the GUI**:
    ```powershell
    python -m gui
    ```
 
-2. **Open Preferences**: Click the gear icon (`[⚙ Preferences]`) in the top right header.
+2. **Open Preferences**: Click **[⚙ Preferences]** in the top-right header.
 3. **Download Runtime**:
    - Under *Local Inference Engine*, **Runtime Source** defaults to `Managed (Auto)`.
-   - Your GPU/CPU architecture is automatically detected and displayed.
-   - Click **Download Runtime**. The verified, pinned build of `llama-server` (and companion CUDA runtime libraries if applicable) will download, cryptographically verify archive digests against pinned SHA-256 hashes, and install to `%LOCALAPPDATA%\AksaraSight\runtimes\`.
+   - Your hardware is detected automatically.
+   - Click **Download Runtime**. It downloads the verified `llama-server` build for your machine (along with CUDA runtime libraries if on an NVIDIA GPU), verifies the archive against pinned SHA-256 hashes, and extracts it to `%LOCALAPPDATA%\AksaraSight\runtimes\`.
 
    ![Preferences settings preview](docs/images/settings_window_preview.png)
 
    ![Managed runtime supervision preview](docs/images/settings_window_scrolled_preview.png)
 
 4. **Start & Process**:
-   - Click **Start Server** in the main header (status pill turns `● READY`).
-   - Drag and drop documents or entire folders into the drop zone.
-   - Inspect live transcriptions across the 4 preview tabs and click **Export All**.
+   - Click **Start Server** in the header. Once initialized, the indicator turns `● READY`.
+   - Drop files or whole folders into the drop zone.
+   - Review results across the 4 tabs and click **Export All** when done.
 
 ---
 
 ### 2. Command-Line Interface (CLI)
 
-The CLI supports single files, piping, and recursive batch directory processing:
+Run single documents, pipe output to other tools, or batch process full directories:
 
 ```powershell
 # Detect hardware and check recommended backend
@@ -96,7 +96,7 @@ python -m cli.main invoice.pdf -o .\output\ --dpi 150 --max-pages 5
 
 ### 3. Custom Runtime / Manual Server (Optional)
 
-If you already have a running `llama-server`, Ollama, or vLLM instance:
+If you already run your own `llama-server`, Ollama, or vLLM instance:
 
 1. **Launch your server** with GLM-OCR GGUF weights:
    ```powershell
@@ -107,7 +107,7 @@ If you already have a running `llama-server`, Ollama, or vLLM instance:
    llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --port 8080 -ngl 99 -c 8192 --parallel 1 --flash-attn off
    ```
 2. **Point the tool to your server**:
-   - In GUI: In **Preferences**, switch **Runtime Source** to `Custom Path` and set your `llama-server.exe` path or leave empty if managing externally.
+   - In the GUI: Open **Preferences**, change **Runtime Source** to `Custom Path`, and enter your `llama-server.exe` path (or leave it blank if the process is already running outside AksaraSight).
    - In `.env`:
      ```env
      OCR_RUNTIME_MODE=custom
@@ -118,15 +118,15 @@ If you already have a running `llama-server`, Ollama, or vLLM instance:
 
 ![GUI preview](docs/images/gui_refined_preview.png)
 
-- **Header Controls** — Live server status indicator (`● READY`, `● STARTING`, `● OFFLINE`, `● ERROR`), one-click Start/Stop server toggle, and Preferences launcher.
-- **Drop Zone** — Drag and drop individual files or nested directory trees (asynchronous discovery); click to open native file browser.
-- **Queue Manager** — Real-time per-document status dots, format chips, precomputed file sizes, processed DPI tracking, and execution timers. Supports cooperative inter-page cancellation (`Cancel (after current page)`).
-- **Split Preview Pane** — 4 synchronized tabs:
-  - *Raw Markdown*: Direct transcription text.
-  - *Text Preview*: Formatted typography preview with tag handling and disclaimer note.
-  - *Image Preview*: Paginated raster of original document pages loaded on-demand.
-  - *JSON Tree*: Structured document metadata, timing benchmarks, and per-page status.
-- **Action Bar & Footer** — Copy to Clipboard, Export Selected, background multi-threaded Export All with progress reporting, Clear Finished, and on-device privacy guarantee.
+- **Header controls.** Monitor server state (`● READY`, `● STARTING`, `● OFFLINE`, `● ERROR`), start or stop the backend with one click, and access the Preferences modal.
+- **Drop zone.** Drag in individual scans or entire folder hierarchies for asynchronous discovery. You can also click anywhere in the card to open a standard file browser.
+- **Queue manager.** Tracks each document with live status dots, format chips, file sizes, and elapsed run timers. If global DPI changes later, an indicator marks items processed at earlier resolutions. Long jobs can be stopped gracefully between pages with `Cancel (after current page)`.
+- **Split preview pane.** Four synchronized views let you verify output from different angles:
+  - *Raw Markdown*: Exact transcription text emitted by the model.
+  - *Text Preview*: Clean typography preview showing headers, lists, and tables.
+  - *Image Preview*: Paginated original page rasters, rendered on demand to conserve RAM.
+  - *JSON Tree*: Structured metadata, per-page latency benchmarks, and status logs.
+- **Action bar & footer.** Copy Markdown directly, export selected documents, or trigger a multi-threaded batch export. A persistent footer displays privacy guarantees and runtime status.
 
 ![Live backend processing preview](docs/images/gui_live_backend_preview.png)
 

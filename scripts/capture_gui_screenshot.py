@@ -105,7 +105,7 @@ def main() -> None:
 
         mock_engine = MagicMock()
         app = OCRApp(settings=Settings(), engine=mock_engine)
-        app.geometry("1020x640+20+10")
+        app.geometry("1140x700+20+10")
 
         # Prevent background worker from consuming demo queue items
         app._task_queue.put = lambda item, *args, **kwargs: None
@@ -235,7 +235,7 @@ def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Pa
 
     mock_engine = MagicMock()
     app = OCRApp(settings=Settings(auto_start_server=False), engine=mock_engine)
-    app.geometry("1020x640+20+10")
+    app.geometry("1140x700+20+10")
     app._task_queue.put = lambda item, *args, **kwargs: None
 
     app.enqueue_file(f_contract)

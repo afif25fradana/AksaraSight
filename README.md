@@ -1,8 +1,10 @@
 # AksaraSight
 
-**AksaraSight** is a lightweight, 100% local OCR tool powered by GLM-OCR (0.9B parameters). Converts scanned documents, forms, receipts, and images into clean Markdown and structured JSON — entirely on your own machine.
+**AksaraSight** is a lightweight, 100% local OCR tool powered by GLM-OCR (0.9B parameters). Converts scanned documents, forms, receipts, and images into clean Markdown, formatted Word documents (.docx), and structured JSON — entirely on your own machine.
 
 No cloud APIs. No telemetry. If the local inference backend is unreachable, the tool fails with a clear error instead of quietly sending your documents anywhere.
+
+![AksaraSight Desktop GUI Studio Preview](docs/images/gui_refined_preview.png)
 
 ---
 
@@ -57,9 +59,10 @@ The quickest way to get started. You don't need to install `llama-server` or con
    - Your hardware is detected automatically.
    - Click **Download Runtime**. It downloads the verified `llama-server` build for your machine (along with CUDA runtime libraries if on an NVIDIA GPU), verifies the archive against pinned SHA-256 hashes, and extracts it to `%LOCALAPPDATA%\AksaraSight\runtimes\`.
 
-   ![Preferences settings preview](docs/images/settings_window_preview.png)
-
-   ![Managed runtime supervision preview](docs/images/settings_window_scrolled_preview.png)
+   <p align="center">
+     <img src="docs/images/settings_window_preview.png" alt="Preferences settings preview" width="48%">
+     <img src="docs/images/settings_window_scrolled_preview.png" alt="Managed runtime supervision preview" width="48%">
+   </p>
 
 4. **Start & Process**:
    - Click **Start Server** in the header. Once initialized, the indicator turns `● READY`.
@@ -116,7 +119,7 @@ If you already run your own `llama-server`, Ollama, or vLLM instance:
 
 ## Desktop GUI Studio
 
-![GUI preview](docs/images/gui_refined_preview.png)
+![Desktop GUI Studio showing live backend status, active queue, and multi-tab inspection](docs/images/gui_live_backend_preview.png)
 
 - **Header controls.** Monitor server state (`● READY`, `● STARTING`, `● OFFLINE`, `● ERROR`), start or stop the backend with one click, and access the Preferences modal.
 - **Drop zone.** Drag in individual scans or entire folder hierarchies for asynchronous discovery. You can also click anywhere in the card to open a standard file browser.
@@ -127,8 +130,6 @@ If you already run your own `llama-server`, Ollama, or vLLM instance:
   - *Image Preview*: Paginated original page rasters, rendered on demand to conserve RAM.
   - *JSON Tree*: Structured metadata, per-page latency benchmarks, and status logs.
 - **Action bar & footer.** Copy Markdown directly, export selected documents, or trigger a multi-threaded batch export with live progress reporting. Also includes a "Clear Finished" queue cleanup button and a persistent footer with on-device privacy guarantees.
-
-![Live backend processing preview](docs/images/gui_live_backend_preview.png)
 
 ## CLI Reference
 
@@ -183,7 +184,9 @@ A documented template is available in `.env.example`.
 
 - **Loopback by default.** Outbound connections are restricted strictly to loopback addresses (`localhost`, `127.0.0.1`, `::1`). Connecting to a remote endpoint requires explicit opt-in (`--allow-remote` or `OCR_ALLOW_REMOTE=true`), and both the CLI and GUI warn loudly when remote mode is enabled.
 
-  ![Security confirmation preview](docs/images/security_confirmation_preview.png)
+  <p align="center">
+    <img src="docs/images/security_confirmation_preview.png" alt="Security confirmation preview" width="460">
+  </p>
 
 - **No cloud fallback.** If the local backend crashes or goes offline, processing stops immediately with a clear error. Documents are never routed out to an external service.
 - **Verified runtime downloads.** In managed mode, `llama-server.exe` and companion libraries (like `cudart*.dll`) are downloaded directly from official GitHub release assets over HTTPS, checked against pinned SHA-256 hashes before extraction, protected against Zip-Slip path traversal, and executed with isolated working directories. (Note: GGUF model weights are fetched by llama.cpp's built-in Hugging Face downloader and are not currently pinned or hash-verified by AksaraSight.)

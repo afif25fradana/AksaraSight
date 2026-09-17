@@ -4,7 +4,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-## Current State: v1.0.0 (Feature-Complete for Current Scope)
+## Current State: v1.1.0 (Feature-Complete for Current Scope)
 - **403 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
@@ -14,7 +14,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
-### Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
+### v1.1.0 — Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
 *Focus: Native Word document generation from OCR CommonMark/GFM AST, tabular formatting fidelity, write-path sanitization widening, and frozen bundle distribution. (Additive; no breaking changes).*
 - **Native DOCX Export Engine (`core/docx_export.py`)**: Implemented pure-Python CommonMark and GFM AST converter (`python-docx` + `markdown-it-py`) translating OCR Markdown into clean Word documents with styled headings, inline formatting (bold, italic, inline code), blockquotes, lists, verbatim code blocks, and full table support (including header repeat across pages `w:tblHeader` and row split prevention `w:cantSplit`). Multi-page OCR documents insert page breaks strictly between pages.
 - **GFM Table Prompt Instruction (`core/models.py`)**: Updated default text transcription prompt preset (`PROMPT_PRESETS["text"]`) to explicitly instruct GLM-OCR to format tabular, grid, or checklist content (including checkbox columns) using GFM pipe tables (`| ... |`), directly feeding table AST nodes to the DOCX converter.

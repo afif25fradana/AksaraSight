@@ -22,6 +22,10 @@ import sys
 import time
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from core.constants import __version__
+
 DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
 GUI_EXE = DIST_DIR / "AksaraSight.exe"
 CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
@@ -35,7 +39,7 @@ def test_cli_version() -> bool:
     print("[1/5] Testing CLI binary version output...")
     res = subprocess.run([str(CLI_EXE), "--version"], capture_output=True, text=True, timeout=10)
     print(f"  Stdout: {res.stdout.strip()}")
-    if res.returncode != 0 or "AksaraSight-CLI 1.0.0" not in res.stdout:
+    if res.returncode != 0 or f"AksaraSight-CLI {__version__}" not in res.stdout:
         print("  [FAIL] CLI version test failed")
         return False
     print("  [PASS] CLI version verified")
@@ -209,7 +213,7 @@ def test_frozen_log_file() -> bool:
         return False
 
     content = log_file.read_text(encoding="utf-8", errors="replace")
-    if "Frozen application started (v1.0.0)" not in content:
+    if f"Frozen application started (v{__version__})" not in content:
         print(f"  [FAIL] Expected startup entry not found in {log_file}")
         return False
 

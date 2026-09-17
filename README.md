@@ -8,7 +8,7 @@ No cloud APIs. No telemetry. If the local inference backend is unreachable, the 
 
 ### Project Maturity & Status
 - **Feature-Complete for Current Scope**: Core pipeline, CLI, and Desktop GUI Studio are complete, with live local backend integration and full server lifecycle supervision.
-- **Robust Test Suite**: 370 unit and integration tests passing with 100% pass rate (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
+- **Robust Test Suite**: 403 unit and integration tests passing with 100% pass rate (note: multi-platform CI across heterogeneous GPU environments has not yet been established).
 - **Project History**: See [CHANGELOG.md](CHANGELOG.md) for the complete milestone evolution, audit breakdowns, and test history.
 
 ---
@@ -204,15 +204,25 @@ A documented template is available in `.env.example`.
 
 ## Testing & Development
 
-Run the full automated unit, integration, and smoke test suite:
+Run the automated test suite:
 
 ```powershell
-# Run the automated test suite
-python -m pytest
+# Fast subset (no GUI, ~5s)
+pytest --ignore=tests/test_gui.py
+
+# Full suite (~85s, requires a display)
+pytest
 
 # Run GUI smoke test
 python scripts/smoke_test_gui.py
 ```
+
+### Verification Scripts
+
+For contributors building the standalone portable distribution (`python scripts/build_portable.py`), empirical verification scripts in `scripts/` validate the packaged binaries in `dist/AksaraSight/`:
+
+- **`python scripts/verify_frozen_build.py`**: Asserts CLI binary version output (`--version`), zero-network hardware detection report (`--detect-hardware`), input validation failure handling (exit code 1 on missing files), real OS window table visibility and rendering via Win32 API (`EnumWindows`, `IsWindowVisible`, `GetWindowTextW`) followed by clean `WM_CLOSE`, and startup logging in `%LOCALAPPDATA%\AksaraSight\logs\app.log`.
+- **`python scripts/verify_frozen_docx.py`**: Asserts bundling of `docx/templates/default.docx` in `_internal`, verifies frozen CLI DOCX export against a local loopback mock OCR server, validates OOXML document structure and GFM table XML attributes (`w:tblHeader`, `w:cantSplit`), verifies binary stdout redirection, and performs a 100% source vs. frozen text and table cell parity diff.
 
 ### Architecture Layout
 
@@ -223,7 +233,7 @@ python scripts/smoke_test_gui.py
 | `gui/` | CustomTkinter desktop studio (`app.py`, `settings_window.py`, `theme.py`). |
 | `config/` | Immutable, validated `Settings` dataclass with comment-preserving `.env` persistence. |
 | `scripts/` | Benchmark harnesses, screenshot generation utilities, and headless smoke tests. |
-| `tests/` | 370 unit and integration tests covering all modules and failure modes. |
+| `tests/` | 403 unit and integration tests covering all modules and failure modes. |
 
 ## License
 

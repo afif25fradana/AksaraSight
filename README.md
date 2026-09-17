@@ -123,10 +123,10 @@ If you already run your own `llama-server`, Ollama, or vLLM instance:
 - **Queue manager.** Tracks each document with live status dots, format chips, file sizes, and elapsed run timers. If global DPI changes later, an indicator marks items processed at earlier resolutions. Long jobs can be stopped gracefully between pages with `Cancel (after current page)`.
 - **Split preview pane.** Four synchronized views let you verify output from different angles:
   - *Raw Markdown*: Exact transcription text emitted by the model.
-  - *Text Preview*: Clean typography preview showing headers, lists, and tables.
+  - *Text Preview*: Formatted typography preview with tag handling (headings, tables, code) and a disclaimer note pointing to Raw Markdown for exact output.
   - *Image Preview*: Paginated original page rasters, rendered on demand to conserve RAM.
   - *JSON Tree*: Structured metadata, per-page latency benchmarks, and status logs.
-- **Action bar & footer.** Copy Markdown directly, export selected documents, or trigger a multi-threaded batch export. A persistent footer displays privacy guarantees and runtime status.
+- **Action bar & footer.** Copy Markdown directly, export selected documents, or trigger a multi-threaded batch export with live progress reporting. Also includes a "Clear Finished" queue cleanup button and a persistent footer with on-device privacy guarantees.
 
 ![Live backend processing preview](docs/images/gui_live_backend_preview.png)
 

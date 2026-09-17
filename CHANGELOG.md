@@ -5,7 +5,7 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Current State: v1.0.0 (Feature-Complete for Current Scope)
-- **370 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
+- **403 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
 - **Serving Configuration & Multimodal Self-Test Hardening complete** (Empirically verified b10930 arguments, 1x1 multimodal probe, session caching, and local GGUF mmproj safeguards).
@@ -13,6 +13,17 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Milestones
+
+### Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
+*Focus: Native Word document generation from OCR CommonMark/GFM AST, tabular formatting fidelity, write-path sanitization widening, and frozen bundle distribution. (Additive; no breaking changes).*
+- **Native DOCX Export Engine (`core/docx_export.py`)**: Implemented pure-Python CommonMark and GFM AST converter (`python-docx` + `markdown-it-py`) translating OCR Markdown into clean Word documents with styled headings, inline formatting (bold, italic, inline code), blockquotes, lists, verbatim code blocks, and full table support (including header repeat across pages `w:tblHeader` and row split prevention `w:cantSplit`). Multi-page OCR documents insert page breaks strictly between pages.
+- **GFM Table Prompt Instruction (`core/models.py`)**: Updated default text transcription prompt preset (`PROMPT_PRESETS["text"]`) to explicitly instruct GLM-OCR to format tabular, grid, or checklist content (including checkbox columns) using GFM pipe tables (`| ... |`), directly feeding table AST nodes to the DOCX converter.
+- **Write-Path Exception Sanitization Widening (`core/formatter.py`)**: Unified exception handling across all three export formats (`markdown`, `json`, `docx`) with `_reconstruct_sanitized_exception()`, ensuring filesystem path redaction on disk write errors preserves `errno` without causing `TypeError`.
+- **CLI & GUI Integration**: Added `-f docx` to `cli/main.py` supporting stdout piping (with TTY safety check) and directory exports. Added 2-option export selector (Markdown & JSON vs Word Document) in GUI Studio (`gui/app.py`) with per-document fault isolation during batch export.
+- **Portable Distribution & Verification Tooling**: Bundled `docx` and `markdown_it` templates in PyInstaller spec (`build_portable.spec`), added template existence checks to `scripts/build_portable.py`, and implemented permanent empirical test suite `scripts/verify_frozen_docx.py` confirming 100% source vs frozen output parity.
+- **Result:** **403 / 403 tests passing** (+33 unit and functional tests across `test_docx_export.py`, `test_formatter.py`, `test_cli.py`, `test_gui.py`, and `test_models.py`).
+
+---
 
 ### Security Hardening Pass (Loopback Host Binding, Proxy Defense, JSON Path & Error Sanitization)
 *Focus: Defense-in-depth isolation, loopback binding enforcement, proxy interception prevention, and path sanitization in JSON exports.*

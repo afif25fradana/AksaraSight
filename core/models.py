@@ -28,6 +28,7 @@ class OutputFormat(str, Enum):
     MARKDOWN = "markdown"
     JSON = "json"
     BOTH = "both"
+    DOCX = "docx"
 
 
 @dataclass
@@ -35,7 +36,7 @@ class JobConfig:
     """Configuration options for an individual OCR job.
 
     Attributes:
-        output_format: Target format ('markdown', 'json', 'both').
+        output_format: Target format ('markdown', 'json', 'both', 'docx').
         prompt_mode: Preset prompt selector ('text', 'table', 'formula').
         custom_prompt: Optional explicit prompt override that bypasses presets.
         max_pages: Optional upper limit on the number of pages processed per document.

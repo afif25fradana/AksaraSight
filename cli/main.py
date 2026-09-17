@@ -60,9 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-f",
         "--format",
-        choices=["markdown", "json", "both"],
+        choices=["markdown", "json", "both", "docx"],
         default="markdown",
-        help="Output format: 'markdown' (default), 'json', or 'both'.",
+        help="Output format: 'markdown' (default), 'json', 'both', or 'docx'.",
     )
     parser.add_argument(
         "-p",
@@ -410,6 +410,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stderr.write(f"Error: No supported document files found in '{input_path}'.\n")
             return 1
     else:
+        if output_fmt == OutputFormat.DOCX and args.output is None and sys.stdout.isatty():
+            sys.stderr.write("Error: Cannot write binary DOCX output to a terminal. Specify -o/--output or redirect stdout.\n")
+            return 1
         file_list = [input_path.resolve()]
 
     # 5. Initialize Engine and process documents (streaming mode to prevent unbounded memory growth)
@@ -464,6 +467,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         sys.stdout.write("\n")
                 elif output_fmt == OutputFormat.JSON:
                     sys.stdout.write(formatted["json"] + "\n")
+                elif output_fmt == OutputFormat.DOCX:
+                    if sys.stdout.isatty():
+                        sys.stderr.write("Error: Cannot write binary DOCX output to a terminal. Specify -o/--output or redirect stdout.\n")
+                        return 1
+                    raw_docx = formatted["docx"]
+                    if hasattr(sys.stdout, "buffer"):
+                        sys.stdout.buffer.write(raw_docx)
+                    else:
+                        sys.stdout.write(raw_docx)
                 else:  # BOTH to stdout
                     sys.stdout.write(formatted["markdown"])
                     sys.stdout.write("\n\n---\n\n")

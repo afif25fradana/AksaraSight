@@ -27,7 +27,13 @@ import pypdfium2 as pdfium
 from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.engine import OCREngine
-from core.formatter import format_output, resolve_unique_stem, save_artifacts
+from core.formatter import (
+    format_output,
+    resolve_unique_stem,
+    sanitize_export_error,
+    sanitize_export_path,
+    save_artifacts,
+)
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from core.pipeline import _PDFIUM_LOCK
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
@@ -794,6 +800,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         action_bar.grid_columnconfigure(1, weight=1)
         action_bar.grid_columnconfigure(2, weight=0)
         action_bar.grid_columnconfigure(3, weight=0)
+        action_bar.grid_columnconfigure(4, weight=0)
 
         self._btn_copy = ctk.CTkButton(
             action_bar,
@@ -827,6 +834,30 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
 
+        # Format Selector: Exactly 2 options: BOTH (default) vs DOCX
+        self._opt_export_format = ctk.CTkOptionMenu(
+            action_bar,
+            values=[
+                "Markdown & JSON (.md + .json)",
+                "Word Document (.docx)",
+            ],
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            dropdown_font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=COLOR_INTERACTIVE_NEUTRAL,
+            button_color=COLOR_SURFACE_BORDER,
+            button_hover_color=COLOR_INTERACTIVE_HOVER,
+            dropdown_fg_color=COLOR_SURFACE_2,
+            dropdown_hover_color=COLOR_INTERACTIVE_HOVER,
+            dropdown_text_color=COLOR_TEXT_PRIMARY,
+            text_color=COLOR_TEXT_PRIMARY,
+            corner_radius=6,
+            height=30,
+            width=210,
+            dynamic_resizing=False,
+        )
+        self._opt_export_format.set("Markdown & JSON (.md + .json)")
+        self._opt_export_format.grid(row=0, column=2, sticky="e", padx=(0, 8))
+
         # Primary Button: Slate blue accent fill (starts disabled with neutral dark surface and border)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
@@ -842,7 +873,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_export_selected,
         )
-        self._btn_export_selected.grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self._btn_export_selected.grid(row=0, column=3, sticky="e", padx=(0, 8))
 
         # Secondary Button: Neutral dark surface with border
         self._btn_export_all = ctk.CTkButton(
@@ -859,7 +890,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_export_all,
         )
-        self._btn_export_all.grid(row=0, column=3, sticky="e", padx=0)
+        self._btn_export_all.grid(row=0, column=4, sticky="e", padx=0)
 
     def _build_footer(self) -> None:
         """Build the bottom status bar (~30px height) with trust indicator and counters."""
@@ -1796,6 +1827,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy.configure(text="Copied!")
         self.after(1200, lambda: self._btn_copy.configure(text="Copy to Clipboard"))
 
+    def _get_selected_export_format(self) -> OutputFormat:
+        """Return the OutputFormat corresponding to the currently selected export option."""
+        if hasattr(self, "_opt_export_format"):
+            val = self._opt_export_format.get()
+            if val == "Word Document (.docx)":
+                return OutputFormat.DOCX
+        return OutputFormat.BOTH
+
     def _on_export_selected(self) -> None:
         """Export artifacts for the currently selected document."""
         if not self._selected_item_id or self._selected_item_id not in self._queue_items:
@@ -1812,7 +1851,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         out_path = Path(out_dir)
         try:
             unique_stem = resolve_unique_stem(item.file_path.stem, output_dir=out_path, used_stems=set())
-            config = JobConfig(output_format=OutputFormat.BOTH)
+            config = JobConfig(output_format=self._get_selected_export_format())
             saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
             self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
             self._btn_export_selected.configure(text="Exported!")
@@ -1846,27 +1885,40 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         def _do_export() -> None:
             total_saved = 0
             used_stems: Set[str] = set()
-            config = JobConfig(output_format=OutputFormat.BOTH)
+            config = JobConfig(output_format=self._get_selected_export_format())
             total_docs = len(completed_items)
+            failed_docs = 0
+            last_err = None
             try:
                 for idx, it in enumerate(completed_items, start=1):
                     if self._is_shutting_down or self._shutdown_event.is_set():
                         return
                     assert it.result is not None
-                    unique_stem = resolve_unique_stem(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
-                    saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
-                    total_saved += len(saved)
+                    try:
+                        unique_stem = resolve_unique_stem(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
+                        saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
+                        total_saved += len(saved)
+                    except Exception as doc_exc:
+                        failed_docs += 1
+                        last_err = doc_exc
+                        logger.warning("Export error on %s: %s", it.file_path.name, doc_exc)
                     self._safe_after(
                         0,
                         lambda i=idx, n=total_docs: self._update_footer(f"Exporting {i}/{n} documents..."),
                     )
 
-                def _on_success() -> None:
-                    self._update_footer(f"Exported {total_docs} documents ({total_saved} files) to {out_path.name}")
+                def _on_finish() -> None:
+                    if failed_docs > 0:
+                        self._update_footer(
+                            f"Export completed: {total_docs - failed_docs}/{total_docs} succeeded "
+                            f"({failed_docs} failed: {_friendly_err(last_err)})"
+                        )
+                    else:
+                        self._update_footer(f"Exported {total_docs} documents ({total_saved} files) to {out_path.name}")
                     self._btn_export_all.configure(text="Exported All!")
                     self.after(1200, self._reset_export_all_button)
 
-                self._safe_after(0, _on_success)
+                self._safe_after(0, _on_finish)
             except Exception as exc:
                 logger.warning("Export All error: %s", exc)
                 self._safe_after(0, lambda e=exc: self._update_footer(f"Export All error: {_friendly_err(e)}"))

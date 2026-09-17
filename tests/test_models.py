@@ -239,3 +239,13 @@ def test_job_config_bad_max_image_dimension_raises(bad_dim):
     """Verify JobConfig raises ValueError on invalid max_image_dimension."""
     with pytest.raises(ValueError, match="max_image_dimension must be an integer between 512 and 8192"):
         JobConfig(max_image_dimension=bad_dim)
+
+
+def test_output_format_values():
+    """Verify OutputFormat enum supports all expected formats including DOCX."""
+    assert OutputFormat.MARKDOWN.value == "markdown"
+    assert OutputFormat.JSON.value == "json"
+    assert OutputFormat.BOTH.value == "both"
+    assert OutputFormat.DOCX.value == "docx"
+    assert OutputFormat("docx") == OutputFormat.DOCX
+

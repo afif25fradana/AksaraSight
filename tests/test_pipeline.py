@@ -360,6 +360,7 @@ def test_oversized_pdf_page_dimension_rejected(tmp_path: Path, monkeypatch: pyte
     pages = list(ingest(pdf_path, dpi=100))
     assert len(pages) == 1
     assert pages[0].is_success is False
+    assert pages[0].error is not None
     assert "exceed safety threshold of 5,000 pixels" in pages[0].error
 
 
@@ -376,6 +377,7 @@ def test_oversized_pdf_page_with_mocked_huge_size(tmp_path: Path) -> None:
         pages = list(ingest(pdf_path, dpi=100))
         assert len(pages) == 1
         assert pages[0].is_success is False
+        assert pages[0].error is not None
         assert "exceed safety threshold" in pages[0].error
         mock_render.assert_not_called()
 

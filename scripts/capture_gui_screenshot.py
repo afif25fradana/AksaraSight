@@ -76,7 +76,7 @@ def capture_window_to_image(app: OCRApp) -> Image.Image:
     buf = ctypes.create_string_buffer(w * h * 4)
     ctypes.windll.gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
 
-    img = Image.frombuffer("RGBA", (w, h), buf, "raw", "BGRA", 0, 1)
+    img = Image.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
 
     ctypes.windll.gdi32.DeleteObject(hbm)
     ctypes.windll.gdi32.DeleteDC(hdc_mem)
@@ -162,12 +162,14 @@ def main() -> None:
         item_success.status = QueueItemStatus.SUCCESS
         item_success.duration = 1.4
         item_success.result = res_success
+        assert item_success.badge_label is not None and item_success.detail_label is not None
         item_success.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
         item_success.detail_label.configure(text=app._format_queue_item_meta(item_success))
 
         # 2. Processing item
         item_proc = app._queue_items[id_proc]
         item_proc.status = QueueItemStatus.PROCESSING
+        assert item_proc.badge_label is not None and item_proc.detail_label is not None
         item_proc.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
         item_proc.detail_label.configure(text=app._format_queue_item_meta(item_proc))
 
@@ -175,12 +177,14 @@ def main() -> None:
         item_failed = app._queue_items[id_failed]
         item_failed.status = QueueItemStatus.FAILED
         item_failed.error = "Corrupted xref table in document header"
+        assert item_failed.badge_label is not None and item_failed.detail_label is not None
         item_failed.badge_label.configure(text="●", text_color=COLOR_STATUS_FAILED)
         item_failed.detail_label.configure(text=app._format_queue_item_meta(item_failed))
 
         # 4. Queued item
         item_queued = app._queue_items[id_queued]
         item_queued.status = QueueItemStatus.QUEUED
+        assert item_queued.badge_label is not None and item_queued.detail_label is not None
         item_queued.badge_label.configure(text="●", text_color=COLOR_STATUS_QUEUED)
         item_queued.detail_label.configure(text=app._format_queue_item_meta(item_queued))
 
@@ -278,6 +282,7 @@ def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Pa
     item.status = QueueItemStatus.SUCCESS
     item.duration = 5.2
     item.result = res
+    assert item.badge_label is not None and item.detail_label is not None
     item.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
     item.detail_label.configure(text=app._format_queue_item_meta(item))
 

@@ -65,7 +65,7 @@ def capture_window_to_image(window) -> Image.Image:
     buf = ctypes.create_string_buffer(w * h * 4)
     ctypes.windll.gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
 
-    img = Image.frombuffer("RGBA", (w, h), buf, "raw", "BGRA", 0, 1)
+    img = Image.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
 
     ctypes.windll.gdi32.DeleteObject(hbm)
     ctypes.windll.gdi32.DeleteDC(hdc_mem)

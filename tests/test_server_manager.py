@@ -660,7 +660,9 @@ def test_real_win32_job_object_creation_and_assignment():
         stderr=subprocess.PIPE,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    assigned = _assign_process_to_job(job, int(proc._handle))
+    handle = getattr(proc, "_handle", None)
+    assert handle is not None
+    assigned = _assign_process_to_job(job, int(handle))
     proc.wait(timeout=5)
     _close_job_handle(job)
 

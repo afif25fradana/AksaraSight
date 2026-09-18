@@ -23,7 +23,7 @@ def test_parse_driver_version() -> None:
     assert _parse_driver_version("  551.76  ") == (551, 76)
     assert _parse_driver_version("") is None
     assert _parse_driver_version("invalid") is None
-    assert _parse_driver_version(None) is None  # type: ignore[arg-type]
+    assert _parse_driver_version(None) is None
 
 
 def test_detect_hardware_cuda_compatible() -> None:

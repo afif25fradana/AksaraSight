@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 import pytest
 import customtkinter as ctk

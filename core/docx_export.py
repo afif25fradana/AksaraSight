@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import BinaryIO, List, Optional, Sequence, Union
 
 import docx
+import docx.document
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -114,7 +115,7 @@ def _extract_alignment(style_str: str) -> WD_ALIGN_PARAGRAPH:
     return WD_ALIGN_PARAGRAPH.LEFT
 
 
-def _render_table_node(doc: docx.Document, table_node: SyntaxTreeNode) -> None:
+def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) -> None:
     """Render a GFM pipe table node with ragged row padding and OOXML attributes.
 
     Ensures:
@@ -197,7 +198,7 @@ def _render_table_node(doc: docx.Document, table_node: SyntaxTreeNode) -> None:
     p_after.paragraph_format.space_after = Pt(6)
 
 
-def _render_ast_node(doc: docx.Document, node: SyntaxTreeNode) -> None:
+def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode) -> None:
     """Render an individual top-level block node into the Document."""
     if node.type == "heading":
         level = 1
@@ -291,7 +292,7 @@ def _render_ast_node(doc: docx.Document, node: SyntaxTreeNode) -> None:
             p.add_run(node.content)
 
 
-def render_markdown_page(doc: docx.Document, markdown_text: str, parser: Optional[MarkdownIt] = None) -> None:
+def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser: Optional[MarkdownIt] = None) -> None:
     """Parse and render a single page's markdown string into the target Document."""
     if not markdown_text.strip():
         return
@@ -302,7 +303,7 @@ def render_markdown_page(doc: docx.Document, markdown_text: str, parser: Optiona
         _render_ast_node(doc, block_node)
 
 
-def build_docx(result: OCRResult) -> docx.Document:
+def build_docx(result: OCRResult) -> docx.document.Document:
     """Build a styled Microsoft Word Document from an aggregated OCRResult.
 
     Functional guarantees:
@@ -321,7 +322,7 @@ def build_docx(result: OCRResult) -> docx.Document:
         result: Aggregated document OCRResult instance.
 
     Returns:
-        docx.Document: The generated python-docx Document instance.
+        docx.document.Document: The generated python-docx Document instance.
     """
     doc = Document()
     valid_pages = [
@@ -359,7 +360,7 @@ def export_to_docx(result: OCRResult, target: Union[str, Path, BinaryIO]) -> Pat
         Path: Target path if target was a path, or Path('exported.docx') if stream.
     """
     doc = build_docx(result)
-    doc.save(target)
+    doc.save(str(target) if isinstance(target, Path) else target)
     if isinstance(target, (str, Path)):
         return Path(target).resolve()
     return Path("exported.docx")

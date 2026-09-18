@@ -475,7 +475,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     if hasattr(sys.stdout, "buffer"):
                         sys.stdout.buffer.write(raw_docx)
                     else:
-                        sys.stdout.write(raw_docx)  # type: ignore[arg-type]
+                        sys.stderr.write("Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk.\n")
+                        return 1
                 else:  # BOTH to stdout
                     sys.stdout.write(formatted["markdown"])
                     sys.stdout.write("\n\n---\n\n")

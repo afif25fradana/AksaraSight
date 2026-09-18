@@ -154,6 +154,7 @@ def test_ingest_valid_png(tmp_path):
     assert pages[0].is_success is True
     assert pages[0].width == 100
     assert pages[0].height == 80
+    assert pages[0].image_b64 is not None
     assert pages[0].image_b64.startswith("data:image/jpeg;base64,")
 
 
@@ -217,6 +218,7 @@ def test_ingest_valid_multipage_pdf(tmp_path):
     for i, page in enumerate(pages, start=1):
         assert page.page_num == i
         assert page.is_success is True
+        assert page.image_b64 is not None
         assert page.image_b64.startswith("data:image/jpeg;base64,")
         assert page.error is None
 
@@ -329,6 +331,7 @@ def test_ingest_multithreaded_pdf_concurrency(tmp_path):
                 pages = list(ingest(target))
                 assert len(pages) == 1
                 assert pages[0].is_success is True
+                assert pages[0].image_b64 is not None
                 assert pages[0].image_b64.startswith("data:image/jpeg;base64,")
         except Exception as exc:
             errors.append(exc)

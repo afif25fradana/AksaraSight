@@ -132,7 +132,7 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
             row_cells = []
             for cell in tr.children:
                 is_header = cell.type == "th"
-                align = _extract_alignment(cell.attrs.get("style", ""))
+                align = _extract_alignment(str(cell.attrs.get("style", "")))
                 # The first child of a th/td node is typically an 'inline' node
                 inline_node = cell.children[0] if cell.children else None
                 row_cells.append({

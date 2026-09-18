@@ -138,6 +138,7 @@ class OCREngine:
                 else:
                     # Vision model inference for this page
                     try:
+                        assert page.image_b64 is not None
                         text, raw_json, latency = self.client.complete(
                             image_b64=page.image_b64,
                             prompt=cfg.effective_prompt,

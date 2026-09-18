@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import Any, Optional, Set
+from typing import Any, Optional, Set, overload
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
@@ -18,10 +18,9 @@ LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 
 
 def _resolve_default_env_path() -> Path:
-    """Resolve the default .env path.
+    """Resolve the default .env path based on whether running frozen or from source.
 
-    When running from a PyInstaller frozen binary (getattr(sys, 'frozen', False) is True),
-    prioritizes the directory containing the executable (Path(sys.executable).parent / '.env').
+    If frozen (PyInstaller executable), defaults to '.env' adjacent to the executable.
     If running from source, defaults to '.env' in the current working directory.
     """
     if getattr(sys, "frozen", False):
@@ -33,6 +32,14 @@ def _resolve_default_env_path() -> Path:
 def _to_bool(val: Any) -> bool:
     """Normalize boolean or string representation to a boolean."""
     return val.strip().lower() in ("1", "true", "yes", "on") if isinstance(val, str) else bool(val)
+
+
+@overload
+def _get_env_with_fallback(canonical_key: str, legacy_key: str, default: str) -> str: ...
+
+
+@overload
+def _get_env_with_fallback(canonical_key: str, legacy_key: str, default: None = None) -> Optional[str]: ...
 
 
 def _get_env_with_fallback(canonical_key: str, legacy_key: str, default: Optional[str] = None) -> Optional[str]:

@@ -114,6 +114,7 @@ def test_table_ooxml_header_repeat_and_cant_split(tmp_path: Path) -> None:
     table = reopened.tables[0]
 
     # Verify style
+    assert table.style is not None
     assert table.style.name == "Table Grid"
 
     # Row 0: Header row must have tblHeader and cantSplit in raw XML
@@ -209,12 +210,15 @@ def test_headings_mapping(tmp_path: Path) -> None:
     paragraphs = reopened.paragraphs
 
     assert paragraphs[0].text == "Main Title"
+    assert paragraphs[0].style is not None
     assert paragraphs[0].style.name == "Heading 1"
 
     assert paragraphs[1].text == "Sub Section"
+    assert paragraphs[1].style is not None
     assert paragraphs[1].style.name == "Heading 2"
 
     assert paragraphs[2].text == "Detail Level"
+    assert paragraphs[2].style is not None
     assert paragraphs[2].style.name == "Heading 3"
 
 
@@ -249,14 +253,18 @@ def test_bold_italic_and_lists(tmp_path: Path) -> None:
     assert any("italic words" in r.text for r in italic_runs)
 
     # Paragraphs 1-2: Bullet list
+    assert paragraphs[1].style is not None
     assert paragraphs[1].style.name == "List Bullet"
     assert "Bullet item 1" in paragraphs[1].text
+    assert paragraphs[2].style is not None
     assert paragraphs[2].style.name == "List Bullet"
     assert "Bullet item 2" in paragraphs[2].text
 
     # Paragraphs 3-4: Numbered list
+    assert paragraphs[3].style is not None
     assert paragraphs[3].style.name == "List Number"
     assert "First numbered" in paragraphs[3].text
+    assert paragraphs[4].style is not None
     assert paragraphs[4].style.name == "List Number"
     assert "Second numbered" in paragraphs[4].text
 

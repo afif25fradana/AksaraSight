@@ -235,6 +235,7 @@ def verify_frozen_docx() -> bool:
         assert len(doc_frz.paragraphs) == len(doc_src.paragraphs), "Paragraph count mismatch!"
         for i, (p_f, p_s) in enumerate(zip(doc_frz.paragraphs, doc_src.paragraphs)):
             assert p_f.text == p_s.text, f"Paragraph {i} text mismatch: '{p_f.text}' vs '{p_s.text}'"
+            assert p_f.style is not None and p_s.style is not None
             assert p_f.style.name == p_s.style.name, f"Paragraph {i} style mismatch!"
 
         table_src = doc_src.tables[0]

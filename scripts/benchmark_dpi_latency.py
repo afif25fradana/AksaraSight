@@ -26,10 +26,12 @@ def run_benchmark():
         print(f"\n--- Testing DPI = {dpi} ({pages[0].width}x{pages[0].height} px, {pages[0].width*pages[0].height/1e6:.2f} MP) ---")
         
         # Warm-up run on page 1
+        assert pages[0].image_b64 is not None
         client.complete(pages[0].image_b64)
         
         page_stats = []
         for p in pages:
+            assert p.image_b64 is not None
             text, raw, latency = client.complete(p.image_b64)
             timings = raw.get("timings", {})
             usage = raw.get("usage", {})

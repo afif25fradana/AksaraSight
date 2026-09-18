@@ -81,7 +81,8 @@ def verify_bundle_integrity() -> Path:
 
     # Configure utf-8 stdout if possible
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 

@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Never
 from unittest.mock import MagicMock, call, patch
 import pytest
 import customtkinter as ctk
@@ -139,7 +139,7 @@ def test_app_worker_loop_fatal_crash():
 
     try:
         # Simulate fatal loop crash by sabotaging task_queue.get
-        def crashing_get(timeout=None):
+        def crashing_get(*args: Any, **kwargs: Any) -> Never:
             raise SystemError("Simulated unhandled runtime catastrophe")
 
         app._task_queue.get = crashing_get
@@ -255,6 +255,7 @@ def test_selection_race_condition(tmp_path):
         assert item2.status == QueueItemStatus.SUCCESS
         assert item2.duration == 1.5
         assert item2.result is result2
+        assert item2.badge_label is not None and item2.detail_label is not None
         assert item2.badge_label.cget("text") == "●"
         assert "1.5s" in item2.detail_label.cget("text")
 
@@ -867,6 +868,7 @@ def test_queue_row_hover_enter_leave_and_selected_guard(tmp_path):
 
         # file_a was first item, so it was auto-selected
         assert app._selected_item_id == id_a
+        assert item_a.row_frame is not None and item_b.row_frame is not None
         assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
         assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
@@ -1013,6 +1015,7 @@ def test_gui_cancellation_flow(tmp_path):
         app._process_result_queue()
 
         assert item.status == QueueItemStatus.CANCELLED
+        assert item.badge_label is not None and item.detail_label is not None
         assert item.badge_label.cget("text") == "●"
         assert item.badge_label.cget("text_color") == COLOR_STATUS_CANCELLED
         assert "Cancelled" in item.detail_label.cget("text")
@@ -1134,10 +1137,6 @@ def test_four_tabview_structure() -> None:
     app.withdraw()
 
     try:
-        tab_names = [
-            app._tabview._tab_dict[k]._name
-            for k in app._tabview._tab_dict
-        ]
         # In CTkTabview, tab keys or names correspond to the added tabs
         assert "Raw Markdown" in app._tabview._tab_dict
         assert "Text Preview" in app._tabview._tab_dict
@@ -1870,6 +1869,7 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
         # Verify all lifecycle states
         bracket_literals = ("[✓]", "[>]", "[✗]", "[ ]", "[-]")
         for item_id, item in app._queue_items.items():
+            assert item.badge_label is not None and item.detail_label is not None and item.row_frame is not None
             badge_text = item.badge_label.cget("text")
             detail_text = item.detail_label.cget("text")
 
@@ -2047,6 +2047,7 @@ def test_batch2_queue_item_file_size_caching(tmp_path):
             assert item.file_size_str in meta
 
             # 2. lifecycle events
+            assert item.detail_label is not None
             app._handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=item_id))
             assert item.file_size_str in item.detail_label.cget("text")
 
@@ -2866,6 +2867,7 @@ def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
     gui_cfg, gui_res = captured_gui_result[0]
 
     # JobConfig parity assertion (C-1, C-5)
+    assert gui_cfg is not None and cli_cfg is not None
     assert gui_cfg.max_pages == cli_cfg.max_pages == 2
     assert gui_cfg.dpi == cli_cfg.dpi == 120
     assert gui_cfg.max_image_dimension == cli_cfg.max_image_dimension == 1536
@@ -2920,6 +2922,7 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         assert len(captured_configs) == 1
         doc1_path, doc1_cfg = captured_configs[0]
         assert "doc1.pdf" in doc1_path
+        assert doc1_cfg is not None
         assert doc1_cfg.dpi == 100
         assert doc1_cfg.max_pages == 1
         assert doc1_cfg.max_image_dimension == 1024
@@ -2951,6 +2954,7 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         assert "doc2.pdf" in doc2_path
 
         # 3. doc2 started after boundary: must receive updated_settings
+        assert doc2_cfg is not None
         assert doc2_cfg.dpi == 200
         assert doc2_cfg.max_pages == 5
         assert doc2_cfg.max_image_dimension == 2048

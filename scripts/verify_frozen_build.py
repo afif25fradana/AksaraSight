@@ -175,7 +175,7 @@ def test_gui_window_rendering_and_logging() -> bool:
 
             buf = ctypes.create_string_buffer(w * h * 4)
             gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
-            img = Image.frombuffer("RGBA", (w, h), buf, "raw", "BGRA", 0, 1)
+            img = Image.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
             gdi32.DeleteObject(hbm)
             gdi32.DeleteDC(hdc_mem)
             user32.ReleaseDC(verified_hwnd, hdc_win)

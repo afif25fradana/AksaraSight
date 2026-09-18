@@ -234,7 +234,7 @@ def test_max_pages_valid():
     """Verify valid max_pages values are cast to int or preserved as None."""
     assert Settings(max_pages=None).max_pages is None
     assert Settings(max_pages=10).max_pages == 10
-    assert Settings(max_pages="5").max_pages == 5
+    assert Settings(max_pages="5").max_pages == 5  # type: ignore[bad-argument-type]
 
 
 @pytest.mark.parametrize("bad_repo", ["", "   ", None])

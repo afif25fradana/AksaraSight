@@ -164,7 +164,7 @@ def test_ocr_result_to_dict_and_to_json():
 def test_job_config_max_pages_validation():
     """Verify max_pages positive integer validation."""
     assert JobConfig(max_pages=5).max_pages == 5
-    assert JobConfig(max_pages="3").max_pages == 3
+    assert JobConfig(max_pages="3").max_pages == 3  # type: ignore[bad-argument-type]
     assert JobConfig(max_pages=None).max_pages is None
 
     with pytest.raises(ValueError, match="max_pages must be a positive integer"):
@@ -174,7 +174,7 @@ def test_job_config_max_pages_validation():
         JobConfig(max_pages=-1)
 
     with pytest.raises(ValueError, match="max_pages must be a positive integer"):
-        JobConfig(max_pages="abc")
+        JobConfig(max_pages="abc")  # type: ignore[bad-argument-type]
 
 
 def test_ocr_result_cancelled_resolution():

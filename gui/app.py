@@ -486,13 +486,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             hover_w.bind("<Enter>", self._on_drop_zone_enter)
             hover_w.bind("<Leave>", self._on_drop_zone_leave)
 
-        # Register drop target on drop zone card
-        self._drop_zone.drop_target_register(tkdnd.DND_FILES)
-        self._drop_zone.dnd_bind("<<Drop>>", self._on_drop_files)
+        # Register drop target on drop zone card (tkinterdnd2 dynamically monkey-patches DnD methods onto tkinter.Widget at import time)
+        self._drop_zone.drop_target_register(tkdnd.DND_FILES)  # type: ignore[missing-attribute]
+        self._drop_zone.dnd_bind("<<Drop>>", self._on_drop_files)  # type: ignore[missing-attribute]
 
         # Drag-over visual feedback (amber border + tinted bg while dragging files over zone)
-        self._drop_zone.dnd_bind("<<DropEnter>>", self._on_drag_enter)
-        self._drop_zone.dnd_bind("<<DropLeave>>", self._on_drag_leave)
+        self._drop_zone.dnd_bind("<<DropEnter>>", self._on_drag_enter)  # type: ignore[missing-attribute]
+        self._drop_zone.dnd_bind("<<DropLeave>>", self._on_drag_leave)  # type: ignore[missing-attribute]
 
         # Queue Section Header (14px bold section header, tertiary clear button)
         queue_header = ctk.CTkFrame(left_container, fg_color="transparent")
@@ -1717,11 +1717,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _update_action_buttons(self) -> None:
         """Update state of Action Bar buttons based on selected and available items."""
-        has_selected = (
-            self._selected_item_id is not None
-            and self._selected_item_id in self._queue_items
+        selected_item = (
+            self._queue_items.get(self._selected_item_id)
+            if self._selected_item_id is not None
+            else None
         )
-        selected_item = self._queue_items[self._selected_item_id] if has_selected else None
+        has_selected = selected_item is not None
         selected_completed = (
             selected_item is not None
             and selected_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED)

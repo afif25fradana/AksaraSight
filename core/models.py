@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 PROMPT_PRESETS: Dict[str, str] = {
     "text": (
@@ -33,6 +33,14 @@ class OutputFormat(str, Enum):
     JSON = "json"
     BOTH = "both"
     DOCX = "docx"
+
+
+class FormattedOutput(TypedDict, total=False):
+    """Structured mapping of serialized OCR artifact outputs by format name."""
+
+    markdown: str
+    json: str
+    docx: bytes
 
 
 @dataclass

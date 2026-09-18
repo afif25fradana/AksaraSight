@@ -15,7 +15,7 @@ import threading
 import time
 from tkinter import filedialog
 import traceback
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import customtkinter as ctk
 from PIL import Image

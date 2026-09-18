@@ -1177,8 +1177,8 @@ class SettingsWindow(ctk.CTkToplevel):
                 backend=backend,
                 local_endpoint=endpoint,
                 allow_remote=allow_remote,
-                timeout=raw_timeout,  # type: ignore[arg-type]
-                max_retries=raw_retries,  # type: ignore[arg-type]
+                timeout=raw_timeout,  # type: ignore[arg-type]  # raw entry text validated and cast in Settings.__post_init__
+                max_retries=raw_retries,  # type: ignore[arg-type]  # raw entry text validated and cast in Settings.__post_init__
                 dpi=dpi,
                 max_pages=max_pages,
                 runtime_mode=runtime_mode,

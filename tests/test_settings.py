@@ -234,7 +234,7 @@ def test_max_pages_valid():
     """Verify valid max_pages values are cast to int or preserved as None."""
     assert Settings(max_pages=None).max_pages is None
     assert Settings(max_pages=10).max_pages == 10
-    assert Settings(max_pages="5").max_pages == 5  # type: ignore[bad-argument-type]
+    assert Settings(max_pages="5").max_pages == 5  # type: ignore[bad-argument-type]  # intentional invalid argument type to test runtime string coercion
 
 
 @pytest.mark.parametrize("bad_repo", ["", "   ", None])
@@ -456,14 +456,14 @@ def test_runtime_mode_and_backend_validation():
         Settings(runtime_mode="invalid_mode")
 
     with pytest.raises(ValueError, match="RUNTIME_MODE must be a string"):
-        Settings(runtime_mode=123)  # type: ignore[arg-type]
+        Settings(runtime_mode=123)  # type: ignore[arg-type]  # intentional invalid argument type to test runtime type validation
 
     # Invalid managed_backend_override
     with pytest.raises(ValueError, match="Invalid MANAGED_BACKEND_OVERRIDE"):
         Settings(managed_backend_override="rocm")
 
     with pytest.raises(ValueError, match="MANAGED_BACKEND_OVERRIDE must be a string"):
-        Settings(managed_backend_override=None)  # type: ignore[arg-type]
+        Settings(managed_backend_override=None)  # type: ignore[arg-type]  # intentional invalid argument type to test runtime type validation
 
     # Case normalization and stripping
     s = Settings(runtime_mode="  MANAGED  ", managed_backend_override="  CUDA  ")

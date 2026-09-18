@@ -487,12 +487,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             hover_w.bind("<Leave>", self._on_drop_zone_leave)
 
         # Register drop target on drop zone card (tkinterdnd2 dynamically monkey-patches DnD methods onto tkinter.Widget at import time)
-        self._drop_zone.drop_target_register(tkdnd.DND_FILES)  # type: ignore[missing-attribute]
-        self._drop_zone.dnd_bind("<<Drop>>", self._on_drop_files)  # type: ignore[missing-attribute]
+        self._drop_zone.drop_target_register(tkdnd.DND_FILES)  # type: ignore[missing-attribute]  # tkinterdnd2 dynamically monkey-patches Tkinter widgets at runtime
+        self._drop_zone.dnd_bind("<<Drop>>", self._on_drop_files)  # type: ignore[missing-attribute]  # tkinterdnd2 dynamically monkey-patches Tkinter widgets at runtime
 
         # Drag-over visual feedback (amber border + tinted bg while dragging files over zone)
-        self._drop_zone.dnd_bind("<<DropEnter>>", self._on_drag_enter)  # type: ignore[missing-attribute]
-        self._drop_zone.dnd_bind("<<DropLeave>>", self._on_drag_leave)  # type: ignore[missing-attribute]
+        self._drop_zone.dnd_bind("<<DropEnter>>", self._on_drag_enter)  # type: ignore[missing-attribute]  # tkinterdnd2 dynamically monkey-patches Tkinter widgets at runtime
+        self._drop_zone.dnd_bind("<<DropLeave>>", self._on_drag_leave)  # type: ignore[missing-attribute]  # tkinterdnd2 dynamically monkey-patches Tkinter widgets at runtime
 
         # Queue Section Header (14px bold section header, tertiary clear button)
         queue_header = ctk.CTkFrame(left_container, fg_color="transparent")

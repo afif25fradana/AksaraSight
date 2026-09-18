@@ -7,7 +7,7 @@ import re
 from typing import Dict, Optional, Set, Union
 
 from core.docx_export import export_to_docx_bytes
-from core.models import JobConfig, OCRResult, OutputFormat
+from core.models import FormattedOutput, JobConfig, OCRResult, OutputFormat
 
 # Reserved device names on Windows operating systems (case-insensitive)
 WINDOWS_RESERVED_NAMES: frozenset[str] = frozenset({
@@ -216,7 +216,7 @@ def format_output(
     output_format: OutputFormat,
     sanitize_path: bool = False,
     base_dir: Optional[Union[str, Path]] = None,
-) -> Dict[str, Union[str, bytes]]:
+) -> FormattedOutput:
     """Format an OCRResult into output strings or bytes according to the requested format.
 
     Reuses OCRResult.to_markdown(), OCRResult.to_json(), and export_to_docx_bytes()
@@ -230,10 +230,10 @@ def format_output(
         base_dir: Optional reference directory for path relativization.
 
     Returns:
-        Dict[str, Union[str, bytes]]: Mapping of format name ('markdown', 'json', 'docx')
+        FormattedOutput: Mapping of format name ('markdown', 'json', 'docx')
             to serialized content (strings for markdown/json, binary bytes for docx).
     """
-    outputs: Dict[str, Union[str, bytes]] = {}
+    outputs: FormattedOutput = {}
 
     if output_format in (OutputFormat.MARKDOWN, OutputFormat.BOTH):
         outputs["markdown"] = result.markdown

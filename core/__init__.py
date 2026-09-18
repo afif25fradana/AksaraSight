@@ -26,6 +26,7 @@ from .hardware import (
     get_cached_hardware_profile,
 )
 from .models import (
+    FormattedOutput,
     JobConfig,
     JobStatus,
     OCRResult,
@@ -103,6 +104,7 @@ __all__ = [
     "clear_hardware_cache",
     "detect_hardware",
     "ensure_runtime",
+    "FormattedOutput",
     "format_output",
     "get_cached_hardware_profile",
     "get_installed_runtime_path",

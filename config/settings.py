@@ -302,17 +302,17 @@ class Settings:
         return cls(
             backend=backend,
             local_endpoint=endpoint,
-            timeout=raw_timeout,  # type: ignore[arg-type]
-            max_retries=raw_retries,  # type: ignore[arg-type]
+            timeout=raw_timeout,  # type: ignore[arg-type]  # string from env validated and cast to float in __post_init__
+            max_retries=raw_retries,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
             allow_remote=allow_remote,
             runtime_mode=runtime_mode,
             managed_backend_override=managed_backend_override,
             llama_server_path=raw_llama_path,
             model_repo=model_repo,
             auto_start_server=auto_start,
-            dpi=raw_dpi,  # type: ignore[arg-type]
+            dpi=raw_dpi,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
             max_pages=max_pages,
-            max_image_dimension=raw_max_dim,  # type: ignore[arg-type]
+            max_image_dimension=raw_max_dim,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
         )
 
     def save_to_env(self, env_path: Optional[str | Path] = None) -> Path:

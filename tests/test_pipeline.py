@@ -95,7 +95,7 @@ def test_preflight_zero_byte_path(tmp_path):
 def test_preflight_invalid_input_type():
     """Verify preflight rejects unsupported types."""
     with pytest.raises(TypeError, match="Unsupported input type"):
-        check_preflight(12345)  # type: ignore
+        check_preflight(12345)  # type: ignore[bad-argument-type]  # intentional invalid argument type to test runtime TypeError
 
 
 def test_preflight_valid_path(tmp_path):

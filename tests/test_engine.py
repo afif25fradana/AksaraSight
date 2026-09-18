@@ -284,6 +284,7 @@ def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: Magi
 
     assert result.status == JobStatus.CANCELLED
     assert result.cancelled is True
+    assert result.error is not None
     assert "Processing cancelled by user after page 1" in result.error
     assert result.pages[0].status == JobStatus.SUCCESS
     assert result.pages[0].markdown == "# Page 1 Text"

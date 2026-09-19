@@ -2,7 +2,7 @@
 
 import io
 from pathlib import Path
-from typing import BinaryIO, List, Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import docx
 import docx.document
@@ -348,22 +348,6 @@ def build_docx(result: OCRResult) -> docx.document.Document:
 
     return doc
 
-
-def export_to_docx(result: OCRResult, target: Union[str, Path, BinaryIO]) -> Path:
-    """Export an OCRResult to a .docx Word document file or stream.
-
-    Args:
-        result: Aggregated OCRResult instance.
-        target: Target destination file path or writable binary stream.
-
-    Returns:
-        Path: Target path if target was a path, or Path('exported.docx') if stream.
-    """
-    doc = build_docx(result)
-    doc.save(str(target) if isinstance(target, Path) else target)
-    if isinstance(target, (str, Path)):
-        return Path(target).resolve()
-    return Path("exported.docx")
 
 
 def export_to_docx_bytes(result: OCRResult) -> bytes:

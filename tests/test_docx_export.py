@@ -8,7 +8,6 @@ from docx.shared import Pt
 
 from core.docx_export import (
     build_docx,
-    export_to_docx,
     export_to_docx_bytes,
 )
 from core.models import JobStatus, OCRResult, PageResult
@@ -362,25 +361,17 @@ def test_latex_formula_raw_text_preservation(tmp_path: Path) -> None:
 
 
 # ==============================================================================
-# Export Helpers (export_to_docx and export_to_docx_bytes)
+# Export Helper (export_to_docx_bytes)
 # ==============================================================================
 
-def test_export_to_docx_file_and_bytes(tmp_path: Path) -> None:
-    """Verify export_to_docx writes valid file and export_to_docx_bytes produces valid binary buffer."""
+def test_export_to_docx_bytes() -> None:
+    """Verify export_to_docx_bytes produces valid binary buffer."""
     result = OCRResult(
         file_path="helpers.pdf",
         pages=[PageResult(page_num=1, markdown="# Test Header\nSample content.", status=JobStatus.SUCCESS)],
         status=JobStatus.SUCCESS,
     )
 
-    # 1. export_to_docx
-    target = tmp_path / "export_helpers.docx"
-    saved_path = export_to_docx(result, target)
-    assert saved_path == target.resolve()
-    assert target.exists()
-    assert target.stat().st_size > 0
-
-    # 2. export_to_docx_bytes
     data = export_to_docx_bytes(result)
     assert isinstance(data, bytes)
     assert len(data) > 0

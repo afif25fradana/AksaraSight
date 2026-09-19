@@ -145,7 +145,7 @@ class VisionClient:
         model: str = "glm-ocr",
         max_tokens: int = 4096,
         temperature: float = 0.0,
-    ) -> Tuple[str, Dict[str, Any], float]:  # type: ignore[bad-return]
+    ) -> Tuple[str, Dict[str, Any], float]:
         """Send a single page image and prompt to the local vision backend.
 
         Args:
@@ -235,6 +235,14 @@ class VisionClient:
             raise ServerError(
                 f"Local backend returned HTTP {response.status_code}: {snippet}"
             )
+
+        # Defensive invariant check: loop body returns, continues, or raises on every path
+        raise AssertionError(
+            "unreachable: retry loop exited without returning or raising — "
+            "a new branch was likely added inside the loop that doesn't "
+            "return/raise on every path. This is a code invariant violation, "
+            "not a runtime condition users can trigger."
+        )
 
 
     def verify_multimodal_support(self) -> None:

@@ -14,7 +14,8 @@ test_output/
 test_invoice*.png
 currency_test.png
 dpi_benchmark_results.json
-.coverage*
+.coverage
+.coverage.*
 coverage.json
 docs/images/_generated/
 .vscode/

@@ -12,7 +12,7 @@ from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.formatter import format_output, save_artifacts
 from core.hardware import PINNED_LLAMA_BUILD, detect_hardware
-from core.models import JobConfig, JobStatus, OCRResult, OutputFormat
+from core.models import JobConfig, JobStatus, OutputFormat
 from core.runtime_manager import (
     get_installed_runtime_path,
     get_runtime_dir,

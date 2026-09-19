@@ -1,15 +1,13 @@
 """DOCX document generation and serialization from OCR markdown AST."""
 
 import io
-from pathlib import Path
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Sequence
 
 import docx
-import docx.document
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Pt, RGBColor
 from docx.text.paragraph import Paragraph
 from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode

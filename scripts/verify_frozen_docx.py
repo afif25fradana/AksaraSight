@@ -13,9 +13,7 @@ Verifies at the packaged executable level:
 5. Binary stdout streaming: Verifies frozen CLI stdout redirection creates an uncorrupted DOCX.
 """
 
-import http.server
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess

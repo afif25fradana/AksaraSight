@@ -18,14 +18,11 @@ from config.settings import Settings
 from core.models import JobStatus, OCRResult, PageResult
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from gui.app import (
-    COLOR_INTERACTIVE_NEUTRAL,
-    COLOR_ROW_SELECTED_BG,
     COLOR_STATUS_FAILED,
     COLOR_STATUS_PROCESSING,
     COLOR_STATUS_QUEUED,
     COLOR_STATUS_SUCCESS,
     OCRApp,
-    QueueItem,
     QueueItemStatus,
 )
 

@@ -4,10 +4,9 @@ Provides resilient HTTP communication with local LLM serving engines
 (llama-server, Ollama, vLLM) exposing standard OpenAI-compatible Vision endpoints.
 """
 
-from dataclasses import dataclass
 import random
 import time
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 import requests
 from requests.adapters import HTTPAdapter
 

@@ -18,6 +18,7 @@ from core.client import (
 from core.engine import OCREngine
 from core.models import JobConfig, JobStatus
 from core.pipeline import ExtractedPage
+from tests.fixture_helpers import load_real_glm_ocr_response
 
 
 # ==============================================================================
@@ -27,7 +28,11 @@ from core.pipeline import ExtractedPage
 @pytest.fixture
 def mock_client() -> MagicMock:
     client = MagicMock(spec=VisionClient)
-    client.complete.return_value = ("# Page Title\nRecognized text.", {"id": "test-cmpl"}, 0.25)
+    client.complete.return_value = (
+        "# Page Title\nRecognized text.",
+        load_real_glm_ocr_response(content="# Page Title\nRecognized text.", cmpl_id="test-cmpl"),
+        0.25,
+    )
     return client
 
 
@@ -140,9 +145,9 @@ def test_engine_process_document_success(sample_pdf_path: Path, mock_client: Mag
 def test_engine_per_page_isolation_client_errors(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Page 1 succeeds, Page 2 times out, Page 3 succeeds -> PARTIAL status."""
     mock_client.complete.side_effect = [
-        ("Page 1 Markdown", {"id": "1"}, 0.2),
+        ("Page 1 Markdown", load_real_glm_ocr_response(content="Page 1 Markdown", cmpl_id="cmpl-1"), 0.2),
         ServerTimeoutError("Request to backend timed out after 60s"),
-        ("Page 3 Markdown", {"id": "3"}, 0.3),
+        ("Page 3 Markdown", load_real_glm_ocr_response(content="Page 3 Markdown", cmpl_id="cmpl-3"), 0.3),
     ]
 
     engine = OCREngine(client=mock_client)
@@ -199,7 +204,7 @@ def test_engine_server_offline_mid_document_short_circuits(
 ) -> None:
     """Server dies on page 2 after page 1 succeeds -> aborts page 3, marks FAILED."""
     mock_client.complete.side_effect = [
-        ("Page 1 text", {"id": "1"}, 0.1),
+        ("Page 1 text", load_real_glm_ocr_response(content="Page 1 text", cmpl_id="cmpl-1"), 0.1),
         ServerOfflineError("Connection reset by peer"),
     ]
 
@@ -274,7 +279,7 @@ def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: Magi
     def complete_side_effect(*args, **kwargs):
         # Trigger cancellation after the first page completes
         cancel_token.set()
-        return ("# Page 1 Text", {"id": "1"}, 0.1)
+        return ("# Page 1 Text", load_real_glm_ocr_response(content="# Page 1 Text", cmpl_id="cmpl-1"), 0.1)
 
     mock_client.complete.side_effect = complete_side_effect
 

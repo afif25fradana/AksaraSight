@@ -9,6 +9,7 @@ import pytest
 
 from cli.main import build_parser, discover_files, main
 from core.models import JobStatus, OCRResult, PageResult
+from tests.fixture_helpers import load_real_glm_ocr_response
 
 
 # ==============================================================================
@@ -588,7 +589,11 @@ def test_cli_real_engine_integration(tmp_path: Path, capsys: pytest.CaptureFixtu
     test_img = tmp_path / "invoice.png"
     Image.new("RGB", (150, 150), color="white").save(test_img)
 
-    with patch("core.client.VisionClient.complete", return_value=("# Real Invoice Title\nLine item text", {"id": "test"}, 0.05)):
+    real_response = load_real_glm_ocr_response(
+        content="# Real Invoice Title\nLine item text",
+        cmpl_id="test-cli-cmpl",
+    )
+    with patch("core.client.VisionClient.complete", return_value=("# Real Invoice Title\nLine item text", real_response, 0.05)):
         exit_code = main([str(test_img), "--dpi", "100", "--max-pages", "1"])
 
     assert exit_code == 0

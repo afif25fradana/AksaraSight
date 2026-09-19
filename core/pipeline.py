@@ -20,7 +20,6 @@ MAX_RASTER_PIXELS: int = getattr(Image, "MAX_IMAGE_PIXELS", 89_478_485) or 89_47
 # Module-level lock synchronizing all pypdfium2 C API calls across threads
 _PDFIUM_LOCK = threading.Lock()
 
-DEFAULT_IMAGE_FORMAT: str = "JPEG"
 DEFAULT_JPEG_QUALITY: int = 95
 
 

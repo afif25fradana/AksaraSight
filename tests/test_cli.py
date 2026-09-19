@@ -982,4 +982,218 @@ def test_cli_existing_formats_untouched(
     assert '"status": "SUCCESS"' in out_both
 
 
+# ==============================================================================
+# Batch Progress, Abort Fast-Fail, and CLI Error Handling Tests
+# ==============================================================================
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_progress_and_summary_output(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify multi-file batch processing logs progress banners and status summaries to stdout."""
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "doc1.png"
+    f2 = in_dir / "doc2.png"
+    f1.write_bytes(b"data1")
+    f2.write_bytes(b"data2")
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS, total_duration=0.42),
+        OCRResult(file_path=str(f2), status=JobStatus.SUCCESS, total_duration=0.35),
+    ]
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(in_dir), "-o", str(out_dir)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "[1/2] Processing doc1.png..." in captured.out
+    assert "[1/2] doc1.png -> SUCCESS (0.42s)" in captured.out
+    assert "[2/2] Processing doc2.png..." in captured.out
+    assert "[2/2] doc2.png -> SUCCESS (0.35s)" in captured.out
+
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_abort_fast_fail(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify backend offline abort halts processing immediately and never attempts subsequent files."""
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "doc1.png"
+    f2 = in_dir / "doc2.png"
+    f3 = in_dir / "doc3.png"
+    f1.write_bytes(b"data1")
+    f2.write_bytes(b"data2")
+    f3.write_bytes(b"data3")
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS, total_duration=0.20),
+        OCRResult(
+            file_path=str(f2),
+            status=JobStatus.FAILED,
+            aborted=True,
+            error="Inference backend offline on page 1; remaining pages not attempted: Connection reset by peer",
+            total_duration=0.05,
+        ),
+        OCRResult(file_path=str(f3), status=JobStatus.SUCCESS, total_duration=0.10),
+    ]
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(in_dir), "-o", str(out_dir)])
+
+    assert exit_code == 1
+    # File 3 must NEVER be started
+    assert mock_engine.process_document.call_count == 2
+    captured = capsys.readouterr()
+    assert "[1/3] Processing doc1.png..." in captured.out
+    assert "[1/3] doc1.png -> SUCCESS (0.20s)" in captured.out
+    assert "[2/3] Processing doc2.png..." in captured.out
+    assert "[2/3] doc2.png -> FAILED (0.05s)" in captured.out
+    assert "doc3.png" not in captured.out
+    assert "Aborted: Inference backend offline on page 1; remaining pages not attempted: Connection reset by peer" in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_abort_quiet_suppression(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify quiet flag suppresses progress and abort logs during multi-file abort."""
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "doc1.png"
+    f2 = in_dir / "doc2.png"
+    f1.write_bytes(b"data1")
+    f2.write_bytes(b"data2")
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [
+        OCRResult(file_path=str(f1), status=JobStatus.SUCCESS, total_duration=0.20),
+        OCRResult(
+            file_path=str(f2),
+            status=JobStatus.FAILED,
+            aborted=True,
+            error="Backend offline",
+            total_duration=0.05,
+        ),
+    ]
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(in_dir), "-o", str(out_dir), "-q"])
+
+    assert exit_code == 1
+    assert mock_engine.process_document.call_count == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Aborted:" not in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_single_file_failed_without_pages_stderr(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify failed single file with zero extracted pages writes error to stderr."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = OCRResult(
+        file_path=str(dummy_png),
+        status=JobStatus.FAILED,
+        pages=[],
+        error="Corrupt image header",
+    )
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(dummy_png)])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert "Processing failed: Corrupt image header" in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_single_file_docx_stdout_no_buffer_error(
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify single file DOCX export exits with error when sys.stdout lacks .buffer."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    class BufferlessStdout:
+        def isatty(self) -> bool:
+            return False
+
+        def write(self, s: str) -> int:
+            return len(s)
+
+        def flush(self) -> None:
+            pass
+
+    with patch("sys.stdout", BufferlessStdout()):
+        exit_code = main([str(dummy_png), "-f", "docx"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk." in captured.err
+
+
+@patch("cli.main.OCREngine")
+def test_cli_batch_recursive_discovery(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify CLI discover_files respects the recursive flag."""
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    sub_dir = in_dir / "nested"
+    sub_dir.mkdir()
+
+    f_root = in_dir / "root.png"
+    f_nested = sub_dir / "nested.pdf"
+    f_root.write_bytes(b"root")
+    f_nested.write_bytes(b"nested")
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    # 1. Non-recursive (default): only root.png is processed
+    exit_non_rec = main([str(in_dir), "-o", str(out_dir), "-q"])
+    assert exit_non_rec == 0
+    assert mock_engine.process_document.call_count == 1
+
+    # 2. Recursive (-r): both root.png and nested.pdf are processed
+    mock_engine.reset_mock()
+    exit_rec = main([str(in_dir), "-o", str(out_dir), "-r", "-q"])
+    assert exit_rec == 0
+    assert mock_engine.process_document.call_count == 2
+
+
+
 

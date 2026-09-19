@@ -468,9 +468,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 elif output_fmt == OutputFormat.JSON:
                     sys.stdout.write(formatted["json"] + "\n")
                 elif output_fmt == OutputFormat.DOCX:
-                    if sys.stdout.isatty():
-                        sys.stderr.write("Error: Cannot write binary DOCX output to a terminal. Specify -o/--output or redirect stdout.\n")
-                        return 1
                     raw_docx = formatted["docx"]
                     if hasattr(sys.stdout, "buffer"):
                         sys.stdout.buffer.write(raw_docx)

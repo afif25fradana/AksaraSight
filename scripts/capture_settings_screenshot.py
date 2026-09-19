@@ -1,7 +1,5 @@
 """Capture visual screenshot of the SettingsWindow dialog."""
 
-import ctypes
-from ctypes import wintypes
 from pathlib import Path
 import sys
 import time
@@ -14,64 +12,7 @@ import customtkinter as ctk
 
 from config.settings import Settings
 from gui.settings_window import SecurityConfirmationDialog, SettingsWindow
-
-
-def capture_window_to_image(window) -> Image.Image:
-    """Capture a window HWND using Windows GDI PrintWindow into a PIL Image."""
-    window.update_idletasks()
-    window.update()
-    time.sleep(0.3)
-    window.update_idletasks()
-    window.update()
-
-    hwnd = ctypes.windll.user32.GetParent(window.winfo_id()) or window.winfo_id()
-
-    rect = wintypes.RECT()
-    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    w = rect.right - rect.left
-    h = rect.bottom - rect.top
-
-    hdc_win = ctypes.windll.user32.GetWindowDC(hwnd)
-    hdc_mem = ctypes.windll.gdi32.CreateCompatibleDC(hdc_win)
-    hbm = ctypes.windll.gdi32.CreateCompatibleBitmap(hdc_win, w, h)
-    ctypes.windll.gdi32.SelectObject(hdc_mem, hbm)
-
-    # PrintWindow flag 2 = PW_RENDERFULLCONTENT
-    ctypes.windll.user32.PrintWindow(hwnd, hdc_mem, 2)
-
-    class BITMAPINFOHEADER(ctypes.Structure):
-        _fields_ = [
-            ("biSize", wintypes.DWORD),
-            ("biWidth", wintypes.LONG),
-            ("biHeight", wintypes.LONG),
-            ("biPlanes", wintypes.WORD),
-            ("biBitCount", wintypes.WORD),
-            ("biCompression", wintypes.DWORD),
-            ("biSizeImage", wintypes.DWORD),
-            ("biXPelsPerMeter", wintypes.LONG),
-            ("biYPelsPerMeter", wintypes.LONG),
-            ("biClrUsed", wintypes.DWORD),
-            ("biClrImportant", wintypes.DWORD),
-        ]
-
-    bmi = BITMAPINFOHEADER()
-    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi.biWidth = w
-    bmi.biHeight = -h  # top-down DIB
-    bmi.biPlanes = 1
-    bmi.biBitCount = 32
-    bmi.biCompression = 0
-
-    buf = ctypes.create_string_buffer(w * h * 4)
-    ctypes.windll.gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
-
-    img = Image.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
-
-    ctypes.windll.gdi32.DeleteObject(hbm)
-    ctypes.windll.gdi32.DeleteDC(hdc_mem)
-    ctypes.windll.user32.ReleaseDC(hwnd, hdc_win)
-
-    return img.convert("RGB")
+from scripts.capture_gui_screenshot import capture_window_to_image
 
 
 def main() -> None:

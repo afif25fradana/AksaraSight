@@ -68,6 +68,7 @@ from gui.theme import (
     COLOR_TEXT_SECONDARY,
     COLOR_TEXT_SUBTLE,
     align_segmented_button_corners,
+    apply_window_icon,
 )
 
 from gui.settings_window import SettingsWindow
@@ -239,17 +240,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         ctk.set_appearance_mode("dark")
         self.configure(fg_color=COLOR_CANVAS_BG)
         self.title("AksaraSight Local Studio")
-        for candidate in [
-            Path(__file__).parent / "assets" / "icon.ico",
-            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
-            Path(sys.executable).parent / "assets" / "icon.ico",
-        ]:
-            if candidate.is_file():
-                try:
-                    self.iconbitmap(str(candidate))
-                    break
-                except Exception:
-                    pass
+        apply_window_icon(self)
         self.geometry("1020x680")
         self.minsize(820, 520)
 

@@ -6,6 +6,9 @@ Decoupled into a dedicated constants module to prevent circular imports
 between GUI windows and main application shell.
 """
 
+from pathlib import Path
+import sys
+
 # Base Surface & Canvas Tokens
 COLOR_CANVAS_BG = "#121417"
 COLOR_SURFACE_1 = "#1a1d21"
@@ -68,4 +71,21 @@ def align_segmented_button_corners(seg: object, parent_bg: str) -> None:
         last_btn = buttons_dict.get(values[-1])
         if last_btn is not None and hasattr(last_btn, "configure"):
             last_btn.configure(bg_color=parent_bg)
+
+
+def apply_window_icon(window: object) -> None:
+    """Resolve and apply application window icon across development and frozen environments."""
+    for candidate in [
+        Path(__file__).parent / "assets" / "icon.ico",
+        Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
+        Path(sys.executable).parent / "assets" / "icon.ico",
+    ]:
+        if candidate.is_file():
+            try:
+                iconbitmap = getattr(window, "iconbitmap", None)
+                if callable(iconbitmap):
+                    iconbitmap(str(candidate))
+                break
+            except Exception:
+                pass
 

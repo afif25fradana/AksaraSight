@@ -1,0 +1,36 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "\n**AKSARASIGHT INVOICE #9988**\n\nDate: 2026-09-19\nCustomer: Jane Doe\nAmount USD 1500.00\nStatus: PAID"
+      }
+    }
+  ],
+  "created": 1789836214,
+  "model": "GLM-OCR-Q8_0.gguf",
+  "system_fingerprint": "b10930-56381e407",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 52,
+    "prompt_tokens": 242,
+    "total_tokens": 294,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "id": "chatcmpl-FX2helsWtiNQZTH3RYOeFkg1KRTsTOnM",
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 242,
+    "prompt_ms": 341.261,
+    "prompt_per_token_ms": 1.4101694214876035,
+    "prompt_per_second": 709.1346506046691,
+    "predicted_n": 52,
+    "predicted_ms": 283.445,
+    "predicted_per_token_ms": 5.557745098039216,
+    "predicted_per_second": 179.9290867716841
+  }
+}

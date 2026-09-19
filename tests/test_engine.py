@@ -10,14 +10,13 @@ import pytest
 
 from config.settings import Settings
 from core.client import (
-    BadRequestError,
     ClientError,
     ServerOfflineError,
     ServerTimeoutError,
     VisionClient,
 )
 from core.engine import OCREngine
-from core.models import JobConfig, JobStatus, OutputFormat
+from core.models import JobConfig, JobStatus
 from core.pipeline import ExtractedPage
 
 

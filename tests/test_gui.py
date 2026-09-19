@@ -1,7 +1,5 @@
 import inspect
-import json
 from pathlib import Path
-import queue
 import subprocess
 import sys
 import threading
@@ -13,7 +11,6 @@ import pytest
 import customtkinter as ctk
 
 from config.settings import Settings
-from core.constants import SUPPORTED_EXTENSIONS
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from gui.app import (

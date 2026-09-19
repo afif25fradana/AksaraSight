@@ -14,6 +14,15 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
+### Internal & Test Infrastructure: Test Suite Audit, Retry Guard & Live Fixture Capture (September 20, 2026)
+*Focus: Test suite audit closure, dead code removal, defensive unreachable safety net, live GLM-OCR response fixture capture, and mock schema alignment. (Internal/test infrastructure; no user-facing behavior change).*
+- **Retry-Loop Dead Code Elimination & Invariant Guard (`core/client.py`)**: Formally traced and verified unreachable dead code (`raise ServerError` after retry loop); removed dead fallback and unused tracking variables (`last_error_status`, `last_error_text`). Added defensive `AssertionError` invariant check to protect against future non-exhaustive branching while satisfying static typing without suppressions.
+- **Live GLM-OCR Response Fixtures (`tests/fixtures/`)**: Spun up local managed `llama-server` (CUDA b10930) with `GLM-OCR-Q8_0.gguf` and `mmproj`; captured empirical wire responses (`real_glm_ocr_response.json` and HTTP 400 error `real_glm_ocr_error_response.json`) to serve as golden references for test mocks.
+- **GUI Mock Schema Alignment (`tests/test_gui.py`)**: Corrected mock `VisionClient.complete()` return value from an invalid `{"choices": []}` array to a valid single-choice response schema matching real wire output.
+- **Result:** **403 / 403 tests passing** with 0 Pyrefly static typecheck errors.
+
+---
+
 ### v1.1.0 — Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
 *Focus: Native Word document generation from OCR CommonMark/GFM AST, tabular formatting fidelity, write-path sanitization widening, and frozen bundle distribution. (Additive; no breaking changes).*
 - **Native DOCX Export Engine (`core/docx_export.py`)**: Implemented pure-Python CommonMark and GFM AST converter (`python-docx` + `markdown-it-py`) translating OCR Markdown into clean Word documents with styled headings, inline formatting (bold, italic, inline code), blockquotes, lists, verbatim code blocks, and full table support (including header repeat across pages `w:tblHeader` and row split prevention `w:cantSplit`). Multi-page OCR documents insert page breaks strictly between pages.

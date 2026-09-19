@@ -39,6 +39,7 @@ from gui.theme import (
     COLOR_TEXT_PRIMARY,
     COLOR_TEXT_SUBTLE,
     align_segmented_button_corners,
+    apply_window_icon,
 )
 
 
@@ -54,17 +55,7 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
         self.minsize(480, 300)
         self.configure(fg_color=COLOR_CANVAS_BG)
         self.resizable(False, False)
-        for candidate in [
-            Path(__file__).parent / "assets" / "icon.ico",
-            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
-            Path(sys.executable).parent / "assets" / "icon.ico",
-        ]:
-            if candidate.is_file():
-                try:
-                    self.iconbitmap(str(candidate))
-                    break
-                except Exception:
-                    pass
+        apply_window_icon(self)
 
         try:
             self.transient(parent)
@@ -237,17 +228,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.title("Preferences & Serving Configuration")
         self.geometry("640x740")
         self.minsize(560, 560)
-        for candidate in [
-            Path(__file__).parent / "assets" / "icon.ico",
-            Path(sys.executable).parent / "_internal" / "gui" / "assets" / "icon.ico",
-            Path(sys.executable).parent / "assets" / "icon.ico",
-        ]:
-            if candidate.is_file():
-                try:
-                    self.iconbitmap(str(candidate))
-                    break
-                except Exception:
-                    pass
+        apply_window_icon(self)
         self.configure(fg_color=COLOR_CANVAS_BG)
 
         # Position dialog over parent window

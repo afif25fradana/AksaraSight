@@ -313,43 +313,26 @@ def save_artifacts(
     )
     saved_paths: Dict[str, Path] = {}
 
-    if "markdown" in formatted:
-        md_file = out_dir / f"{safe_stem}.md"
-        temp_file = md_file.with_suffix(".md.tmp")
-        try:
-            temp_file.write_text(formatted["markdown"], encoding="utf-8")
-            temp_file.replace(md_file)
-        except Exception as exc:
-            temp_file.unlink(missing_ok=True)
-            if sanitize_path:
-                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
-            raise
-        saved_paths["markdown"] = md_file.resolve()
-
-    if "json" in formatted:
-        json_file = out_dir / f"{safe_stem}.json"
-        temp_file = json_file.with_suffix(".json.tmp")
-        try:
-            temp_file.write_text(formatted["json"], encoding="utf-8")
-            temp_file.replace(json_file)
-        except Exception as exc:
-            temp_file.unlink(missing_ok=True)
-            if sanitize_path:
-                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
-            raise
-        saved_paths["json"] = json_file.resolve()
-
-    if "docx" in formatted:
-        docx_file = out_dir / f"{safe_stem}.docx"
-        temp_file = docx_file.with_suffix(".docx.tmp")
-        try:
-            temp_file.write_bytes(formatted["docx"])
-            temp_file.replace(docx_file)
-        except Exception as exc:
-            temp_file.unlink(missing_ok=True)
-            if sanitize_path:
-                raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
-            raise
-        saved_paths["docx"] = docx_file.resolve()
+    targets = [
+        ("markdown", ".md", False),
+        ("json", ".json", False),
+        ("docx", ".docx", True),
+    ]
+    for fmt_key, ext, is_binary in targets:
+        if fmt_key in formatted:
+            target_file = out_dir / f"{safe_stem}{ext}"
+            temp_file = target_file.with_suffix(f"{ext}.tmp")
+            try:
+                if is_binary:
+                    temp_file.write_bytes(formatted[fmt_key])  # type: ignore[arg-type]
+                else:
+                    temp_file.write_text(formatted[fmt_key], encoding="utf-8")  # type: ignore[arg-type]
+                temp_file.replace(target_file)
+            except Exception as exc:
+                temp_file.unlink(missing_ok=True)
+                if sanitize_path:
+                    raise _reconstruct_sanitized_exception(exc, file_path=result.file_path, base_dir=base_dir) from None
+                raise
+            saved_paths[fmt_key] = target_file.resolve()
 
     return saved_paths

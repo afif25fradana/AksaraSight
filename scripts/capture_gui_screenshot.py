@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import time
+import tkinter as tk
 from unittest.mock import MagicMock
 
 # Ensure repository root is on sys.path for direct script execution
@@ -27,7 +28,7 @@ from gui.app import (
 )
 
 
-def capture_window_to_image(app: OCRApp) -> Image.Image:
+def capture_window_to_image(app: tk.Misc) -> Image.Image:
     """Capture a window HWND using Windows GDI PrintWindow into a PIL Image."""
     app.update_idletasks()
     app.update()

@@ -2806,7 +2806,20 @@ def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
     ]
 
     mock_client = MagicMock()
-    mock_client.complete.return_value = ("Extracted text", {"choices": []}, 0.05)
+    mock_client.complete.return_value = (
+        "Extracted text",
+        {
+            "id": "chatcmpl-gui-test",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Extracted text"},
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+        0.05,
+    )
 
     captured_cli_result = []
     captured_gui_result = []

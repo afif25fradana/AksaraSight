@@ -5,7 +5,7 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Current State: v1.1.0 (Feature-Complete for Current Scope)
-- **403 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
+- **417 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
 - **Serving Configuration & Multimodal Self-Test Hardening complete** (Empirically verified b10930 arguments, 1x1 multimodal probe, session caching, and local GGUF mmproj safeguards).
@@ -13,6 +13,17 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Milestones
+
+### Internal & Test Infrastructure: Coverage-Gap Resolution & Shared Fixture Alignment (September 20, 2026)
+*Focus: End-to-end integration testing, downstream mock alignment to real GLM-OCR wire responses, batch CLI fast-fail verification, and Word (.docx) export AST coverage. (Internal/test infrastructure; no user-facing behavior change).*
+- **Shared Wire Fixture Helpers (`tests/fixture_helpers.py`)**: Centralized wire-accurate GLM-OCR completion response generation via `load_real_glm_ocr_response()` and `load_real_glm_ocr_error_response()`, aligning downstream mocks across `tests/test_engine.py` and `tests/test_cli.py` with real wire schema.
+- **Batch CLI Functional Coverage (`tests/test_cli.py`)**: Added test coverage for multi-file progress banner reporting (`[1/3] ... -> SUCCESS`), fail-fast abort on server disconnection (guaranteeing subsequent documents are strictly never started), quiet flag banner suppression, single-file zero-page stderr reporting, missing stdout buffer error handling, and recursive directory discovery.
+- **True End-to-End Loopback TCP Integration Test (`tests/test_engine.py`)**: Implemented unmocked E2E integration test exercising `pypdfium2` PDF synthesis -> `OCREngine` -> `VisionClient` -> live TCP loopback `HTTPServer` -> atomic disk export via `save_artifacts()`. Achieved 100% statement coverage on `core/engine.py` alongside `engine.close()` lifecycle coverage.
+- **DOCX CommonMark/GFM AST Fidelity Coverage (`tests/test_docx_export.py`)**: Added targeted unit tests covering GFM table cell horizontal alignment (`WD_ALIGN_PARAGRAPH.LEFT/CENTER/RIGHT`), rich inline cell styling (bold, italic, strikethrough, code run), paragraph softbreak vs hardbreak separation, empty and 0-column table handling, unrecognized AST node fallback, and mixed-status multi-page break boundary fidelity.
+- **Gitignore Coverage Pattern Tightening (`.gitignore`)**: Tightened coverage exclusion pattern to `.coverage` and `.coverage.*`, ensuring `.coveragerc` is preserved and tracked.
+- **Result:** **417 / 417 tests passing** (+14 new tests) with 0 Pyrefly static typecheck errors.
+
+---
 
 ### Internal & Test Infrastructure: Test Suite Audit, Retry Guard & Live Fixture Capture (September 20, 2026)
 *Focus: Test suite audit closure, dead code removal, defensive unreachable safety net, live GLM-OCR response fixture capture, and mock schema alignment. (Internal/test infrastructure; no user-facing behavior change).*

@@ -154,6 +154,15 @@ def _friendly_err(exc: Any) -> str:
     return str(exc)[:120]
 
 
+def _format_file_size(size_bytes: int) -> str:
+    """Format byte size into human-readable B, KB, or MB string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
 def _init_tkinterdnd(tkroot: Any) -> str:
     """Initialize TkinterDnD with forward-slash normalized auto_path for Windows/Tcl 9 compatibility.
 
@@ -1010,13 +1019,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Compute formatted file size once at creation time (P10)
         try:
-            size_bytes = path.stat().st_size
-            if size_bytes < 1024:
-                file_size_str = f"{size_bytes} B"
-            elif size_bytes < 1024 * 1024:
-                file_size_str = f"{size_bytes / 1024:.1f} KB"
-            else:
-                file_size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+            file_size_str = _format_file_size(path.stat().st_size)
         except Exception:
             file_size_str = "0 B"
 
@@ -1155,13 +1158,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if size_str is None:
             # Fallback/caching if QueueItem was instantiated without file_size_str
             try:
-                size_bytes = item.file_path.stat().st_size
-                if size_bytes < 1024:
-                    size_str = f"{size_bytes} B"
-                elif size_bytes < 1024 * 1024:
-                    size_str = f"{size_bytes / 1024:.1f} KB"
-                else:
-                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                size_str = _format_file_size(item.file_path.stat().st_size)
             except Exception:
                 size_str = "0 B"
             item.file_size_str = size_str

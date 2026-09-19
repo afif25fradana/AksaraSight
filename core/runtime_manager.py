@@ -5,7 +5,7 @@ verification, zip-slip immune extraction, staging isolation, post-install binary
 validation, and persistent manifest caching.
 """
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json

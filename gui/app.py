@@ -1,9 +1,7 @@
 """GUI Application for OCR-LLM-Local desktop studio."""
 
-import base64
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-import io
 import json
 import logging
 import os
@@ -28,10 +26,7 @@ from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.engine import OCREngine
 from core.formatter import (
-    format_output,
     resolve_unique_stem,
-    sanitize_export_error,
-    sanitize_export_path,
     save_artifacts,
 )
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
@@ -2220,7 +2215,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             poll_interval_ms = 50 if is_active else 250
             self._poll_id = self.after(poll_interval_ms, self._process_result_queue)
 
-    _poll_result_queue = _process_result_queue
 
     def _stop_indeterminate_progress(self) -> None:
         """Stop indeterminate progress bar animation and switch back to determinate mode (F7)."""

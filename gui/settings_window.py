@@ -5,8 +5,7 @@ from pathlib import Path
 import sys
 import threading
 from tkinter import filedialog
-from typing import Any, Callable, Dict, Optional, Tuple
-from urllib.parse import urlsplit
+from typing import Any, Callable, Optional, Tuple
 
 import customtkinter as ctk
 
@@ -36,10 +35,8 @@ from gui.theme import (
     COLOR_SURFACE_1,
     COLOR_SURFACE_2,
     COLOR_SURFACE_BORDER,
-    COLOR_SURFACE_BORDER_HOVER,
     COLOR_TEXT_MUTED,
     COLOR_TEXT_PRIMARY,
-    COLOR_TEXT_SECONDARY,
     COLOR_TEXT_SUBTLE,
     align_segmented_button_corners,
 )

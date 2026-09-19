@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import requests

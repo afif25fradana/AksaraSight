@@ -1,12 +1,8 @@
 """Unit and functional tests for hardware capability detection engine."""
 
 from unittest.mock import MagicMock, patch
-import pytest
-
 from core.hardware import (
     HardwareProfile,
-    MIN_CUDA_DRIVER_API_VERSION,
-    MIN_CUDA_DRIVER_VERSION,
     PINNED_LLAMA_BUILD,
     _parse_driver_version,
     _probe_nvidia_smi,
@@ -173,7 +169,6 @@ def test_real_hardware_smoke() -> None:
 
 def test_probe_nvidia_smi_prioritizes_system_paths_over_shutil_which() -> None:
     """Verify _probe_nvidia_smi checks known System32/Program Files paths before shutil.which (SEC-MR2)."""
-    import subprocess
     from pathlib import Path
 
     mock_res = MagicMock()

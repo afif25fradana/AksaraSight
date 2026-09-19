@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 from unittest.mock import patch
 import pytest
-from config.settings import Settings, VALID_BACKENDS
+from config.settings import Settings
 
 
 def test_default_settings(monkeypatch):

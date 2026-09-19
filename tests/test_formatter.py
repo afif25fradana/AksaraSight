@@ -8,7 +8,6 @@ import pytest
 from docx import Document
 
 from core.formatter import (
-    WINDOWS_RESERVED_NAMES,
     format_output,
     resolve_unique_stem,
     sanitize_export_path,

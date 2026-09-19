@@ -2,7 +2,6 @@
 
 import io
 from pathlib import Path
-import pytest
 from docx import Document
 from docx.shared import Pt
 

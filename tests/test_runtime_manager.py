@@ -12,20 +12,16 @@ import zipfile
 import pytest
 import requests
 
-from core.hardware import PINNED_LLAMA_BUILD
 from core.runtime_manager import (
-    InstalledRuntimeInfo,
     ReleaseAssetInfo,
     RuntimeDownloadError,
     RuntimeIntegrityError,
-    RuntimeManagerError,
     RuntimeValidationError,
     ZipSlipSecurityError,
     download_and_verify_asset,
     ensure_runtime,
     fetch_release_assets_metadata,
     get_installed_runtime_path,
-    get_runtime_base_dir,
     get_runtime_dir,
     is_runtime_installed,
     resolve_required_asset_names,

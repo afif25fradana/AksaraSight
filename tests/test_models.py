@@ -9,7 +9,6 @@ from core.models import (
     OCRResult,
     OutputFormat,
     PageResult,
-    PROMPT_PRESETS,
 )
 
 

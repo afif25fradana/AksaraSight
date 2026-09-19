@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 from docx import Document
 import pytest
 
-from cli.main import SUPPORTED_EXTENSIONS, build_parser, discover_files, main
-from core.models import JobStatus, OCRResult, OutputFormat, PageResult
+from cli.main import build_parser, discover_files, main
+from core.models import JobStatus, OCRResult, PageResult
 
 
 # ==============================================================================

@@ -1,11 +1,8 @@
 """Unit tests for core/server_manager.py."""
 
-from collections import deque
-from pathlib import Path
 import subprocess
 import sys
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,7 +13,6 @@ from core.server_manager import (
     ServerManager,
     ServerOwnership,
     ServerStatus,
-    ServerStatusInfo,
     probe_server_health,
     resolve_base_url,
 )

@@ -347,21 +347,7 @@ class Settings:
         }
 
         # Also track legacy/unprefixed alias mappings
-        aliases: dict[str, str] = {
-            "BACKEND": "OCR_BACKEND",
-            "LOCAL_ENDPOINT": "OCR_ENDPOINT",
-            "TIMEOUT": "OCR_TIMEOUT",
-            "MAX_RETRIES": "OCR_MAX_RETRIES",
-            "ALLOW_REMOTE": "OCR_ALLOW_REMOTE",
-            "RUNTIME_MODE": "OCR_RUNTIME_MODE",
-            "MANAGED_BACKEND_OVERRIDE": "OCR_MANAGED_BACKEND_OVERRIDE",
-            "DPI": "OCR_DPI",
-            "MAX_PAGES": "OCR_MAX_PAGES",
-            "MAX_IMAGE_DIMENSION": "OCR_MAX_IMAGE_DIMENSION",
-            "LLAMA_SERVER_PATH": "OCR_LLAMA_SERVER_PATH",
-            "MODEL_REPO": "OCR_MODEL_REPO",
-            "AUTO_START_SERVER": "OCR_AUTO_START_SERVER",
-        }
+        aliases: dict[str, str] = {k.removeprefix("OCR_"): k for k in managed} | {"LOCAL_ENDPOINT": "OCR_ENDPOINT"}
 
         def _quote_val(v: str) -> str:
             # Single-quote strings to preserve whitespace, '#' symbols, and special characters

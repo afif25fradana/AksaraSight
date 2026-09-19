@@ -38,6 +38,8 @@ KNOWN_PINNED_HASHES: Dict[str, str] = {
     "llama-b10930-bin-win-cpu-x64.zip": "a0c1bf04e7b7b4b6c7f280b6bef08ecaa170f2ba611830b2332bce9ddf352dab",
 }
 
+_EXE_NAME: str = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+
 
 # ==============================================================================
 # Exceptions Hierarchy
@@ -467,8 +469,7 @@ def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -
     """
     runtime_dir = get_runtime_dir(tag, backend)
     manifest_path = runtime_dir / "manifest.json"
-    exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
-    exe_path = runtime_dir / exe_name
+    exe_path = runtime_dir / _EXE_NAME
 
     if not runtime_dir.is_dir() or not manifest_path.is_file() or not exe_path.is_file():
         return False
@@ -486,8 +487,7 @@ def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -
 def get_installed_runtime_path(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Optional[Path]:
     """Return the absolute path to the installed llama-server executable, or None."""
     if is_runtime_installed(tag, backend):
-        exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
-        return get_runtime_dir(tag, backend) / exe_name
+        return get_runtime_dir(tag, backend) / _EXE_NAME
     return None
 
 
@@ -543,7 +543,7 @@ def ensure_runtime(
     downloads_dir = base_dir / "downloads"
     staging_dir = base_dir / f"staging_{clean_tag}_{clean_backend}_{uuid.uuid4().hex[:8]}"
 
-    exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+    exe_name = _EXE_NAME
 
     try:
         # 2. Resolve required assets

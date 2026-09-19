@@ -5,9 +5,16 @@ from pathlib import Path
 from docx import Document
 from docx.shared import Pt
 
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from markdown_it.token import Token
+from markdown_it.tree import SyntaxTreeNode
+
 from core.docx_export import (
+    _render_ast_node,
+    _render_table_node,
     build_docx,
     export_to_docx_bytes,
+    render_markdown_page,
 )
 from core.models import JobStatus, OCRResult, PageResult
 
@@ -390,3 +397,181 @@ def test_empty_or_failed_result_handled_cleanly() -> None:
     result_error = OCRResult(file_path="err.pdf", pages=[], status=JobStatus.FAILED, error="Corrupt PDF header")
     doc_err = build_docx(result_error)
     assert "Error: Corrupt PDF header" in doc_err.paragraphs[0].text
+
+
+# ==============================================================================
+# Table Alignment, Inline Styling, and Degenerate Cases Tests
+# ==============================================================================
+
+def test_table_cell_alignment_left_center_right(tmp_path: Path) -> None:
+    """Verify table cell paragraph alignment matches GFM column specification (:---, :---:, ---:)."""
+    table_md = (
+        "| Left Header | Center Header | Right Header |\n"
+        "|:---|:---:|---:|\n"
+        "| L Data | C Data | R Data |\n"
+    )
+    result = OCRResult(
+        file_path="align_table.pdf",
+        pages=[PageResult(page_num=1, markdown=table_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+
+    doc = build_docx(result)
+    target = tmp_path / "align_table.docx"
+    doc.save(str(target))
+
+    reopened = Document(str(target))
+    assert len(reopened.tables) == 1
+    table = reopened.tables[0]
+
+    # Row 0 (Headers)
+    assert table.rows[0].cells[0].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert table.rows[0].cells[1].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert table.rows[0].cells[2].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+
+    # Row 1 (Data)
+    assert table.rows[1].cells[0].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert table.rows[1].cells[1].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert table.rows[1].cells[2].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+
+
+def test_table_cell_rich_inline_formatting(tmp_path: Path) -> None:
+    """Verify bold, italic, strikethrough, and inline code inside table cells."""
+    table_md = (
+        "| Feature Header |\n"
+        "|:---|\n"
+        "| **Bold** and *Italic* and ~~Strike~~ and `code_snippet` |\n"
+    )
+    result = OCRResult(
+        file_path="styled_table.pdf",
+        pages=[PageResult(page_num=1, markdown=table_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+
+    doc = build_docx(result)
+    target = tmp_path / "styled_table.docx"
+    doc.save(str(target))
+
+    reopened = Document(str(target))
+    table = reopened.tables[0]
+
+    # Row 1 (Styled cells)
+    p_styled = table.rows[1].cells[0].paragraphs[0]
+    runs = p_styled.runs
+
+    bold_runs = [r for r in runs if r.bold]
+    assert any("Bold" in r.text for r in bold_runs)
+
+    italic_runs = [r for r in runs if r.italic]
+    assert any("Italic" in r.text for r in italic_runs)
+
+    strike_runs = [r for r in runs if r.font.strike]
+    assert any("Strike" in r.text for r in strike_runs)
+
+    code_runs = [r for r in runs if r.font.name == "Consolas"]
+    assert any("code_snippet" in r.text for r in code_runs)
+
+
+def test_paragraph_softbreak_and_hardbreak(tmp_path: Path) -> None:
+    """Verify soft breaks render as space and hard breaks render as newline in paragraphs."""
+    md = "First Soft Line\nSecond Soft Line\n\nFirst Hard Line  \nSecond Hard Line"
+    result = OCRResult(
+        file_path="breaks.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+
+    doc = build_docx(result)
+    target = tmp_path / "breaks.docx"
+    doc.save(str(target))
+
+    reopened = Document(str(target))
+    paragraphs = reopened.paragraphs
+
+    # Paragraph 0: softbreak -> "First Soft Line Second Soft Line"
+    assert "First Soft Line Second Soft Line" in paragraphs[0].text
+
+    # Paragraph 1: hardbreak -> contains newline "\n"
+    assert "First Hard Line\nSecond Hard Line" in paragraphs[1].text
+
+
+
+def test_table_empty_and_zero_cols_handling() -> None:
+    """Verify empty or zero-column table nodes exit cleanly without exceptions."""
+    doc = Document()
+
+    # 1. Empty table node
+    root_empty = SyntaxTreeNode([Token("table_open", "table", 1), Token("table_close", "table", -1)])
+    _render_table_node(doc, root_empty.children[0])
+    assert len(doc.tables) == 0
+
+    # 2. Table with empty row (max_cols == 0)
+    root_zero = SyntaxTreeNode([
+        Token("table_open", "table", 1),
+        Token("tbody_open", "tbody", 1),
+        Token("tr_open", "tr", 1),
+        Token("tr_close", "tr", -1),
+        Token("tbody_close", "tbody", -1),
+        Token("table_close", "table", -1),
+    ])
+    _render_table_node(doc, root_zero.children[0])
+    assert len(doc.tables) == 0
+
+
+def test_render_markdown_page_empty_and_fallback_node() -> None:
+    """Verify blank markdown strings and unrecognized block AST nodes are handled cleanly."""
+    doc = Document()
+
+    # 1. Whitespace only markdown string
+    render_markdown_page(doc, "   \n\t  \n")
+    assert len(doc.paragraphs) == 0
+
+    # 2. Unrecognized block node with content
+    root_content = SyntaxTreeNode([Token("custom_unknown_block", "", 0, content="Fallback raw content string")])
+    _render_ast_node(doc, root_content.children[0])
+    assert doc.paragraphs[0].text == "Fallback raw content string"
+
+    # 3. Unrecognized block node with children
+    doc2 = Document()
+    root_container = SyntaxTreeNode([
+        Token("custom_container_open", "div", 1),
+        Token("paragraph_open", "p", 1),
+        Token("paragraph_close", "p", -1),
+        Token("custom_container_close", "div", -1),
+    ])
+    _render_ast_node(doc2, root_container.children[0])
+    assert len(doc2.paragraphs) == 1
+
+
+def test_multipage_with_failed_or_empty_pages_page_break_fidelity(tmp_path: Path) -> None:
+    """Verify page breaks are placed strictly between valid, non-empty pages."""
+    result = OCRResult(
+        file_path="multipage_mixed.pdf",
+        pages=[
+            PageResult(page_num=1, markdown="# Page 1 Valid\nContent.", status=JobStatus.SUCCESS),
+            PageResult(page_num=2, markdown="", status=JobStatus.FAILED, error="Timeout"),
+            PageResult(page_num=3, markdown="   \n  ", status=JobStatus.SUCCESS),
+            PageResult(page_num=4, markdown="# Page 4 Valid\nFinal content.", status=JobStatus.SUCCESS),
+        ],
+        status=JobStatus.PARTIAL,
+    )
+
+    doc = build_docx(result)
+    target = tmp_path / "multipage_mixed.docx"
+    doc.save(str(target))
+
+    reopened = Document(str(target))
+    paragraphs = reopened.paragraphs
+
+    # Count literal page breaks (<w:br w:type="page"/>)
+    page_break_count = sum(
+        1 for p in paragraphs for r in p.runs
+        if '<w:br w:type="page"/>' in r._r.xml
+    )
+
+    # Exactly 2 valid pages with content (Page 1 and Page 4) -> exactly 1 page break between them
+    assert page_break_count == 1, f"Expected exactly 1 page break, found {page_break_count}"
+    assert "Page 1 Valid" in paragraphs[0].text
+    # Trailing paragraph must not end with a page break
+    assert '<w:br w:type="page"/>' not in paragraphs[-1].runs[-1]._r.xml
+

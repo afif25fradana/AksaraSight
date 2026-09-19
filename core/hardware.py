@@ -102,14 +102,10 @@ def _parse_driver_version(ver_str: Optional[str]) -> Optional[Tuple[int, int]]:
     if not ver_str or not isinstance(ver_str, str):
         return None
     try:
-        parts = ver_str.strip().split(".")
-        if len(parts) >= 2:
-            return int(parts[0]), int(parts[1])
-        if len(parts) == 1:
-            return int(parts[0]), 0
+        major, *rest = ver_str.strip().split(".")
+        return int(major), int(rest[0]) if rest else 0
     except (ValueError, TypeError):
-        pass
-    return None
+        return None
 
 
 def _probe_nvidia_smi() -> Optional[Tuple[str, int, str]]:

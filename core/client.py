@@ -145,7 +145,7 @@ class VisionClient:
         model: str = "glm-ocr",
         max_tokens: int = 4096,
         temperature: float = 0.0,
-    ) -> Tuple[str, Dict[str, Any], float]:
+    ) -> Tuple[str, Dict[str, Any], float]:  # type: ignore[bad-return]
         """Send a single page image and prompt to the local vision backend.
 
         Args:
@@ -186,8 +186,6 @@ class VisionClient:
 
         headers = {"Content-Type": "application/json"}
         max_retries = max(0, self.settings.max_retries)
-        last_error_status: Optional[int] = None
-        last_error_text: str = ""
 
         for attempt in range(max_retries + 1):
             start_time = time.perf_counter()
@@ -225,8 +223,6 @@ class VisionClient:
 
             # Retryable server errors
             if response.status_code in RETRYABLE_STATUS_CODES:
-                last_error_status = response.status_code
-                last_error_text = response.text[:200]
                 if attempt < max_retries:
                     # Full-jitter exponential backoff: sleep in [0, backoff_factor * 2^attempt]
                     max_sleep = self.backoff_factor * (2 ** attempt)
@@ -240,9 +236,6 @@ class VisionClient:
                 f"Local backend returned HTTP {response.status_code}: {snippet}"
             )
 
-        raise ServerError(
-            f"Local backend failed after {max_retries} retries (HTTP {last_error_status}): {last_error_text}"
-        )
 
     def verify_multimodal_support(self) -> None:
         """Send a lightweight 1x1 test image probe to verify backend multimodal support.

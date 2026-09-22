@@ -237,7 +237,7 @@ For contributors building the standalone portable distribution (`python scripts/
 | `gui/` | CustomTkinter desktop studio (`app.py`, `settings_window.py`, `theme.py`). |
 | `config/` | Immutable, validated `Settings` dataclass with comment-preserving `.env` persistence. |
 | `scripts/` | Benchmark harnesses, screenshot generation utilities, and headless smoke tests. |
-| `tests/` | 403 unit and integration tests covering all modules and failure modes. |
+| `tests/` | 417 unit and integration tests covering all modules and failure modes. |
 
 ## License
 

@@ -487,8 +487,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 1
 
     # 6. Exit code calculation
-    if has_aborted:
-        return 1
+    assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"
 
     if all_success:
         return 0

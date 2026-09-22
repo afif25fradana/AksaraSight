@@ -4,7 +4,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-## Current State: v1.1.0 (Feature-Complete for Current Scope)
+## Current State: v1.1.1 (Feature-Complete for Current Scope)
 - **417 automated tests passing** (100% pass rate across unit, functional, integration, and smoke tests).
 - **All 5 implementation phases complete** (Core, CLI, Desktop GUI Studio, Live Backend Integration, Server Supervision).
 - **All 7 comprehensive audit categories formally closed** (Security x2, Performance, Code Quality/Ponytail, Correctness/Data Integrity, Test Coverage Gaps, UX/Accessibility, plus Managed Runtime Supply-Chain Security Review).
@@ -13,6 +13,15 @@ A chronological overview of the development, architecture, security hardening, a
 ---
 
 ## Milestones
+
+### v1.1.1 — Maintenance, Test-Suite Hardening & Documentation Synchronization (September 22, 2026)
+*Focus: Release readiness, version alignment, batch CLI invariant assertion hardening, and documentation test-count synchronization. (Patch/hardening; no breaking changes).*
+- **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.
+- **Batch CLI Invariant Assertion Hardening (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit defensive invariant assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), aligning with the defensive invariant guard pattern in `core/client.py:241` while retaining loop abort tracking.
+- **Documentation & Test Count Synchronization**: Reconciled test count references to 417 across `README.md`, `architecture.md`, and `AGENTS.md` following Stage 6 coverage-gap additions. Updated `architecture.md` version specification to `1.1.1`.
+- **Result:** **417 / 417 tests passing** with 0 Pyrefly static typecheck errors.
+
+---
 
 ### Internal & Test Infrastructure: Coverage-Gap Resolution & Shared Fixture Alignment (September 20, 2026)
 *Focus: End-to-end integration testing, downstream mock alignment to real GLM-OCR wire responses, batch CLI fast-fail verification, and Word (.docx) export AST coverage. (Internal/test infrastructure; no user-facing behavior change).*

@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run full test suite (403 tests)
+      - name: Run full test suite (417 tests)
         run: python -m pytest
 
   test-linux:

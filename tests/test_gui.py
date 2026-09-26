@@ -1472,6 +1472,7 @@ def test_settings_window_and_security_dialog_escape_key_dismissal():
         win = SettingsWindow(parent, settings=Settings())
         called_win = []
         win._on_cancel = lambda: called_win.append(1)
+        win.focus_force()
         win.update()
         win.event_generate("<Escape>")
         win.update()
@@ -1481,6 +1482,7 @@ def test_settings_window_and_security_dialog_escape_key_dismissal():
         dialog = SecurityConfirmationDialog(parent)
         called_dialog = []
         dialog._on_cancel = lambda: called_dialog.append(1)
+        dialog.focus_force()
         dialog.update()
         dialog.event_generate("<Escape>")
         dialog.update()

@@ -76,6 +76,12 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+
+
     def _build_ui(self) -> None:
         card = ctk.CTkFrame(
             self,

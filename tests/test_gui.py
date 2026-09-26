@@ -1482,6 +1482,7 @@ def test_settings_window_and_security_dialog_escape_key_dismissal():
         dialog = SecurityConfirmationDialog(parent)
         called_dialog = []
         dialog._on_cancel = lambda: called_dialog.append(1)
+        time.sleep(0.02)
         dialog.focus_force()
         dialog.update()
         dialog.event_generate("<Escape>")

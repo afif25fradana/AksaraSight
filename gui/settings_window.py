@@ -54,7 +54,9 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
         self.geometry("520x330")
         self.minsize(480, 300)
         self.configure(fg_color=COLOR_CANVAS_BG)
-        self.resizable(False, False)
+        # Bypass CustomTkinter's Windows resizable wrapper which schedules an
+        # async titlebar re-withdraw timer (causing withdrawal race conditions).
+        super(ctk.CTkToplevel, self).resizable(False, False)
         apply_window_icon(self)
 
         try:

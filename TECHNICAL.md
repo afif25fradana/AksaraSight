@@ -39,7 +39,7 @@ AksaraSight/
 ├── gui/                   # Desktop GUI Studio (CustomTkinter)
 │   ├── app.py             # Main application window, drag-and-drop, worker threads
 │   ├── settings_window.py # Runtime manager, preferences modal, backend toggle
-│   └── theme.py           # Calm Trust design system tokens and styling helpers
+│   └── theme.py           # Dark theme color tokens and styling helpers
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
@@ -49,7 +49,7 @@ AksaraSight/
 ### Architectural Guarantees & Concurrency
 - **Thread Safety**: `pypdfium2` PDF bindings are not thread-safe; all PDF operations are strictly serialized via `_PDFIUM_LOCK` in `core/pipeline.py`.
 - **GUI Thread Isolation**: Tkinter and Tcl are single-threaded on Windows. Background worker threads never invoke UI methods directly; all cross-thread events route through `_ui_callback_queue` drained on the main loop.
-- **Fail-Fast Invariant**: If the local inference endpoint is unreachable or drops connection mid-document, the pipeline aborts immediately with a `ServerOfflineError`. Documents are never routed outside the machine.
+- **Fail-Safe Offline Behavior**: If the local backend is unreachable or drops connection mid-document, processing stops immediately with a `ServerOfflineError` rather than routing files externally.
 
 ---
 
@@ -203,8 +203,8 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 
 ### Running the Test Suite
 The test suite consists of two distinct tiers:
-1. **Core & CLI Portability Suite** (341 tests): Headless unit, functional, and integration tests across ingestion, formatting, hardware detection, model client, and runtime supervision. Verified 100% green on Linux CI (339 passed, 2 platform-specific tests cleanly skipped) and runnable on any host.
-2. **Desktop GUI Studio Suite** (76 tests): Tkinter and CustomTkinter desktop interface tests. Fully verified 100% green on Windows CI (417/417 tests passing across the complete suite) and locally on Windows development machines.
+1. **Core & CLI Suite**: Headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, and runtime supervision. Runs on both Linux and Windows.
+2. **Desktop GUI Suite**: Tkinter and CustomTkinter desktop interface tests, run on Windows.
 
 Run tests from the repository root:
 

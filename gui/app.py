@@ -32,7 +32,7 @@ from core.formatter import (
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from core.pipeline import _PDFIUM_LOCK
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
-# Design System Tokens - Calm Trust Palette (WCAG 2.1 AA verified)
+# Color tokens (WCAG 2.1 AA verified)
 # Re-exported from gui.theme for backward compatibility
 from gui.theme import (
     COLOR_ACCENT_DISABLED,
@@ -1034,7 +1034,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         start_idx: int = 0,
         chunk_size: int = 25,
     ) -> None:
-        """Insert queue row widgets in chunks to keep UI responsive during folder drops (P6)."""
+        """Insert queue row widgets in chunks to keep UI responsive during folder drops."""
         if self._is_shutting_down:
             self._pending_batch_inserts = max(0, self._pending_batch_inserts - 1)
             return
@@ -1055,7 +1055,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Enqueued {len(files)} files from {folder_name}")
 
     def enqueue_file(self, file_path: Union[str, Path], sync: bool = False) -> Optional[threading.Thread]:
-        """Submit a document file or folder to the worker task queue and add it to the UI queue table (P6)."""
+        """Submit a document file or folder to the worker task queue and add it to the UI queue table."""
         if self._is_shutting_down:
             return None
 
@@ -1080,7 +1080,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 self._update_footer(f"Enqueued {len(child_files)} files from {path.name}")
                 return None
 
-            # Asynchronous recursive scan off main thread + chunked batch insertion (P6)
+            # Asynchronous recursive scan off main thread + chunked batch insertion
             def _scan_worker() -> None:
                 try:
                     child_files = sorted(
@@ -1321,7 +1321,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._on_tab_changed()
 
     def _render_preview(self, item: QueueItem, tab_name: Optional[str] = None) -> None:
-        """Populate the active preview tab based on the queue item's status and results (P1 Lazy Tab Rendering)."""
+        """Populate the active preview tab based on the queue item's status and results."""
         target_tab = tab_name or self._tabview.get()
 
         if target_tab == "Image Preview":
@@ -1529,7 +1529,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         page_index: int,
         effective_dpi: Optional[int] = None,
     ) -> Tuple[Optional[Image.Image], Optional[str]]:
-        """Load and rasterize a single page on-demand from disk without holding base64 strings in memory (P2).
+        """Load and rasterize a single page on-demand from disk without holding base64 strings in memory.
 
         If the source file no longer exists (moved or deleted after enqueue), returns a clean
         descriptive error message without raising exceptions.
@@ -1600,7 +1600,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return None, f"Failed to load image: {exc}"
 
     def _render_image_preview(self, item: QueueItem) -> None:
-        """Render original raster scan image for the active document page on-demand (P2)."""
+        """Render original raster scan image for the active document page on-demand."""
         if not (item.result and item.result.pages):
             self._reset_image_preview()
             return
@@ -1759,7 +1759,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             )
 
     def _update_queue_header(self) -> None:
-        """Update the queue header label with active total count and cleanup hint (P7)."""
+        """Update the queue header label with active total count and cleanup hint."""
         count = len(self._queue_items)
         self._queue_title.configure(text=f"Queue ({count})")
 
@@ -1845,7 +1845,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._update_footer(f"Export error: {_friendly_err(exc)}")
 
     def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
-        """Export artifacts for all successfully processed documents in the queue (P8)."""
+        """Export artifacts for all successfully processed documents in the queue."""
         if self._is_exporting:
             return None
 
@@ -2110,7 +2110,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     )
 
                 try:
-                    # Apply any pending settings updates at document boundary (SEC-3.1)
+                    # Apply any pending settings updates at document boundary
                     self._apply_pending_engine_settings()
                     effective_settings = (
                         self.engine.settings
@@ -2188,7 +2188,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 pass
 
     def _process_result_queue(self) -> None:
-        """Periodic timer callback running on the main thread to drain worker events (P5)."""
+        """Periodic timer callback running on the main thread to drain worker events."""
         self._drain_ui_callbacks()
         while True:
             try:
@@ -2257,7 +2257,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     # Accumulator for live per-page preview during processing; overwritten by
                     # the authoritative OCRResult from the COMPLETED event. status=SUCCESS
                     # default is intentionally stale (resolve_status() never called here)
-                    # since COMPLETED replaces item.result entirely. (C-3)
+                    # since COMPLETED replaces item.result entirely.
                     item.result = OCRResult(file_path=item.file_path, status=JobStatus.SUCCESS)
                 if event.page_result:
                     if not any(p.page_num == event.page_result.page_num for p in item.result.pages):
@@ -2378,7 +2378,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._ui_callback_queue.put((func, args, kwargs))
 
     def _start_server_poller(self) -> None:
-        """Start background daemon thread periodically querying server health (P5)."""
+        """Start background daemon thread periodically querying server health."""
         try:
             self._apply_server_status_update(self.server_manager.get_status_info())
         except Exception:
@@ -2406,7 +2406,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._server_poller_thread = thread
 
     def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
-        """Update header status pill and action button from ServerStatusInfo (P5)."""
+        """Update header status pill and action button from ServerStatusInfo."""
         if self._is_shutting_down:
             return
 
@@ -2577,14 +2577,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.settings = new_settings
         self.server_manager.settings = new_settings
 
-        # Queue settings for safe inter-document update (SEC-3.1)
+        # Queue settings for safe inter-document update
         self._pending_engine_settings = new_settings
         if hasattr(self.engine, "invalidate_backend_verification"):
             self.engine.invalidate_backend_verification()
         if self._current_cancel_event is None:
             self._apply_pending_engine_settings()
 
-        # Refresh queue rows' metadata if DPI setting changed (C-12)
+        # Refresh queue rows' metadata if DPI setting changed
         for q_item in self._queue_items.values():
             if q_item.detail_label and q_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED):
                 q_item.detail_label.configure(text=self._format_queue_item_meta(q_item))

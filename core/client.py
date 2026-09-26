@@ -41,15 +41,7 @@ class ServerError(ClientError):
 
 
 class ResponseParsingError(ClientError):
-    """Raised when the backend returns an unparseable or schema-violating response body.
-
-    Note:
-        Handling for empty/null message content, missing choice dictionaries, and
-        unexpected content types is defensive-only (unverified against a live llama-server
-        instance). These parsing edge cases are implemented based on llama.cpp source
-        inspection and OpenAI specifications, and must be re-validated during Phase 1
-        live integration tests once the local backend is online.
-    """
+    """Raised when the backend returns an unparseable or schema-violating response body."""
 
 
 # Minimal 1x1 white PNG Data URL for lightweight startup self-test probes (~68 bytes)

@@ -25,7 +25,7 @@ from config.settings import Settings
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# Windows Job Object Helpers (SEC-4.1)
+# Windows Job Object Helpers
 # ==============================================================================
 if sys.platform == "win32":
     import ctypes
@@ -524,7 +524,7 @@ class ServerManager:
                 self._status = ServerStatus.STARTING
                 self._last_message = "Starting llama-server..."
 
-                # Attach to Windows Job Object with KILL_ON_JOB_CLOSE (SEC-4.1)
+                # Attach to Windows Job Object with KILL_ON_JOB_CLOSE
                 if sys.platform == "win32" and hasattr(proc, "_handle") and proc._handle:
                     self._job_handle = _create_kill_on_close_job()
                     if self._job_handle:

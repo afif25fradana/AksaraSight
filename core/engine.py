@@ -115,7 +115,7 @@ class OCREngine:
                 dpi=effective_dpi,
                 max_image_dimension=effective_max_dim,
             ):
-                # Page limit safeguard (Finding 3.1)
+                # Stop if document page limit reached
                 if cfg.max_pages is not None and page.page_num > cfg.max_pages:
                     break
 

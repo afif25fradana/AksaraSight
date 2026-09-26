@@ -310,7 +310,7 @@ def download_and_verify_asset(
         logger.error(err_msg)
         raise RuntimeIntegrityError(err_msg)
 
-    # SEC-MR3: If pinned hash is available for this asset, it is authoritative and mandatory
+    # Pinned hash takes precedence if available
     if pinned_hex:
         expected_hex = pinned_hex
     elif github_hex:

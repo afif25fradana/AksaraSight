@@ -952,7 +952,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
     def _on_download_runtime(self) -> None:
         """Download and verify the selected llama.cpp runtime binary asynchronously."""
-        # 1. Concurrency guard (mirroring Batch 3 P8 Export All)
+        # 1. Prevent concurrent downloads
         if self._is_downloading:
             return
         if self._download_thread is not None and self._download_thread.is_alive():

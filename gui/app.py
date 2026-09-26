@@ -1,4 +1,4 @@
-"""GUI Application for OCR-LLM-Local desktop studio."""
+"""GUI Application for AksaraSight desktop studio."""
 
 from dataclasses import dataclass
 from enum import Enum

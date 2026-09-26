@@ -18,7 +18,7 @@ A chronological overview of the development, architecture, security hardening, a
 *Focus: Release readiness, version alignment, batch CLI invariant assertion hardening, and documentation test-count synchronization. (Patch/hardening; no breaking changes).*
 - **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.
 - **Batch CLI Invariant Assertion Hardening (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit defensive invariant assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), aligning with the defensive invariant guard pattern in `core/client.py:241` while retaining loop abort tracking.
-- **Documentation & Test Count Synchronization**: Reconciled test count references across `README.md` and internal developer planning docs (`architecture.md`, `AGENTS.md` in private context repository) following Stage 6 coverage-gap additions.
+- **Documentation & Test Count Synchronization**: Reconciled test count references across `README.md` and developer documentation following Stage 6 coverage-gap additions.
 - **Result:** Verified 100% green on GitHub Actions CI across both platforms (341 portable tests green on Linux with 2 skipped; full 417-test suite green on Windows) with 0 Pyrefly static typecheck errors.
 
 ---

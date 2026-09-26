@@ -1,1 +1,1 @@
-"""Command line interface package for OCR-LLM-Local."""
+"""Command line interface package for AksaraSight."""

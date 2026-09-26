@@ -19,7 +19,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.
 - **Batch CLI Invariant Assertion Hardening (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit defensive invariant assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), aligning with the defensive invariant guard pattern in `core/client.py:241` while retaining loop abort tracking.
 - **Documentation & Test Count Synchronization**: Reconciled test count references across `README.md` and internal developer planning docs (`architecture.md`, `AGENTS.md` in private context repository) following Stage 6 coverage-gap additions.
-- **Result:** Verified green on Linux CI (339 passed, 2 skipped); full suite passes locally on my personal Windows machine with 0 Pyrefly static typecheck errors.
+- **Result:** Verified 100% green on GitHub Actions CI across both platforms (341 portable tests green on Linux with 2 skipped; full 417-test suite green on Windows) with 0 Pyrefly static typecheck errors.
 
 ---
 
@@ -30,7 +30,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **True End-to-End Loopback TCP Integration Test (`tests/test_engine.py`)**: Implemented unmocked E2E integration test exercising `pypdfium2` PDF synthesis -> `OCREngine` -> `VisionClient` -> live TCP loopback `HTTPServer` -> atomic disk export via `save_artifacts()`. Achieved 100% statement coverage on `core/engine.py` alongside `engine.close()` lifecycle coverage.
 - **DOCX CommonMark/GFM AST Fidelity Coverage (`tests/test_docx_export.py`)**: Added targeted unit tests covering GFM table cell horizontal alignment (`WD_ALIGN_PARAGRAPH.LEFT/CENTER/RIGHT`), rich inline cell styling (bold, italic, strikethrough, code run), paragraph softbreak vs hardbreak separation, empty and 0-column table handling, unrecognized AST node fallback, and mixed-status multi-page break boundary fidelity.
 - **Gitignore Coverage Pattern Tightening (`.gitignore`)**: Tightened coverage exclusion pattern to `.coverage` and `.coverage.*`, ensuring `.coveragerc` is preserved and tracked.
-- **Result:** Full suite (+14 new tests) passes locally on my personal Windows machine with 0 Pyrefly static typecheck errors.
+- **Result:** Verified 100% green on CI across both platforms with 0 Pyrefly static typecheck errors.
 
 ---
 

@@ -127,7 +127,7 @@ def _probe_nvidia_smi() -> Optional[Tuple[str, int, str]]:
     if not nvsmi:
         return None
 
-    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     try:
         res = subprocess.run(
             [nvsmi, "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"],

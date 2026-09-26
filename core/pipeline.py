@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import io
 import os
 from pathlib import Path
+import sys
 import threading
 from typing import Iterator, Optional, Union
 from PIL import Image, ImageFile, ImageSequence, UnidentifiedImageError
@@ -248,12 +249,13 @@ def _process_pdf(
     """Render PDF pages to base64 images via pypdfium2.
 
     Error Handling & Code Diagnostics:
-    - FPDF_ERR_PASSWORD (4): Password required (empirically confirmed).
+    - FPDF_ERR_PASSWORD (4): Password required (per PDFium C API fpdfview.h).
     - FPDF_ERR_SECURITY (5): Unsupported security scheme/DRM (per PDFium C API fpdfview.h).
-    - FPDF_ERR_SUCCESS (0) on document load failure: Empty PDF containing 0 pages.
     - FPDF_ERR_FORMAT (3): Data format error. Triggers fallback check: if the file has
       a .pdf extension but is actually a mislabeled valid image (e.g. renamed JPEG/PNG),
       it is processed as an image. If Pillow also fails, CorruptDocumentError is raised.
+    - Empty PDF (0 pages): Detected via FPDF_GetPageCount(raw_doc) == 0 on the opened
+      document handle, decoupling zero-page classification from PDFium's global last-error state.
 
     Thread Safety:
     - All pypdfium2 C API calls (document load, page render, explicit close) are
@@ -277,24 +279,38 @@ def _process_pdf(
     """
     scale = dpi / 72.0
 
-    try:
-        with _PDFIUM_LOCK:
-            doc = pdfium.PdfDocument(str(source))
-    except pdfium.PdfiumError as e:
-        err_code = getattr(e, "err_code", None)
+    enc_errhandler = "strict" if sys.platform.startswith("win32") else "surrogateescape"
+    cstr_path = (str(source) + "\x00").encode("utf-8", errors=enc_errhandler)
 
+    is_zero_page = False
+    err_code = None
+    doc = None
+
+    with _PDFIUM_LOCK:
+        raw_doc = pdfium_c.FPDF_LoadDocument(cstr_path, None)
+        if not raw_doc:
+            err_code = pdfium_c.FPDF_GetLastError()
+        else:
+            total_pages = pdfium_c.FPDF_GetPageCount(raw_doc)
+            if total_pages < 1:
+                pdfium_c.FPDF_CloseDocument(raw_doc)
+                is_zero_page = True
+            else:
+                doc = pdfium.PdfDocument(raw_doc)
+
+    if is_zero_page:
+        raise EmptyDocumentError("PDF document contains 0 pages")
+
+    if doc is None:
         if err_code == pdfium_c.FPDF_ERR_PASSWORD:
             raise EncryptedDocumentError(
                 "Password-protected PDF: decryption password required"
-            ) from e
+            )
 
         if err_code == pdfium_c.FPDF_ERR_SECURITY:
             raise EncryptedDocumentError(
                 "Encrypted PDF: unsupported security scheme or DRM handler"
-            ) from e
-
-        if err_code == pdfium_c.FPDF_ERR_SUCCESS:
-            raise EmptyDocumentError("PDF document contains 0 pages") from e
+            )
 
         if err_code == pdfium_c.FPDF_ERR_FORMAT:
             # Fallback for mislabeled extensions (e.g. JPEG/PNG renamed to .pdf):
@@ -306,18 +322,15 @@ def _process_pdf(
                     max_image_dimension=max_image_dimension,
                 )
                 return
-            except (UnsupportedFormatError, CorruptDocumentError):
+            except (UnsupportedFormatError, CorruptDocumentError) as img_err:
                 raise CorruptDocumentError(
-                    f"Corrupt PDF document: data format error ({e})"
-                ) from e
+                    f"Corrupt PDF document: data format error ({img_err})"
+                ) from img_err
 
-        raise CorruptDocumentError(f"Failed to load PDF document: {e}") from e
+        raise CorruptDocumentError(f"Failed to load PDF document (PDFium error code: {err_code})")
 
     try:
-        with _PDFIUM_LOCK:
-            total_pages = len(doc)
-            if total_pages == 0:
-                raise EmptyDocumentError("PDF document contains 0 pages")
+        total_pages = len(doc)
 
         for i in range(total_pages):
             page_num = i + 1

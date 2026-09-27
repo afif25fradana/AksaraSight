@@ -3168,6 +3168,105 @@ def test_gui_wires_server_manager_lifecycle_to_engine():
         app._on_closing()
 
 
+def test_server_stop_error_callback_updates_footer():
+    """Verify server stop failure gracefully updates the UI footer via deferred callback."""
+    from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+    mock_sm.get_status_info.return_value = ServerStatusInfo(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Running",
+    )
+    mock_sm.status = ServerStatus.READY
+    mock_sm.ownership = ServerOwnership.MANAGED
+    mock_sm.stop.side_effect = RuntimeError("Process kill failed")
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        app._on_server_action_clicked()
+        assert app._server_stop_thread is not None
+        app._server_stop_thread.join(timeout=3.0)
+        assert not app._server_stop_thread.is_alive()
+
+        app._drain_ui_callbacks()
+
+        footer_text = app._footer_status.cget("text")
+        assert "Server stop failed: Process kill failed" in footer_text
+    finally:
+        app._on_closing()
+
+
+def test_server_start_error_callback_updates_footer():
+    """Verify server start failure gracefully updates the UI footer via deferred callback."""
+    from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
+
+    mock_engine = MagicMock()
+    mock_sm = MagicMock()
+    mock_sm.get_status_info.return_value = ServerStatusInfo(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+    )
+    mock_sm.status = ServerStatus.OFFLINE
+    mock_sm.ownership = ServerOwnership.NONE
+    mock_sm.start.side_effect = RuntimeError("Port already in use")
+
+    app = OCRApp(engine=mock_engine, server_manager=mock_sm)
+    app.withdraw()
+
+    try:
+        app._on_server_action_clicked()
+        assert app._server_start_thread is not None
+        app._server_start_thread.join(timeout=3.0)
+        assert not app._server_start_thread.is_alive()
+
+        app._drain_ui_callbacks()
+
+        footer_text = app._footer_status.cget("text")
+        assert "Server start failed: Port already in use" in footer_text
+    finally:
+        app._on_closing()
+
+
+def test_settings_window_download_error_callback_updates_status():
+    """Verify runtime download failure gracefully updates status label via deferred UI callback."""
+    import queue
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+
+    managed_settings = Settings(
+        runtime_mode="managed",
+        managed_backend_override="cpu",
+    )
+
+    win = SettingsWindow(parent, settings=managed_settings)
+    callback_queue: queue.Queue[Any] = queue.Queue()
+    win._safe_ui_dispatch = callback_queue.put
+
+    try:
+        with patch("gui.settings_window.ensure_runtime", side_effect=RuntimeError("Network unreachable")):
+            win._on_download_runtime()
+            assert win._download_thread is not None
+            win._download_thread.join(timeout=3.0)
+            assert not win._download_thread.is_alive()
+
+            cb = callback_queue.get(timeout=1.0)
+            cb()
+
+            status_text = win._lbl_download_status.cget("text")
+            assert "Download failed: Network unreachable" in status_text
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+
 
 
 

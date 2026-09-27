@@ -235,6 +235,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self.server_manager.on_lifecycle_change = self.engine.invalidate_backend_verification
         self._settings_window: Optional[SettingsWindow] = None
         self._server_poller_thread: Optional[threading.Thread] = None
+        self._server_stop_thread: Optional[threading.Thread] = None
+        self._server_start_thread: Optional[threading.Thread] = None
 
         # Window appearance and geometry
         ctk.set_appearance_mode("dark")
@@ -2512,7 +2514,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self.server_manager.stop()
                 except Exception as stop_err:
                     logger.warning("Error stopping server: %s", stop_err)
-                    self._safe_after(0, lambda: self._update_footer(f"Server stop failed: {_friendly_err(stop_err)}"))
+                    self._safe_after(0, lambda e=stop_err: self._update_footer(f"Server stop failed: {_friendly_err(e)}"))
                 finally:
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
@@ -2534,12 +2536,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                     self.server_manager.start()
                 except Exception as start_err:
                     logger.warning("Error starting server: %s", start_err)
-                    self._safe_after(0, lambda: self._update_footer(f"Server start failed: {_friendly_err(start_err)}"))
+                    self._safe_after(0, lambda e=start_err: self._update_footer(f"Server start failed: {_friendly_err(e)}"))
                 finally:
                     info = self.server_manager.poll_status()
                     self._safe_after(0, self._apply_server_status_update, info)
 
-            threading.Thread(target=_start_worker, daemon=True).start()
+            start_thread = threading.Thread(target=_start_worker, name="ServerStartWorker", daemon=True)
+            self._server_start_thread = start_thread
+            start_thread.start()
 
     def _open_settings_dialog(self) -> None:
         """Open the modal Preferences and Serving Configuration dialog."""
@@ -2676,6 +2680,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if hasattr(self, "_server_stop_thread") and self._server_stop_thread is not None:
                 if self._server_stop_thread.is_alive():
                     self._server_stop_thread.join(timeout=1.0)
+            if hasattr(self, "_server_start_thread") and self._server_start_thread is not None:
+                if self._server_start_thread.is_alive():
+                    self._server_start_thread.join(timeout=1.0)
             if hasattr(self, "server_manager") and self.server_manager is not None:
                 if getattr(self.server_manager, "is_managed", False):
                     logger.info("Stopping managed server process on application exit...")

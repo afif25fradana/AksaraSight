@@ -1022,13 +1022,14 @@ class SettingsWindow(ctk.CTkToplevel):
 
             except Exception as exc:
                 logger.error("Managed runtime download failed: %s", exc)
+                msg = str(exc)
                 def _fail_ui() -> None:
                     if getattr(self, "_is_closed", False):
                         return
                     try:
                         if hasattr(self, "_lbl_download_status"):
                             self._lbl_download_status.configure(
-                                text=f"Download failed: {exc}",
+                                text=f"Download failed: {msg}",
                                 text_color=COLOR_STATUS_ERROR,
                             )
                         self._update_managed_status(target_backend)

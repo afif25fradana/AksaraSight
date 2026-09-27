@@ -448,44 +448,54 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if result.status != JobStatus.SUCCESS:
             all_success = False
 
-        # Save to disk if -o is specified
-        if args.output is not None:
-            save_artifacts(
-                result,
-                job_config,
-                output_dir=args.output,
-                used_stems=used_stems,
-                base_dir=input_path if input_path.is_dir() else None,
-            )
-            if not args.quiet and total_files > 1:
-                status_label = result.status.value
-                sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")
-                sys.stdout.flush()
-        else:
-            # Single-file stdout streaming mode
-            if result.status == JobStatus.FAILED and not result.pages:
-                sys.stderr.write(f"Processing failed: {result.error}\n")
+        # Save to disk if -o is specified; format and emit to stdout otherwise.
+        # A failure here (e.g. corrupt markdown AST, disk full on this file only,
+        # NTFS name too long) is document-specific, not systemic — isolate it so
+        # the remaining batch documents are still exported.
+        # Note: KeyboardInterrupt is a BaseException, not Exception, so it is
+        # never caught here and always propagates immediately.
+        try:
+            if args.output is not None:
+                save_artifacts(
+                    result,
+                    job_config,
+                    output_dir=args.output,
+                    used_stems=used_stems,
+                    base_dir=input_path if input_path.is_dir() else None,
+                )
+                if not args.quiet and total_files > 1:
+                    status_label = result.status.value
+                    sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")
+                    sys.stdout.flush()
             else:
-                formatted = format_output(result, output_fmt, sanitize_path=True)
-                if output_fmt == OutputFormat.MARKDOWN:
-                    md = formatted["markdown"]
-                    sys.stdout.write(md)
-                    if not md.endswith("\n"):
-                        sys.stdout.write("\n")
-                elif output_fmt == OutputFormat.JSON:
-                    sys.stdout.write(formatted["json"] + "\n")
-                elif output_fmt == OutputFormat.DOCX:
-                    raw_docx = formatted["docx"]
-                    if hasattr(sys.stdout, "buffer"):
-                        sys.stdout.buffer.write(raw_docx)
-                    else:
-                        sys.stderr.write("Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk.\n")
-                        return 1
-                else:  # BOTH to stdout
-                    sys.stdout.write(formatted["markdown"])
-                    sys.stdout.write("\n\n---\n\n")
-                    sys.stdout.write(formatted["json"] + "\n")
-                sys.stdout.flush()
+                # Single-file stdout streaming mode
+                if result.status == JobStatus.FAILED and not result.pages:
+                    sys.stderr.write(f"Processing failed: {result.error}\n")
+                else:
+                    formatted = format_output(result, output_fmt, sanitize_path=True)
+                    if output_fmt == OutputFormat.MARKDOWN:
+                        md = formatted["markdown"]
+                        sys.stdout.write(md)
+                        if not md.endswith("\n"):
+                            sys.stdout.write("\n")
+                    elif output_fmt == OutputFormat.JSON:
+                        sys.stdout.write(formatted["json"] + "\n")
+                    elif output_fmt == OutputFormat.DOCX:
+                        raw_docx = formatted["docx"]
+                        if hasattr(sys.stdout, "buffer"):
+                            sys.stdout.buffer.write(raw_docx)
+                        else:
+                            sys.stderr.write("Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk.\n")
+                            return 1
+                    else:  # BOTH to stdout
+                        sys.stdout.write(formatted["markdown"])
+                        sys.stdout.write("\n\n---\n\n")
+                        sys.stdout.write(formatted["json"] + "\n")
+                    sys.stdout.flush()
+        except Exception as export_exc:
+            all_success = False
+            sys.stderr.write(f"Error saving output for {doc_path.name}: {export_exc}\n")
+            sys.stderr.flush()
 
         # If processing was aborted due to backend offline, fail fast immediately
         if result.aborted:

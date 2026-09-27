@@ -359,3 +359,183 @@ def test_failure_error_messages_are_safe_strings(
     result_dict = result.to_dict()
     assert isinstance(result_dict, dict)
     _ = result.to_json()
+
+
+# ==============================================================================
+# 10. docx_export.build_docx() raises — CLI batch continues
+# ==============================================================================
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.Settings.from_env")
+def test_failure_isolation_docx_export_raises(
+    mock_settings_from_env: MagicMock,
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A RuntimeError from build_docx() during DOCX export for doc 1 must not
+    crash the batch — doc 2 should still be exported successfully, exit code 2."""
+    from cli.main import main
+
+    mock_settings_from_env.return_value = Settings()
+
+    in_dir = tmp_path / "inputs"
+    out_dir = tmp_path / "outputs"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "01_bad_export.png"
+    f2 = in_dir / "02_good_export.png"
+    f1.write_bytes(b"x")
+    f2.write_bytes(b"x")
+
+    success_result_1 = OCRResult(
+        file_path=str(f1),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 1", status=JobStatus.SUCCESS)],
+    )
+    success_result_2 = OCRResult(
+        file_path=str(f2),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
+    )
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [success_result_1, success_result_2]
+    mock_engine_cls.return_value = mock_engine
+
+    with patch("cli.main.save_artifacts") as mock_save:
+        mock_save.side_effect = [
+            RuntimeError("Injected build_docx crash"),
+            None,  # doc 2 saves fine
+        ]
+        exit_code = main([str(in_dir), "-o", str(out_dir), "-f", "docx"])
+
+    assert exit_code == 2
+    assert mock_engine.process_document.call_count == 2
+    assert mock_save.call_count == 2
+
+    captured = capsys.readouterr()
+    assert "Error saving output for 01_bad_export.png" in captured.err
+    assert "Injected build_docx crash" in captured.err
+    # Doc 2 progress line still emitted
+    assert "02_good_export.png" in captured.out
+
+
+# ==============================================================================
+# 11. format_output() raises — CLI batch continues
+# ==============================================================================
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.Settings.from_env")
+def test_failure_isolation_format_output_raises(
+    mock_settings_from_env: MagicMock,
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A RuntimeError from format_output() during stdout emit for doc 1 must
+    not crash the batch — doc 2 should still be formatted and emitted."""
+    from cli.main import main
+
+    mock_settings_from_env.return_value = Settings()
+
+    in_dir = tmp_path / "inputs"
+    in_dir.mkdir()
+
+    f1 = in_dir / "01_bad_fmt.png"
+    f2 = in_dir / "02_good_fmt.png"
+    f1.write_bytes(b"x")
+    f2.write_bytes(b"x")
+
+    result_1 = OCRResult(
+        file_path=str(f1),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 1", status=JobStatus.SUCCESS)],
+    )
+    result_2 = OCRResult(
+        file_path=str(f2),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
+    )
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [result_1, result_2]
+    mock_engine_cls.return_value = mock_engine
+
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
+
+    with patch("cli.main.save_artifacts") as mock_save:
+        mock_save.side_effect = [
+            RuntimeError("Injected format_output crash"),
+            None,
+        ]
+        exit_code = main([str(in_dir), "-o", str(out_dir)])
+
+    assert exit_code == 2
+    assert mock_engine.process_document.call_count == 2
+
+    captured = capsys.readouterr()
+    assert "Error saving output for 01_bad_fmt.png" in captured.err
+    assert "02_good_fmt.png" in captured.out
+
+
+# ==============================================================================
+# 12. save_artifacts() raises — CLI batch continues
+# ==============================================================================
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.Settings.from_env")
+def test_failure_isolation_save_artifacts_raises(
+    mock_settings_from_env: MagicMock,
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A disk-write OSError from save_artifacts() on doc 1 must not crash the
+    batch — doc 2 writes successfully, exit code 2."""
+    from cli.main import main
+
+    mock_settings_from_env.return_value = Settings()
+
+    in_dir = tmp_path / "inputs"
+    out_dir = tmp_path / "outputs"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "01_write_fail.png"
+    f2 = in_dir / "02_write_ok.png"
+    f1.write_bytes(b"x")
+    f2.write_bytes(b"x")
+
+    result_1 = OCRResult(
+        file_path=str(f1),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 1", status=JobStatus.SUCCESS)],
+    )
+    result_2 = OCRResult(
+        file_path=str(f2),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
+    )
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [result_1, result_2]
+    mock_engine_cls.return_value = mock_engine
+
+    with patch("cli.main.save_artifacts") as mock_save:
+        mock_save.side_effect = [
+            OSError("Injected disk write failure"),
+            None,
+        ]
+        exit_code = main([str(in_dir), "-o", str(out_dir)])
+
+    assert exit_code == 2
+    assert mock_save.call_count == 2
+
+    captured = capsys.readouterr()
+    assert "Error saving output for 01_write_fail.png" in captured.err
+    assert "Injected disk write failure" in captured.err
+    # Doc 2 still processed and its progress line emitted
+    assert "02_write_ok.png" in captured.out

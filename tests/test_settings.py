@@ -207,6 +207,7 @@ def test_new_settings_fields_defaults():
     assert s.auto_start_server is False
     assert s.dpi == 100
     assert s.max_pages is None
+    assert s.runtime_mode == "managed"
 
 
 @pytest.mark.parametrize("bad_dpi", [0, -10, "abc"])
@@ -447,6 +448,28 @@ def test_runtime_mode_defaults_and_backward_compatibility(tmp_path, monkeypatch)
     )
     s_explicit = Settings.from_env(explicit_env)
     assert s_explicit.runtime_mode == "managed"
+
+
+def test_settings_direct_and_from_env_agree_on_default_runtime_mode(monkeypatch):
+    """Verify Settings() and Settings.from_env() agree on the default runtime_mode (B7).
+
+    Both construction paths must yield 'managed' on a clean machine so that
+    library-style construction (OCREngine(), ServerManager(), VisionClient())
+    silently using Settings() resolves the managed runtime, not custom mode.
+    """
+    for k in [
+        "OCR_RUNTIME_MODE", "RUNTIME_MODE", "OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH",
+        "OCR_MANAGED_BACKEND_OVERRIDE", "MANAGED_BACKEND_OVERRIDE",
+    ]:
+        monkeypatch.delenv(k, raising=False)
+
+    direct = Settings()
+    assert direct.runtime_mode == "managed"
+
+    from_env = Settings.from_env()
+    assert from_env.runtime_mode == "managed"
+
+    assert direct.runtime_mode == from_env.runtime_mode
 
 
 def test_runtime_mode_and_backend_validation():

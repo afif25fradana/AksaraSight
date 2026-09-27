@@ -131,7 +131,7 @@ def test_server_manager_initial_state():
 
 def test_server_manager_start_missing_binary():
     """Verify start() raises FileNotFoundError if binary does not exist."""
-    settings = Settings(llama_server_path=r"C:\nonexistent\llama-server.exe")
+    settings = Settings(llama_server_path=r"C:\nonexistent\llama-server.exe", runtime_mode="custom")
     mgr = ServerManager(settings=settings)
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
@@ -163,6 +163,7 @@ def test_server_manager_start_spawns_managed_process(tmp_path):
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         model_repo="test-org/model-gguf",
         local_endpoint="http://127.0.0.1:8080/v1",
     )
@@ -206,6 +207,7 @@ def test_server_manager_start_spawns_with_local_gguf_flag(tmp_path):
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         model_repo=str(fake_model),
         local_endpoint="http://127.0.0.1:8080/v1",
     )
@@ -241,6 +243,7 @@ def test_server_manager_start_auto_detects_adjacent_mmproj(tmp_path):
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         model_repo=str(fake_model),
         local_endpoint="http://127.0.0.1:8080/v1",
     )
@@ -274,6 +277,7 @@ def test_server_manager_start_warns_when_local_gguf_missing_mmproj(tmp_path, cap
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         model_repo=str(fake_model),
         local_endpoint="http://127.0.0.1:8080/v1",
     )
@@ -301,6 +305,7 @@ def test_server_manager_lifecycle_callback_on_start_and_stop(tmp_path):
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         local_endpoint="http://127.0.0.1:8080/v1",
     )
     mgr = ServerManager(settings=settings)
@@ -342,6 +347,7 @@ def test_server_manager_job_object_lifecycle(tmp_path):
 
     settings = Settings(
         llama_server_path=str(fake_exe),
+        runtime_mode="custom",
         model_repo="test/model",
     )
     mgr = ServerManager(settings=settings)

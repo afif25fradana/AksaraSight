@@ -77,7 +77,7 @@ class Settings:
     timeout: float = 60.0
     max_retries: int = 2
     allow_remote: bool = False
-    runtime_mode: str = "custom"
+    runtime_mode: str = "managed"
     managed_backend_override: str = "auto"
     llama_server_path: Optional[str] = None
     model_repo: str = "ggml-org/GLM-OCR-GGUF"

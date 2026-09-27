@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
-from typing import Any, Never
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 import pytest
 import customtkinter as ctk
@@ -136,7 +136,7 @@ def test_app_worker_loop_fatal_crash():
 
     try:
         # Simulate fatal loop crash by sabotaging task_queue.get
-        def crashing_get(*args: Any, **kwargs: Any) -> Never:
+        def crashing_get(*args: Any, **kwargs: Any) -> Any:
             raise SystemError("Simulated unhandled runtime catastrophe")
 
         app._task_queue.get = crashing_get
@@ -743,6 +743,7 @@ def test_export_all_docx_failure_during_batch_preserves_remaining_and_sanitizes(
         f1.write_bytes(b"fail")
         f2.write_bytes(b"success")
 
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 

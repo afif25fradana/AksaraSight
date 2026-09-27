@@ -11,7 +11,7 @@ from core.client import ClientError, ServerOfflineError
 from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.formatter import format_output, save_artifacts
-from core.hardware import PINNED_LLAMA_BUILD, detect_hardware
+from core.hardware import MIN_RECOMMENDED_VRAM_MB, PINNED_LLAMA_BUILD, detect_hardware
 from core.models import JobConfig, JobStatus, OutputFormat
 from core.runtime_manager import (
     get_installed_runtime_path,
@@ -203,6 +203,12 @@ def run_doctor(args: argparse.Namespace) -> int:
         lines.append(f"   [PASS] Acceleration:        Vulkan Compatible{dev_name}")
     else:
         lines.append("   [INFO] Acceleration:        CPU inference only")
+
+    if profile.vram_mb is not None and profile.vram_mb < MIN_RECOMMENDED_VRAM_MB:
+        lines.append(
+            f"   [WARN] VRAM:                {profile.vram_mb} MB detected — below recommended minimum "
+            f"({MIN_RECOMMENDED_VRAM_MB} MB). Full GPU offload may not fit; expect partial CPU fallback."
+        )
 
     lines.append(f"   [PASS] Recommended Backend: {profile.recommended_backend.upper()}")
 

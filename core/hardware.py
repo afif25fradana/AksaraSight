@@ -73,6 +73,12 @@ class HardwareProfile:
         ]
         if self.vram_mb:
             lines.append(f"Dedicated VRAM:       {self.vram_mb} MB ({self.vram_mb / 1024:.1f} GB)")
+            if self.vram_mb < MIN_RECOMMENDED_VRAM_MB:
+                lines.append(
+                    f"  [WARN] Detected VRAM ({self.vram_mb} MB) is below the recommended minimum "
+                    f"({MIN_RECOMMENDED_VRAM_MB} MB). Full GPU offload may not fit; "
+                    "expect partial CPU fallback and slower inference."
+                )
 
         lines.append(f"CUDA Hardware:        {'Detected' if self.cuda_available else 'Not detected'}")
         if self.cuda_available:

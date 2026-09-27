@@ -2,7 +2,7 @@
 
 import io
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from PIL import Image
 import pypdfium2 as pdfium
 import pytest
@@ -12,6 +12,8 @@ from core.pipeline import (
     EmptyDocumentError,
     EncryptedDocumentError,
     FilePreflightError,
+    MAX_RASTER_PIXELS,
+    OversizedImageError,
     UnsupportedFormatError,
     check_preflight,
     image_to_base64_url,
@@ -155,8 +157,8 @@ def test_ingest_valid_png(tmp_path):
     assert pages[0].image_b64.startswith("data:image/jpeg;base64,")
 
 
-def test_ingest_truncated_jpeg(tmp_path):
-    """Verify truncated JPEG without EOI fails with CorruptDocumentError."""
+def test_ingest_truncated_jpeg(tmp_path: Path) -> None:
+    """Verify truncated JPEG without EOI fails with CorruptDocumentError and single-wrapped message."""
     img = Image.new("RGB", (100, 100), color="red")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
@@ -167,8 +169,13 @@ def test_ingest_truncated_jpeg(tmp_path):
     trunc_path = tmp_path / "truncated.jpg"
     trunc_path.write_bytes(truncated)
 
-    with pytest.raises(CorruptDocumentError, match="Corrupt"):
+    with pytest.raises(CorruptDocumentError) as exc_info:
         list(ingest(trunc_path))
+
+    err_msg = str(exc_info.value)
+    assert err_msg.startswith("Corrupt or truncated image raster stream: ")
+    assert err_msg.count("Corrupt or truncated image raster stream:") == 1
+    assert "image file is truncated" in err_msg
 
 
 def test_ingest_truncated_png(tmp_path):
@@ -475,4 +482,34 @@ def test_ingest_pdf_downscales_oversized_rendered_page(tmp_path: Path) -> None:
     assert len(pages) == 1
     assert pages[0].width == 512
     assert pages[0].height == 1024
+
+
+def test_process_image_oversized_raises_oversized_image_error(tmp_path: Path) -> None:
+    """Verify images with pixel dimensions exceeding MAX_RASTER_PIXELS fail-fast before load."""
+    img_path = tmp_path / "huge.png"
+    # Create valid small image file
+    Image.new("RGB", (10, 10), color="red").save(img_path)
+
+    # Mock Image.open to report dimensions exceeding MAX_RASTER_PIXELS
+    mock_img = MagicMock()
+    mock_img.size = (10000, 10000)  # 100,000,000 pixels > 89,478,485 threshold
+    mock_img.__enter__.return_value = mock_img
+
+    with patch("PIL.Image.open", return_value=mock_img):
+        with pytest.raises(OversizedImageError) as exc_info:
+            list(ingest(img_path))
+
+        assert "exceed safety threshold of" in str(exc_info.value)
+        assert f"{MAX_RASTER_PIXELS:,}" in str(exc_info.value)
+
+
+def test_process_image_decompression_bomb_error_caught(tmp_path: Path) -> None:
+    """Verify PIL.Image.DecompressionBombError is caught and wrapped as CorruptDocumentError."""
+    img_path = tmp_path / "bomb.png"
+    Image.new("RGB", (10, 10), color="blue").save(img_path)
+
+    with patch("PIL.Image.open", side_effect=Image.DecompressionBombError("Decompression bomb DOS attack")):
+        with pytest.raises(CorruptDocumentError, match="Corrupt image structure"):
+            list(ingest(img_path))
+
 

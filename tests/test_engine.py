@@ -3,7 +3,7 @@
 import io
 from pathlib import Path
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from PIL import Image
 import pypdfium2 as pdfium
 import pytest
@@ -579,5 +579,17 @@ def test_engine_normal_completion_resolves_success_status(sample_pdf_path: Path,
     assert res_dict["status"] == "SUCCESS"
     assert res_dict["pages"][0]["status"] == "SUCCESS"
     assert res_dict["pages"][0]["truncated"] is False
+
+
+def test_engine_process_document_handles_unexpected_exception(sample_pdf_path: Path) -> None:
+    """Verify unexpected non-pipeline exceptions during ingestion are caught and recorded as FAILED."""
+    engine = OCREngine()
+    with patch("core.engine.ingest", side_effect=RuntimeError("Unexpected unhandled engine failure")):
+        result = engine.process_document(sample_pdf_path)
+
+    assert result.status == JobStatus.FAILED
+    assert result.error is not None
+    assert "Unexpected processing failure: Unexpected unhandled engine failure" in result.error
+
 
 

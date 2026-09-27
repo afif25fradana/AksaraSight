@@ -435,7 +435,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stdout.write(f"[{idx}/{total_files}] Processing {doc_path.name}...\n")
             sys.stdout.flush()
 
-        result = engine.process_document(doc_path, config=job_config)
+        try:
+            result = engine.process_document(doc_path, config=job_config)
+        except Exception as exc:
+            all_success = False
+            sys.stderr.write(f"Error processing {doc_path.name}: {exc}\n")
+            sys.stderr.flush()
+            continue
+
         if result.aborted:
             has_aborted = True
         if result.status != JobStatus.SUCCESS:

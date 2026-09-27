@@ -201,6 +201,10 @@ class OCREngine:
         except PipelineError as exc:
             # File-level ingestion failure (nonexistent file, permission denied, 0-byte, corrupt)
             result.error = str(exc)
+        except Exception as exc:
+            # Unhandled failure during ingestion or processing
+            logger.exception("Unexpected error processing document '%s': %s", file_path, exc)
+            result.error = f"Unexpected processing failure: {exc}"
 
         result.total_duration = time.perf_counter() - start_time
         result.resolve_status()

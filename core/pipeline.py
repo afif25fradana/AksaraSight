@@ -44,6 +44,10 @@ class CorruptDocumentError(PipelineError):
     """Raised when an image or PDF contains corrupt headers or unreadable raster streams."""
 
 
+class OversizedImageError(PipelineError):
+    """Raised when an image's pixel dimensions exceed the MAX_RASTER_PIXELS safety threshold."""
+
+
 class EncryptedDocumentError(PipelineError):
     """Raised when a PDF is password-protected or uses an unsupported security scheme."""
 
@@ -189,18 +193,28 @@ def _process_image(
     Raises:
         UnsupportedFormatError: If file is not an image Pillow recognizes.
         CorruptDocumentError: If headers are corrupt or raster data is truncated.
+        OversizedImageError: If image pixel dimensions exceed MAX_RASTER_PIXELS.
     """
 
-    # Stage 1: Header verification
+    # Stage 1: Header verification & pre-decode dimension check
     try:
         with Image.open(source) as img_verify:
+            width, height = img_verify.size
+            pixel_area = width * height
+            if pixel_area > MAX_RASTER_PIXELS:
+                raise OversizedImageError(
+                    f"Image dimensions ({width}x{height} = {pixel_area:,} pixels) "
+                    f"exceed safety threshold of {MAX_RASTER_PIXELS:,} pixels"
+                )
             img_verify.verify()
+    except PipelineError:
+        raise
     except UnidentifiedImageError as e:
         filename = getattr(source, "name", str(source))
         raise UnsupportedFormatError(
             f"Unsupported file format for '{filename}': neither a recognized image nor a PDF ({e})"
         ) from e
-    except (SyntaxError, OSError, ValueError) as e:
+    except Exception as e:
         raise CorruptDocumentError(f"Corrupt image structure: {e}") from e
 
     # Stage 2: Re-open and decode raster data to catch mid-stream truncation
@@ -209,6 +223,13 @@ def _process_image(
             n_frames = getattr(img, "n_frames", 1)
             for page_num, frame in enumerate(ImageSequence.Iterator(img), start=1):
                 try:
+                    frame_w, frame_h = frame.size
+                    frame_area = frame_w * frame_h
+                    if frame_area > MAX_RASTER_PIXELS:
+                        raise OversizedImageError(
+                            f"Frame {page_num} dimensions ({frame_w}x{frame_h} = {frame_area:,} pixels) "
+                            f"exceed safety threshold of {MAX_RASTER_PIXELS:,} pixels"
+                        )
                     if n_frames == 1:
                         img.load()
                     else:
@@ -223,6 +244,8 @@ def _process_image(
                         width=scaled_frame.width,
                         height=scaled_frame.height,
                     )
+                except PipelineError:
+                    raise
                 except (OSError, SyntaxError, ValueError) as e:
                     if n_frames == 1:
                         raise CorruptDocumentError(f"Corrupt or truncated image raster stream: {e}") from e
@@ -237,7 +260,9 @@ def _process_image(
                         total_pages=n_frames,
                         error=f"Failed to rasterize frame {page_num}: {frame_err}",
                     )
-    except (OSError, SyntaxError, ValueError) as e:
+    except PipelineError:
+        raise
+    except Exception as e:
         raise CorruptDocumentError(f"Corrupt or truncated image raster stream: {e}") from e
 
 

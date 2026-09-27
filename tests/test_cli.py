@@ -1195,5 +1195,47 @@ def test_cli_batch_recursive_discovery(
     assert mock_engine.process_document.call_count == 2
 
 
+@patch("cli.main.OCREngine")
+def test_cli_batch_continues_on_document_crash(
+    mock_engine_cls: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify CLI batch processing isolates unhandled document exceptions and continues remaining files."""
+    in_dir = tmp_path / "inputs"
+    out_dir = tmp_path / "outputs"
+    in_dir.mkdir()
+    out_dir.mkdir()
+
+    f1 = in_dir / "01_bad.png"
+    f2 = in_dir / "02_good.png"
+    f1.write_bytes(b"bad")
+    f2.write_bytes(b"good")
+
+    ok_res = OCRResult(
+        file_path=str(f2),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Good", status=JobStatus.SUCCESS)],
+    )
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.side_effect = [
+        RuntimeError("Corrupt decompression bomb failure"),
+        ok_res,
+    ]
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(in_dir), "-o", str(out_dir)])
+
+    # Exit code 2 reflects partial failure in batch
+    assert exit_code == 2
+    assert mock_engine.process_document.call_count == 2
+
+    captured = capsys.readouterr()
+    assert "Error processing 01_bad.png: Corrupt decompression bomb failure" in captured.err
+    assert "02_good.png -> SUCCESS" in captured.out
+
+
+
 
 

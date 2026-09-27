@@ -10,6 +10,25 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 import customtkinter as ctk
 
+# Resilient _tkinter.create wrapper to prevent transient Tcl 8.6 file-sharing violations on Windows CI
+import _tkinter
+
+_orig_tkinter_create = _tkinter.create
+
+
+def _resilient_tkinter_create(*args: Any, **kwargs: Any) -> Any:
+    for attempt in range(3):
+        try:
+            return _orig_tkinter_create(*args, **kwargs)
+        except _tkinter.TclError as exc:
+            if "couldn't read file" in str(exc) and attempt < 2:
+                time.sleep(0.15)
+                continue
+            raise
+
+
+_tkinter.create = _resilient_tkinter_create
+
 from config.settings import Settings
 from core.formatter import save_artifacts
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult

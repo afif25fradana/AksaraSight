@@ -373,9 +373,13 @@ def test_failure_isolation_docx_export_raises(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A RuntimeError from build_docx() during DOCX export for doc 1 must not
-    crash the batch — doc 2 should still be exported successfully, exit code 2."""
+    """A RuntimeError from build_docx() must not crash the batch.
+
+    Patches core.docx_export.build_docx directly so the failure propagates
+    naturally through export_to_docx_bytes → format_output → save_artifacts
+    and is caught by the CLI export boundary. Doc 2 is still saved."""
     from cli.main import main
+    from core.docx_export import build_docx
 
     mock_settings_from_env.return_value = Settings()
 
@@ -384,46 +388,52 @@ def test_failure_isolation_docx_export_raises(
     in_dir.mkdir()
     out_dir.mkdir()
 
-    f1 = in_dir / "01_bad_export.png"
-    f2 = in_dir / "02_good_export.png"
+    f1 = in_dir / "01_bad_docx.png"
+    f2 = in_dir / "02_good_docx.png"
     f1.write_bytes(b"x")
     f2.write_bytes(b"x")
 
-    success_result_1 = OCRResult(
+    result_1 = OCRResult(
         file_path=str(f1),
         status=JobStatus.SUCCESS,
         pages=[PageResult(page_num=1, markdown="# Doc 1", status=JobStatus.SUCCESS)],
     )
-    success_result_2 = OCRResult(
+    result_2 = OCRResult(
         file_path=str(f2),
         status=JobStatus.SUCCESS,
         pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
     )
 
     mock_engine = MagicMock()
-    mock_engine.process_document.side_effect = [success_result_1, success_result_2]
+    mock_engine.process_document.side_effect = [result_1, result_2]
     mock_engine_cls.return_value = mock_engine
 
-    with patch("cli.main.save_artifacts") as mock_save:
-        mock_save.side_effect = [
-            RuntimeError("Injected build_docx crash"),
-            None,  # doc 2 saves fine
-        ]
+    call_count = {"n": 0}
+
+    def _build_docx_side_effect(ocr_result):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("Injected build_docx crash")
+        # Let doc 2 go through the real build_docx
+        return build_docx(ocr_result)
+
+    with patch("core.docx_export.build_docx", side_effect=_build_docx_side_effect):
         exit_code = main([str(in_dir), "-o", str(out_dir), "-f", "docx"])
 
     assert exit_code == 2
     assert mock_engine.process_document.call_count == 2
-    assert mock_save.call_count == 2
+    assert call_count["n"] == 2
 
     captured = capsys.readouterr()
-    assert "Error saving output for 01_bad_export.png" in captured.err
+    assert "Error saving output for 01_bad_docx.png" in captured.err
     assert "Injected build_docx crash" in captured.err
-    # Doc 2 progress line still emitted
-    assert "02_good_export.png" in captured.out
+    # Doc 2 succeeds: its progress line is emitted and its file is written
+    assert "02_good_docx.png" in captured.out
+    assert (out_dir / "02_good_docx.docx").exists()
 
 
 # ==============================================================================
-# 11. format_output() raises — CLI batch continues
+# 11. format_output() raises (inside save_artifacts path) — CLI batch continues
 # ==============================================================================
 
 @patch("cli.main.OCREngine")
@@ -434,14 +444,21 @@ def test_failure_isolation_format_output_raises(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A RuntimeError from format_output() during stdout emit for doc 1 must
-    not crash the batch — doc 2 should still be formatted and emitted."""
+    """A RuntimeError from format_output() must not crash the batch.
+
+    Uses a 2-doc -o batch. Patches core.formatter.format_output (the call
+    site used by save_artifacts internally) so that it raises on doc 1 and
+    succeeds on doc 2. The CLI export boundary catches the failure and the
+    second document's output file is still written."""
     from cli.main import main
+    from core.formatter import format_output as real_format_output
 
     mock_settings_from_env.return_value = Settings()
 
     in_dir = tmp_path / "inputs"
+    out_dir = tmp_path / "outputs"
     in_dir.mkdir()
+    out_dir.mkdir()
 
     f1 = in_dir / "01_bad_fmt.png"
     f2 = in_dir / "02_good_fmt.png"
@@ -463,22 +480,31 @@ def test_failure_isolation_format_output_raises(
     mock_engine.process_document.side_effect = [result_1, result_2]
     mock_engine_cls.return_value = mock_engine
 
-    out_dir = tmp_path / "outputs"
-    out_dir.mkdir()
+    call_count = {"n": 0}
 
-    with patch("cli.main.save_artifacts") as mock_save:
-        mock_save.side_effect = [
-            RuntimeError("Injected format_output crash"),
-            None,
-        ]
+    def _format_output_side_effect(result, output_format, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("Injected format_output crash")
+        return real_format_output(result, output_format, **kwargs)
+
+    # Patch core.formatter.format_output: this is the call site used inside
+    # save_artifacts (core/formatter.py). With -o, the CLI routes through
+    # save_artifacts which calls format_output from its own module namespace.
+    with patch("core.formatter.format_output", side_effect=_format_output_side_effect):
         exit_code = main([str(in_dir), "-o", str(out_dir)])
 
     assert exit_code == 2
     assert mock_engine.process_document.call_count == 2
+    assert call_count["n"] == 2
 
     captured = capsys.readouterr()
     assert "Error saving output for 01_bad_fmt.png" in captured.err
+    assert "Injected format_output crash" in captured.err
+    # Doc 2 succeeds: progress line emitted and file written
     assert "02_good_fmt.png" in captured.out
+    assert (out_dir / "02_good_fmt.md").exists()
+
 
 
 # ==============================================================================

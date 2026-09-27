@@ -513,3 +513,23 @@ def test_process_image_decompression_bomb_error_caught(tmp_path: Path) -> None:
             list(ingest(img_path))
 
 
+def test_process_pdf_rasterization_none_raises_corrupt_document_error(tmp_path: Path) -> None:
+    """Verify that if PDF page rasterization produces None, CorruptDocumentError is raised."""
+    pdf_path = tmp_path / "sample.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    mock_page = MagicMock()
+    mock_page.get_size.return_value = (100.0, 100.0)
+    mock_render_result = MagicMock()
+    mock_render_result.to_pil.return_value = None
+    mock_page.render.return_value = mock_render_result
+
+    with patch("pypdfium2.PdfDocument.__getitem__", return_value=mock_page):
+        with pytest.raises(CorruptDocumentError, match="Page 1 rasterization produced no image data"):
+            list(ingest(pdf_path))
+
+
+

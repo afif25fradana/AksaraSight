@@ -392,7 +392,8 @@ def _process_pdf(
                 )
                 continue
 
-            assert pil_img is not None
+            if pil_img is None:
+                raise CorruptDocumentError(f"Page {page_num} rasterization produced no image data")
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
             scaled_img = _downscale_if_needed(pil_img, max_image_dimension)

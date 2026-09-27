@@ -510,7 +510,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 1
 
     # 6. Exit code calculation
-    assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"
+    if has_aborted:
+        raise RuntimeError("unreachable: aborted batch jobs must fail fast and return early")
 
     if all_success:
         return 0

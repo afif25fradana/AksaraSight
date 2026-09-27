@@ -592,4 +592,28 @@ def test_engine_process_document_handles_unexpected_exception(sample_pdf_path: P
     assert "Unexpected processing failure: Unexpected unhandled engine failure" in result.error
 
 
+def test_engine_missing_image_b64_raises_corrupt_document_error(
+    sample_pdf_path: Path,
+    mock_client: MagicMock,
+) -> None:
+    """Verify that an extracted page claiming success but missing image_b64 fails with
+    CorruptDocumentError, setting a specific document error rather than the generic unexpected failure message."""
+    mock_page = MagicMock()
+    mock_page.is_success = True
+    mock_page.image_b64 = None
+    mock_page.page_num = 1
+    mock_page.total_pages = 1
+
+    engine = OCREngine(client=mock_client)
+
+    with patch("core.engine.ingest", return_value=iter([mock_page])):
+        result = engine.process_document(sample_pdf_path)
+
+    assert result.status == JobStatus.FAILED
+    assert result.error == "Extracted page 1 contains no image data"
+    assert "Unexpected processing failure" not in (result.error or "")
+    mock_client.complete.assert_not_called()
+
+
+
 

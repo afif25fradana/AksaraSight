@@ -7,7 +7,7 @@ from typing import Callable, Optional, Union
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
 from core.models import JobConfig, JobStatus, OCRResult, PageResult
-from core.pipeline import PipelineError, ingest
+from core.pipeline import CorruptDocumentError, PipelineError, ingest
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,8 @@ class OCREngine:
                 else:
                     # Vision model inference for this page
                     try:
-                        assert page.image_b64 is not None
+                        if page.image_b64 is None:
+                            raise CorruptDocumentError(f"Extracted page {page.page_num} contains no image data")
                         text, raw_json, latency, truncated = self.client.complete(
                             image_b64=page.image_b64,
                             prompt=cfg.effective_prompt,

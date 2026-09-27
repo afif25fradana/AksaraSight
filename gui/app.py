@@ -1413,7 +1413,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 self._set_textbox_content(self._tb_json, json_text)
 
         else:  # SUCCESS / PARTIAL
-            assert item.result is not None
+            if item.result is None:
+                raise RuntimeError(f"Queue item {item.item_id} has status {item.status.name} but missing OCRResult")
             md = item.result.markdown
             if target_tab == "Raw Markdown":
                 self._set_textbox_content(self._tb_markdown, md)
@@ -1884,7 +1885,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 for idx, it in enumerate(completed_items, start=1):
                     if self._is_shutting_down or self._shutdown_event.is_set():
                         return
-                    assert it.result is not None
+                    if it.result is None:
+                        raise RuntimeError(f"Queue item {it.file_path.name} marked completed but missing OCRResult")
                     try:
                         unique_stem = resolve_unique_stem(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
                         saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)

@@ -85,6 +85,7 @@ class Settings:
     dpi: int = 100
     max_pages: Optional[int] = None
     max_image_dimension: int = 2048
+    max_tokens: int = 4096
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration attributes across all construction paths."""
@@ -212,6 +213,15 @@ class Settings:
             )
         object.__setattr__(self, "max_image_dimension", val_dim)
 
+        # Max tokens validation
+        try:
+            val_max_tokens = int(self.max_tokens)
+            if val_max_tokens <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(f"MAX_TOKENS must be a positive integer, got: '{self.max_tokens}'")
+        object.__setattr__(self, "max_tokens", val_max_tokens)
+
     @property
     def is_loopback(self) -> bool:
         """Determine whether the configured endpoint targets a local loopback address."""
@@ -298,6 +308,7 @@ class Settings:
         max_pages = int(raw_max_pages.strip()) if raw_max_pages and str(raw_max_pages).strip() else None
 
         raw_max_dim = _get_env_with_fallback("OCR_MAX_IMAGE_DIMENSION", "MAX_IMAGE_DIMENSION", "2048")
+        raw_max_tokens = _get_env_with_fallback("OCR_MAX_TOKENS", "MAX_TOKENS", "4096")
 
         return cls(
             backend=backend,
@@ -313,6 +324,7 @@ class Settings:
             dpi=raw_dpi,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
             max_pages=max_pages,
             max_image_dimension=raw_max_dim,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
+            max_tokens=raw_max_tokens,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
         )
 
     def save_to_env(self, env_path: Optional[str | Path] = None) -> Path:
@@ -341,6 +353,7 @@ class Settings:
             "OCR_DPI": str(self.dpi),
             "OCR_MAX_PAGES": str(self.max_pages) if self.max_pages is not None else "",
             "OCR_MAX_IMAGE_DIMENSION": str(self.max_image_dimension),
+            "OCR_MAX_TOKENS": str(self.max_tokens),
             "OCR_LLAMA_SERVER_PATH": self.llama_server_path or "",
             "OCR_MODEL_REPO": self.model_repo,
             "OCR_AUTO_START_SERVER": "true" if self.auto_start_server else "false",

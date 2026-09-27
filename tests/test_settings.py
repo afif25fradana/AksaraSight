@@ -559,3 +559,49 @@ def test_frozen_from_and_save_to_env(tmp_path, monkeypatch):
     assert loaded.dpi == 150
 
 
+def test_default_max_tokens(monkeypatch):
+    """Verify default max_tokens value is 4096."""
+    monkeypatch.delenv("OCR_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("MAX_TOKENS", raising=False)
+    s = Settings.from_env()
+    assert s.max_tokens == 4096
+
+
+def test_ocr_max_tokens_valid(monkeypatch):
+    """Verify loading valid max_tokens from OCR_MAX_TOKENS and legacy MAX_TOKENS."""
+    monkeypatch.setenv("OCR_MAX_TOKENS", "2048")
+    s = Settings.from_env()
+    assert s.max_tokens == 2048
+
+    monkeypatch.delenv("OCR_MAX_TOKENS")
+    monkeypatch.setenv("MAX_TOKENS", "1024")
+    s = Settings.from_env()
+    assert s.max_tokens == 1024
+
+
+@pytest.mark.parametrize("bad_tokens", [0, -1, -100, "abc", ""])
+def test_invalid_max_tokens_direct(bad_tokens):
+    """Verify non-positive or non-integer max_tokens raises ValueError on direct construction."""
+    with pytest.raises(ValueError, match="MAX_TOKENS must be a positive integer"):
+        Settings(max_tokens=bad_tokens)
+
+
+@pytest.mark.parametrize("bad_tokens", ["0", "-1", "-100", "abc"])
+def test_invalid_max_tokens_env(monkeypatch, bad_tokens):
+    """Verify non-positive or non-integer max_tokens raises ValueError via environment variable."""
+    monkeypatch.setenv("OCR_MAX_TOKENS", bad_tokens)
+    with pytest.raises(ValueError, match="MAX_TOKENS must be a positive integer"):
+        Settings.from_env()
+
+
+def test_save_to_env_max_tokens(tmp_path):
+    """Verify OCR_MAX_TOKENS is properly saved and reloaded via save_to_env."""
+    env_file = tmp_path / ".env"
+    s = Settings(max_tokens=8192)
+    s.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert "OCR_MAX_TOKENS='8192'" in content
+
+
+

@@ -114,12 +114,13 @@ def test_complete_success_payload_and_return_values() -> None:
     image_b64 = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
     prompt = "Text Recognition:"
 
-    text, raw_json, latency = client.complete(image_b64, prompt=prompt)
+    text, raw_json, latency, truncated = client.complete(image_b64, prompt=prompt)
 
     # Content stripping & correctness
     assert text == "# Extracted Markdown Title\nLine of text."
     assert raw_json == payload_response
     assert latency >= 0.0
+    assert truncated is False
 
     # Verify posted payload matches universal vision format
     mock_session.post.assert_called_once()
@@ -213,7 +214,7 @@ def test_retryable_server_error_recovers_after_retry(mock_sleep: MagicMock) -> N
     mock_session.post.side_effect = [resp_503, resp_200]
 
     client = VisionClient(session=mock_session, backoff_factor=0.01)
-    text, _, _ = client.complete("data:image/jpeg;base64,abc")
+    text, _, _, _ = client.complete("data:image/jpeg;base64,abc")
 
     assert text == "Recovered text"
     assert mock_session.post.call_count == 2
@@ -256,7 +257,7 @@ def test_rate_limit_429_retries(mock_sleep: MagicMock) -> None:
     mock_session.post.side_effect = [resp_429, resp_200]
 
     client = VisionClient(session=mock_session, backoff_factor=0.01)
-    text, _, _ = client.complete("data:image/jpeg;base64,abc")
+    text, _, _, _ = client.complete("data:image/jpeg;base64,abc")
 
     assert text == "Success after rate limit"
     assert mock_session.post.call_count == 2
@@ -377,7 +378,7 @@ def test_response_parsing_empty_string_content() -> None:
     mock_session.post.return_value = mock_response
 
     client = VisionClient(session=mock_session)
-    text, _, _ = client.complete("data:image/jpeg;base64,abc")
+    text, _, _, _ = client.complete("data:image/jpeg;base64,abc")
     assert text == ""
 
 
@@ -440,7 +441,7 @@ def test_response_parsing_error_message_truncation() -> None:
 def test_verify_multimodal_support_success() -> None:
     """Verify verify_multimodal_support succeeds when server returns valid response."""
     client = VisionClient()
-    with patch.object(client, "complete", return_value=("```markdown\nhello\n```", {}, 0.1)) as mock_comp:
+    with patch.object(client, "complete", return_value=("```markdown\nhello\n```", {}, 0.1, False)) as mock_comp:
         client.verify_multimodal_support()
         assert mock_comp.called
         assert mock_comp.call_args[1]["max_tokens"] == 16
@@ -468,7 +469,7 @@ def test_verify_multimodal_support_server_offline() -> None:
 def test_verify_multimodal_support_null_content() -> None:
     """Verify verify_multimodal_support raises ClientError if model returns None text."""
     client = VisionClient()
-    with patch.object(client, "complete", return_value=(None, {}, 0.1)):
+    with patch.object(client, "complete", return_value=(None, {}, 0.1, False)):
         with pytest.raises(ClientError, match="null content"):
             client.verify_multimodal_support()
 
@@ -480,4 +481,89 @@ def test_vision_client_trust_env_disabled() -> None:
         assert client._session.trust_env is False
     finally:
         client.close()
+
+
+def test_client_finish_reason_length_marks_truncated_and_logs(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify finish_reason='length' sets truncated=True and emits warning with completion_tokens."""
+    mock_response = MagicMock(spec=requests.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "cmpl-truncated",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Partially generated markdown text..."},
+                "finish_reason": "length",
+            }
+        ],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 4096},
+    }
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.post.return_value = mock_response
+
+    client = VisionClient(session=mock_session)
+    import logging
+    with caplog.at_level(logging.WARNING):
+        text, raw_json, latency, truncated = client.complete("data:image/jpeg;base64,abc")
+
+    assert text == "Partially generated markdown text..."
+    assert truncated is True
+    assert raw_json["id"] == "cmpl-truncated"
+    assert "Generation truncated: finish_reason='length' (completion_tokens=4096)" in caplog.text
+
+
+def test_client_finish_reason_stop_marks_not_truncated(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify normal completion with finish_reason='stop' sets truncated=False without warning."""
+    mock_response = MagicMock(spec=requests.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "cmpl-complete",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Complete page content."},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 120},
+    }
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.post.return_value = mock_response
+
+    client = VisionClient(session=mock_session)
+    import logging
+    with caplog.at_level(logging.WARNING):
+        text, raw_json, latency, truncated = client.complete("data:image/jpeg;base64,abc")
+
+    assert text == "Complete page content."
+    assert truncated is False
+    assert "Generation truncated" not in caplog.text
+
+
+def test_client_max_tokens_payload_configuration() -> None:
+    """Verify max_tokens defaults to settings.max_tokens and respects explicit overrides."""
+    mock_response = MagicMock(spec=requests.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"}]
+    }
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.post.return_value = mock_response
+
+    settings = Settings(max_tokens=2048)
+    client = VisionClient(settings=settings, session=mock_session)
+
+    # 1. Default to settings.max_tokens
+    client.complete("data:image/jpeg;base64,abc")
+    sent_payload = mock_session.post.call_args[1]["json"]
+    assert sent_payload["max_tokens"] == 2048
+
+    # 2. Explicit max_tokens override
+    client.complete("data:image/jpeg;base64,abc", max_tokens=100)
+    sent_payload_override = mock_session.post.call_args[1]["json"]
+    assert sent_payload_override["max_tokens"] == 100
+
 

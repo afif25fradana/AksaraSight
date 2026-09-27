@@ -325,7 +325,7 @@ def build_docx(result: OCRResult) -> docx.document.Document:
     doc = Document()
     valid_pages = [
         p for p in result.pages
-        if p.status == JobStatus.SUCCESS and p.markdown.strip()
+        if p.status in (JobStatus.SUCCESS, JobStatus.PARTIAL) and p.markdown.strip()
     ]
 
     if not valid_pages:

@@ -139,7 +139,7 @@ class OCREngine:
                     # Vision model inference for this page
                     try:
                         assert page.image_b64 is not None
-                        text, raw_json, latency = self.client.complete(
+                        text, raw_json, latency, truncated = self.client.complete(
                             image_b64=page.image_b64,
                             prompt=cfg.effective_prompt,
                         )
@@ -148,7 +148,8 @@ class OCREngine:
                             markdown=text,
                             raw_json=raw_json,
                             latency=latency,
-                            status=JobStatus.SUCCESS,
+                            status=JobStatus.PARTIAL if truncated else JobStatus.SUCCESS,
+                            truncated=truncated,
                         )
                         result.pages.append(page_res)
                     except ServerOfflineError as exc:
@@ -160,7 +161,7 @@ class OCREngine:
                         )
                         result.pages.append(page_res)
                         result.aborted = True
-                        succeeded = sum(1 for p in result.pages if p.status == JobStatus.SUCCESS)
+                        succeeded = sum(1 for p in result.pages if p.status in (JobStatus.SUCCESS, JobStatus.PARTIAL))
                         if succeeded > 0:
                             result.error = (
                                 f"Inference backend offline on page {page.page_num} "

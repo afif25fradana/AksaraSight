@@ -625,13 +625,14 @@ def test_real_loopback_server_manager_and_vision_client_integration():
         # 2. Test VisionClient completion against real loopback socket
         client = VisionClient(settings=settings)
         try:
-            text, raw_json, latency = client.complete(
+            text, raw_json, latency, truncated = client.complete(
                 image_b64="data:image/jpeg;base64,ZmFrZQ==",
                 prompt="Text Recognition:",
             )
             assert text == "# Extracted OCR Heading\nReal loopback content."
             assert raw_json["id"] == "cmpl-test-loopback"
             assert latency > 0.0
+            assert truncated is False
         finally:
             client.close()
     finally:

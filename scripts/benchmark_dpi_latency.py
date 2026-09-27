@@ -31,7 +31,7 @@ def run_benchmark():
         page_stats = []
         for p in pages:
             assert p.image_b64 is not None
-            text, raw, latency = client.complete(p.image_b64)
+            text, raw, latency, truncated = client.complete(p.image_b64)
             timings = raw.get("timings", {})
             usage = raw.get("usage", {})
             prompt_tokens = usage.get("prompt_tokens", 0)

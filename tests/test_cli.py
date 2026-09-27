@@ -593,7 +593,7 @@ def test_cli_real_engine_integration(tmp_path: Path, capsys: pytest.CaptureFixtu
         content="# Real Invoice Title\nLine item text",
         cmpl_id="test-cli-cmpl",
     )
-    with patch("core.client.VisionClient.complete", return_value=("# Real Invoice Title\nLine item text", real_response, 0.05)):
+    with patch("core.client.VisionClient.complete", return_value=("# Real Invoice Title\nLine item text", real_response, 0.05, False)):
         exit_code = main([str(test_img), "--dpi", "100", "--max-pages", "1"])
 
     assert exit_code == 0

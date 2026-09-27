@@ -32,6 +32,7 @@ def mock_client() -> MagicMock:
         "# Page Title\nRecognized text.",
         load_real_glm_ocr_response(content="# Page Title\nRecognized text.", cmpl_id="test-cmpl"),
         0.25,
+        False,
     )
     return client
 
@@ -145,9 +146,9 @@ def test_engine_process_document_success(sample_pdf_path: Path, mock_client: Mag
 def test_engine_per_page_isolation_client_errors(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Page 1 succeeds, Page 2 times out, Page 3 succeeds -> PARTIAL status."""
     mock_client.complete.side_effect = [
-        ("Page 1 Markdown", load_real_glm_ocr_response(content="Page 1 Markdown", cmpl_id="cmpl-1"), 0.2),
+        ("Page 1 Markdown", load_real_glm_ocr_response(content="Page 1 Markdown", cmpl_id="cmpl-1"), 0.2, False),
         ServerTimeoutError("Request to backend timed out after 60s"),
-        ("Page 3 Markdown", load_real_glm_ocr_response(content="Page 3 Markdown", cmpl_id="cmpl-3"), 0.3),
+        ("Page 3 Markdown", load_real_glm_ocr_response(content="Page 3 Markdown", cmpl_id="cmpl-3"), 0.3, False),
     ]
 
     engine = OCREngine(client=mock_client)
@@ -204,7 +205,7 @@ def test_engine_server_offline_mid_document_short_circuits(
 ) -> None:
     """Server dies on page 2 after page 1 succeeds -> aborts page 3, marks FAILED."""
     mock_client.complete.side_effect = [
-        ("Page 1 text", load_real_glm_ocr_response(content="Page 1 text", cmpl_id="cmpl-1"), 0.1),
+        ("Page 1 text", load_real_glm_ocr_response(content="Page 1 text", cmpl_id="cmpl-1"), 0.1, False),
         ServerOfflineError("Connection reset by peer"),
     ]
 
@@ -279,7 +280,7 @@ def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: Magi
     def complete_side_effect(*args, **kwargs):
         # Trigger cancellation after the first page completes
         cancel_token.set()
-        return ("# Page 1 Text", load_real_glm_ocr_response(content="# Page 1 Text", cmpl_id="cmpl-1"), 0.1)
+        return ("# Page 1 Text", load_real_glm_ocr_response(content="# Page 1 Text", cmpl_id="cmpl-1"), 0.1, False)
 
     mock_client.complete.side_effect = complete_side_effect
 
@@ -512,4 +513,71 @@ def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_engine_truncation_resolves_partial_status(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Verify finish_reason='length' (truncated=True) resolves to PARTIAL at both page and document level."""
+    from core.docx_export import build_docx
+
+    mock_client.complete.return_value = (
+        "# Truncated Heading\nPartial transcription that hit max_tokens limit...",
+        {"id": "cmpl-trunc", "choices": [{"finish_reason": "length"}]},
+        0.25,
+        True,
+    )
+
+    engine = OCREngine(client=mock_client)
+    result = engine.process_document(sample_pdf_path)
+
+    # Document-level status must be PARTIAL, not SUCCESS
+    assert result.status == JobStatus.PARTIAL
+    assert len(result.pages) == 3
+
+    for page in result.pages:
+        assert page.status == JobStatus.PARTIAL
+        assert page.truncated is True
+        assert "Truncated Heading" in page.markdown
+
+    # Aggregated markdown preserves partial/truncated pages
+    assert "Truncated Heading" in result.markdown
+
+    # DOCX export preserves partial/truncated pages
+    doc = build_docx(result)
+    text_content = "\n".join(p.text for p in doc.paragraphs)
+    assert "Truncated Heading" in text_content
+
+    # Serialized dict reflects status and truncation
+    res_dict = result.to_dict()
+    assert res_dict["status"] == "PARTIAL"
+    assert res_dict["pages"][0]["status"] == "PARTIAL"
+    assert res_dict["pages"][0]["truncated"] is True
+
+
+def test_engine_normal_completion_resolves_success_status(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Regression test: finish_reason='stop' (truncated=False) resolves to SUCCESS at both page and document level."""
+    mock_client.complete.return_value = (
+        "# Full Heading\nComplete transcription without truncation.",
+        {"id": "cmpl-ok", "choices": [{"finish_reason": "stop"}]},
+        0.15,
+        False,
+    )
+
+    engine = OCREngine(client=mock_client)
+    result = engine.process_document(sample_pdf_path)
+
+    assert result.status == JobStatus.SUCCESS
+    assert len(result.pages) == 3
+
+    for page in result.pages:
+        assert page.status == JobStatus.SUCCESS
+        assert page.truncated is False
+        assert "Full Heading" in page.markdown
+
+    assert "Full Heading" in result.markdown
+
+    res_dict = result.to_dict()
+    assert res_dict["status"] == "SUCCESS"
+    assert res_dict["pages"][0]["status"] == "SUCCESS"
+    assert res_dict["pages"][0]["truncated"] is False
+
 

@@ -124,8 +124,9 @@ class PageResult:
         markdown: Parsed markdown content for this page.
         raw_json: Raw inference completion response from the local backend.
         latency: Time in seconds taken to process this page.
-        status: Page processing outcome (SUCCESS or FAILED).
+        status: Page processing outcome (SUCCESS, PARTIAL, or FAILED).
         error: Descriptive error message if processing failed.
+        truncated: Whether output generation hit max tokens and was cut short.
     """
 
     page_num: int
@@ -134,6 +135,19 @@ class PageResult:
     latency: float = 0.0
     status: JobStatus = JobStatus.SUCCESS
     error: Optional[str] = None
+    truncated: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Export structured dictionary representation of the page result."""
+        return {
+            "page_num": self.page_num,
+            "status": self.status.value,
+            "latency": self.latency,
+            "markdown": self.markdown,
+            "error": self.error,
+            "raw_json": self.raw_json,
+            "truncated": self.truncated,
+        }
 
 
 @dataclass
@@ -163,6 +177,7 @@ class OCRResult:
         - If cancellation was requested: CANCELLED.
         - If document-level error is present: FAILED.
         - If no pages exist: FAILED.
+        - If any page was truncated or partial: PARTIAL (or FAILED if all failed).
         - If all pages succeeded: SUCCESS.
         - If all pages failed: FAILED.
         - If some pages succeeded and some failed: PARTIAL.
@@ -183,7 +198,13 @@ class OCRResult:
             return self.status
 
         success_count = sum(1 for p in self.pages if p.status == JobStatus.SUCCESS)
-        if success_count == len(self.pages):
+        if any(p.truncated or p.status == JobStatus.PARTIAL for p in self.pages):
+            failed_count = sum(1 for p in self.pages if p.status == JobStatus.FAILED)
+            if failed_count == len(self.pages):
+                self.status = JobStatus.FAILED
+            else:
+                self.status = JobStatus.PARTIAL
+        elif success_count == len(self.pages):
             self.status = JobStatus.SUCCESS
         elif success_count == 0:
             self.status = JobStatus.FAILED
@@ -194,10 +215,10 @@ class OCRResult:
 
     @property
     def markdown(self) -> str:
-        """Aggregate markdown text across all successful pages, separated by horizontal rules."""
+        """Aggregate markdown text across all successful and partial pages, separated by horizontal rules."""
         page_mds = [
             p.markdown for p in self.pages
-            if p.status == JobStatus.SUCCESS and p.markdown.strip()
+            if p.status in (JobStatus.SUCCESS, JobStatus.PARTIAL) and p.markdown.strip()
         ]
         return "\n\n---\n\n".join(page_mds)
 
@@ -216,17 +237,7 @@ class OCRResult:
             "aborted": self.aborted,
             "cancelled": self.cancelled,
             "page_count": len(self.pages),
-            "pages": [
-                {
-                    "page_num": p.page_num,
-                    "status": p.status.value,
-                    "latency": p.latency,
-                    "markdown": p.markdown,
-                    "error": p.error,
-                    "raw_json": p.raw_json,
-                }
-                for p in self.pages
-            ],
+            "pages": [p.to_dict() for p in self.pages],
         }
 
     def to_json(self, indent: int = 2) -> str:

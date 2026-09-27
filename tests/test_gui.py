@@ -2822,6 +2822,7 @@ def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
             ],
         },
         0.05,
+        False,
     )
 
     captured_cli_result = []

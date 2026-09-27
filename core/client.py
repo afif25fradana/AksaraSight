@@ -4,6 +4,7 @@ Provides resilient HTTP communication with local LLM serving engines
 (llama-server, Ollama, vLLM) exposing standard OpenAI-compatible Vision endpoints.
 """
 
+import logging
 import random
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -11,6 +12,8 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from config.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 # HTTP status codes eligible for exponential backoff retries
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -135,24 +138,25 @@ class VisionClient:
         image_b64: str,
         prompt: str = "Text Recognition:",
         model: str = "glm-ocr",
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,
         temperature: float = 0.0,
-    ) -> Tuple[str, Dict[str, Any], float]:
+    ) -> Tuple[str, Dict[str, Any], float, bool]:
         """Send a single page image and prompt to the local vision backend.
 
         Args:
             image_b64: RFC-2397 base64 Data URL string ('data:image/...;base64,...').
             prompt: Text prompt / instruction for the model.
             model: Model identifier tag passed to the OpenAI API endpoint.
-            max_tokens: Maximum tokens to generate (default: 4096, justified by
-                GLM-OCR 128k context and page density).
+            max_tokens: Maximum tokens to generate (defaults to settings.max_tokens,
+                justified by GLM-OCR 128k context and page density).
             temperature: Sampling temperature (default: 0.0 for deterministic OCR).
 
         Returns:
-            Tuple[str, Dict[str, Any], float]:
+            Tuple[str, Dict[str, Any], float, bool]:
                 - markdown_text: Extracted text or markdown transcribed by the model.
                 - raw_json: Complete deserialized JSON response dictionary.
                 - latency_seconds: Wall-clock request execution time in seconds.
+                - truncated: True if output generation was cut off due to max_tokens limit.
 
         Raises:
             ServerOfflineError: If connection to the local backend fails (fail-fast).
@@ -161,6 +165,9 @@ class VisionClient:
             ServerError: If backend returns 5xx or 429 after retries are exhausted.
             ResponseParsingError: If backend returns invalid JSON or schema violations.
         """
+        effective_max_tokens = (
+            max_tokens if max_tokens is not None else getattr(self.settings, "max_tokens", 4096)
+        )
         payload = {
             "model": model,
             "messages": [
@@ -172,7 +179,7 @@ class VisionClient:
                     ],
                 }
             ],
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": temperature,
         }
 
@@ -248,7 +255,7 @@ class VisionClient:
             ClientError: If the server rejects image input or fails the probe.
         """
         try:
-            text, _, _ = self.complete(_TINY_1X1_PNG_B64, prompt="OCR:", max_tokens=16)
+            text, _, _, _ = self.complete(_TINY_1X1_PNG_B64, prompt="OCR:", max_tokens=16)
             if text is None:
                 raise ClientError("Backend returned null content during multimodal self-test probe.")
         except ServerOfflineError:
@@ -266,7 +273,7 @@ class VisionClient:
         self,
         response: requests.Response,
         latency: float,
-    ) -> Tuple[str, Dict[str, Any], float]:
+    ) -> Tuple[str, Dict[str, Any], float, bool]:
         """Parse and validate OpenAI-compatible chat completion JSON response.
 
         Note:
@@ -318,4 +325,14 @@ class VisionClient:
                 f"Expected string content in message, got {type(content).__name__}"
             )
 
-        return text, data, latency
+        finish_reason = first_choice.get("finish_reason")
+        usage = data.get("usage") if isinstance(data, dict) else {}
+        completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+        truncated = (finish_reason == "length")
+        if truncated:
+            logger.warning(
+                "Generation truncated: finish_reason='length' (completion_tokens=%s)",
+                completion_tokens,
+            )
+
+        return text, data, latency, truncated

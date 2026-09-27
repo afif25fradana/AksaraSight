@@ -1183,6 +1183,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 page_str = "1 page"
             duration_str = f"{item.duration:.1f}s"
             meta = f"{base_meta} · {page_str} · {duration_str}"
+            if item.result and any(p.truncated for p in item.result.pages):
+                meta += " · ⚠ Truncated"
             current_dpi = getattr(self.settings, "dpi", None)
             if item.processed_dpi is not None and current_dpi is not None and item.processed_dpi != current_dpi:
                 meta += f" · ⚠ processed @{item.processed_dpi} DPI"
@@ -1650,7 +1652,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
             self._img_display_label.configure(image=ctk_img, text="")
             self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
-            self._lbl_img_info.configure(text=f"{orig_w} × {orig_h} px @ {dpi_val} DPI")
+            info_txt = f"{orig_w} × {orig_h} px @ {dpi_val} DPI"
+            if target_page.truncated:
+                info_txt += " · ⚠ Truncated"
+            self._lbl_img_info.configure(text=info_txt)
             self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
             self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
         except Exception as exc:

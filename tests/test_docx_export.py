@@ -575,3 +575,82 @@ def test_multipage_with_failed_or_empty_pages_page_break_fidelity(tmp_path: Path
     # Trailing paragraph must not end with a page break
     assert '<w:br w:type="page"/>' not in paragraphs[-1].runs[-1]._r.xml
 
+
+# ==============================================================================
+# Requirement 6: Nested Lists & Image Placeholder Rendering
+# ==============================================================================
+
+def test_no_text_silently_dropped() -> None:
+    """Every text node in the markdown AST must appear somewhere in the DOCX output.
+
+    Covers nested bullet lists (3 levels), nested ordered lists (2 levels),
+    and image references with alt text.
+    """
+    from markdown_it import MarkdownIt
+
+    md = (
+        "- level1\n"
+        "  - level2\n"
+        "    - level3\n"
+        "- another1\n"
+        "\n"
+        "1. first ordered\n"
+        "   1. nested ordered\n"
+        "2. second ordered\n"
+        "\n"
+        "![my alt text](img.png)\n"
+    )
+
+    # Collect every non-empty text node from the AST
+    def collect_ast_texts(node: SyntaxTreeNode) -> list[str]:
+        texts = []
+        if node.type == "text" and node.content:
+            texts.append(node.content)
+        for child in node.children:
+            texts.extend(collect_ast_texts(child))
+        return texts
+
+    parser = MarkdownIt()
+    tokens = parser.parse(md)
+    root = SyntaxTreeNode(tokens)
+    ast_texts: list[str] = []
+    for child in root.children:
+        ast_texts.extend(collect_ast_texts(child))
+
+    result = OCRResult(
+        file_path="nested_lists.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+
+    # Concatenate all paragraph text from the DOCX
+    docx_text = " ".join(p.text for p in doc.paragraphs)
+
+    for text in ast_texts:
+        assert text in docx_text, (
+            f"AST text node {text!r} is missing from DOCX output. "
+            f"Full DOCX text: {docx_text!r}"
+        )
+
+
+def test_image_node_renders_as_placeholder() -> None:
+    """Image references must produce a visible [image: <alt>] placeholder, not bare alt text."""
+    md = "Before image. ![diagram of process](flow.png) After image."
+    result = OCRResult(
+        file_path="img_test.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    para_text = doc.paragraphs[0].text
+
+    # Placeholder must appear with bracket formatting
+    assert "[image: diagram of process]" in para_text, (
+        f"Expected '[image: diagram of process]' placeholder in paragraph text, got: {para_text!r}"
+    )
+    # The bare alt text must NOT appear as plain prose outside the brackets
+    stripped = para_text.replace("[image: diagram of process]", "")
+    assert "diagram of process" not in stripped, (
+        f"Alt text leaked as bare prose outside the placeholder: {para_text!r}"
+    )

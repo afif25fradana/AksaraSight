@@ -85,6 +85,12 @@ def _render_inline_nodes(
             paragraph.add_run(" ")
         elif node.type == "hardbreak":
             paragraph.add_run("\n")
+        elif node.type == "image":
+            # Images cannot be embedded; emit a visible placeholder using alt text
+            alt = node.content or (node.children[0].content if node.children else "")
+            run = paragraph.add_run(f"[image: {alt}]")
+            run.bold = bold
+            run.italic = italic
         else:
             # Fallback for nested elements or raw content
             if node.children:
@@ -196,7 +202,7 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
     p_after.paragraph_format.space_after = Pt(6)
 
 
-def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode) -> None:
+def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode, depth: int = 0) -> None:
     """Render an individual top-level block node into the Document."""
     if node.type == "heading":
         level = 1
@@ -251,8 +257,11 @@ def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode) -> None:
             p = doc.add_paragraph(style="List Bullet")
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.left_indent = Pt(18 * (depth + 1))
             for sub_child in item.children:
-                if sub_child.children and sub_child.children[0].type == "inline":
+                if sub_child.type in ("bullet_list", "ordered_list"):
+                    _render_ast_node(doc, sub_child, depth=depth + 1)
+                elif sub_child.children and sub_child.children[0].type == "inline":
                     _render_inline_nodes(p, sub_child.children[0].children)
                 elif sub_child.content:
                     p.add_run(sub_child.content)
@@ -262,8 +271,11 @@ def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode) -> None:
             p = doc.add_paragraph(style="List Number")
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.left_indent = Pt(18 * (depth + 1))
             for sub_child in item.children:
-                if sub_child.children and sub_child.children[0].type == "inline":
+                if sub_child.type in ("bullet_list", "ordered_list"):
+                    _render_ast_node(doc, sub_child, depth=depth + 1)
+                elif sub_child.children and sub_child.children[0].type == "inline":
                     _render_inline_nodes(p, sub_child.children[0].children)
                 elif sub_child.content:
                     p.add_run(sub_child.content)
@@ -284,7 +296,7 @@ def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode) -> None:
         # Fallback for unrecognized block nodes
         if node.children:
             for child in node.children:
-                _render_ast_node(doc, child)
+                _render_ast_node(doc, child, depth=depth)
         elif node.content:
             p = doc.add_paragraph()
             p.add_run(node.content)

@@ -305,7 +305,7 @@ class Settings:
 
         raw_dpi = _get_env_with_fallback("OCR_DPI", "DPI", "100")
         raw_max_pages = _get_env_with_fallback("OCR_MAX_PAGES", "MAX_PAGES")
-        max_pages = int(raw_max_pages.strip()) if raw_max_pages and str(raw_max_pages).strip() else None
+        max_pages = raw_max_pages.strip() if raw_max_pages and str(raw_max_pages).strip() else None
 
         raw_max_dim = _get_env_with_fallback("OCR_MAX_IMAGE_DIMENSION", "MAX_IMAGE_DIMENSION", "2048")
         raw_max_tokens = _get_env_with_fallback("OCR_MAX_TOKENS", "MAX_TOKENS", "4096")
@@ -322,7 +322,7 @@ class Settings:
             model_repo=model_repo,
             auto_start_server=auto_start,
             dpi=raw_dpi,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
-            max_pages=max_pages,
+            max_pages=max_pages,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
             max_image_dimension=raw_max_dim,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
             max_tokens=raw_max_tokens,  # type: ignore[arg-type]  # string from env validated and cast to int in __post_init__
         )

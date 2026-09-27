@@ -238,6 +238,34 @@ def test_max_pages_valid():
     assert Settings(max_pages="5").max_pages == 5  # type: ignore[bad-argument-type]  # intentional invalid argument type to test runtime string coercion
 
 
+def test_max_pages_from_env_valid(monkeypatch):
+    """Verify OCR_MAX_PAGES parses and coerces to int in Settings.from_env (B8)."""
+    monkeypatch.setenv("OCR_MAX_PAGES", "5")
+    s = Settings.from_env()
+    assert s.max_pages == 5
+    assert isinstance(s.max_pages, int)
+
+
+@pytest.mark.parametrize("empty_val", [None, "", "   "])
+def test_max_pages_from_env_empty_or_unset(monkeypatch, empty_val):
+    """Verify unset or whitespace OCR_MAX_PAGES defaults to None (B8)."""
+    if empty_val is None:
+        monkeypatch.delenv("OCR_MAX_PAGES", raising=False)
+        monkeypatch.delenv("MAX_PAGES", raising=False)
+    else:
+        monkeypatch.setenv("OCR_MAX_PAGES", empty_val)
+    s = Settings.from_env()
+    assert s.max_pages is None
+
+
+@pytest.mark.parametrize("bad_pages", ["abc", "0", "-1"])
+def test_max_pages_from_env_invalid(monkeypatch, bad_pages):
+    """Verify non-positive or non-numeric OCR_MAX_PAGES raises clean ValueError via __post_init__ (B8)."""
+    monkeypatch.setenv("OCR_MAX_PAGES", bad_pages)
+    with pytest.raises(ValueError, match="MAX_PAGES must be a positive integer or None"):
+        Settings.from_env()
+
+
 @pytest.mark.parametrize("bad_repo", ["", "   ", None])
 def test_model_repo_validation(bad_repo):
     """Verify model_repo must be a non-empty string."""

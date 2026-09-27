@@ -1770,9 +1770,11 @@ def test_server_auto_start_on_launch():
 
 
 def test_server_manager_cleanup_on_closing():
-    """Verify _on_closing terminates managed server and closes sessions."""
+    """Verify _on_closing terminates managed server and shuts down ServerManager (B9)."""
+    from core.server_manager import ServerManager
+
     mock_engine = MagicMock()
-    mock_sm = MagicMock()
+    mock_sm = MagicMock(spec=ServerManager)
     mock_sm.is_managed = True
 
     app = OCRApp(engine=mock_engine, server_manager=mock_sm)
@@ -1781,7 +1783,24 @@ def test_server_manager_cleanup_on_closing():
     app._on_closing()
 
     assert mock_sm.stop.call_count == 1
-    assert mock_sm.close.call_count == 1
+    assert mock_sm.shutdown.call_count == 1
+
+
+def test_real_server_manager_shutdown_on_closing():
+    """Verify _on_closing invokes real ServerManager.shutdown() closing HTTP session (B9)."""
+    from core.server_manager import ServerManager
+
+    mock_engine = MagicMock()
+    real_sm = ServerManager()
+
+    app = OCRApp(engine=mock_engine, server_manager=real_sm)
+    app.withdraw()
+
+    with patch.object(real_sm, "shutdown", wraps=real_sm.shutdown) as spy_shutdown, \
+         patch.object(real_sm._session, "close", wraps=real_sm._session.close) as spy_session_close:
+        app._on_closing()
+        spy_shutdown.assert_called_once()
+        spy_session_close.assert_called_once()
 
 
 def test_settings_dialog_opening_and_runtime_sync():

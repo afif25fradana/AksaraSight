@@ -2694,8 +2694,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 if getattr(self.server_manager, "is_managed", False):
                     logger.info("Stopping managed server process on application exit...")
                     self.server_manager.stop()
-                if hasattr(self.server_manager, "close"):
-                    self.server_manager.close()
+                self.server_manager.shutdown()
         except Exception as sm_exc:
             sys.stderr.write(f"Warning: error shutting down server manager: {sm_exc}\n")
 

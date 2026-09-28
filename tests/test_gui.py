@@ -2370,8 +2370,16 @@ def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
         app._on_closing()
 
 
-def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> None:
+@pytest.mark.parametrize("_run", range(20))
+def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path, _run: int) -> None:
     """Verify Export All runs on background daemon thread and prevents concurrent duplicate exports (P8)."""
+    import os
+    import traceback
+    import gui.app
+
+    t0 = time.perf_counter()
+    timeline: list[tuple[float, str]] = [(0.0, "test_start")]
+
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2397,14 +2405,27 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
         export_finish_event = threading.Event()
 
         def slow_save_artifacts(result, **kwargs):
+            is_set_enter = export_finish_event.is_set()
+            timeline.append((time.perf_counter() - t0, f"slow_save_enter(finish_set={is_set_enter})"))
             export_start_event.set()
-            export_finish_event.wait(timeout=2.0)
+            res = export_finish_event.wait(timeout=2.0)
+            timeline.append((time.perf_counter() - t0, f"slow_save_exit(wait_res={res}, finish_set={export_finish_event.is_set()})"))
             return [export_target / f"{Path(result.file_path).stem}.md"]
 
+        orig_resolve_unique_stem = gui.app.resolve_unique_stem
+
+        def timed_resolve_unique_stem(*args, **kwargs):
+            timeline.append((time.perf_counter() - t0, "resolve_unique_stem_enter"))
+            res = orig_resolve_unique_stem(*args, **kwargs)
+            timeline.append((time.perf_counter() - t0, f"resolve_unique_stem_exit({res})"))
+            return res
+
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
-             patch("gui.app.save_artifacts", side_effect=slow_save_artifacts):
+             patch("gui.app.save_artifacts", side_effect=slow_save_artifacts), \
+             patch("gui.app.resolve_unique_stem", side_effect=timed_resolve_unique_stem):
 
             thread1 = app._on_export_all()
+            timeline.append((time.perf_counter() - t0, "thread1_started"))
             assert thread1 is not None
             assert thread1.is_alive()
             assert thread1.daemon is True
@@ -2423,10 +2444,30 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
 
             # Let export finish
             export_finish_event.set()
+            timeline.append((time.perf_counter() - t0, "after_export_finish_event_set"))
+            timeline.append((time.perf_counter() - t0, "before_wait_for_export"))
             app.wait_for_export(timeout=3.0)
+            timeline.append((time.perf_counter() - t0, f"after_wait_for_export(thread1_alive={thread1.is_alive()})"))
 
         # After export completion
-        assert app._is_exporting is False
+        def _dump_diagnostics() -> str:
+            lines = [
+                f"=== TIMELINE (total elapsed: {time.perf_counter() - t0:.4f}s) ===",
+            ]
+            for el, label in timeline:
+                lines.append(f"  {el:8.4f}s: {label}")
+            lines.append(f"thread1.is_alive(): {thread1.is_alive()}")
+            lines.append(f"os.cpu_count(): {os.cpu_count()}")
+            lines.append("=== THREAD STACKS ===")
+            frames = sys._current_frames()
+            threads_by_ident = {t.ident: t.name for t in threading.enumerate()}
+            for ident, frame in frames.items():
+                tname = threads_by_ident.get(ident, f"UnknownThread-{ident}")
+                stack = "".join(traceback.format_stack(frame))
+                lines.append(f"\n--- Thread: {tname} (ident: {ident}) ---\n{stack}")
+            return "\n".join(lines)
+
+        assert app._is_exporting is False, f"Export stall detected!\n{_dump_diagnostics()}"
         assert "Exported 2 documents" in app._footer_status.cget("text")
     finally:
         app._on_closing()

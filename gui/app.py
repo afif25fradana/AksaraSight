@@ -21,8 +21,6 @@ from PIL import Image
 import tkinterdnd2 as tkdnd
 import tkinterdnd2.TkinterDnD as tdnd
 
-import pypdfium2 as pdfium
-
 from config.settings import Settings
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.engine import OCREngine
@@ -31,7 +29,7 @@ from core.formatter import (
     save_artifacts,
 )
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
-from core.pipeline import _PDFIUM_LOCK, PipelineError, rasterize_page
+from core.pipeline import PipelineError, rasterize_page
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
 # Color tokens (WCAG 2.1 AA verified)
 # Re-exported from gui.theme for backward compatibility
@@ -74,6 +72,7 @@ from gui.theme import (
 
 from gui.settings_window import SettingsWindow
 from gui.preview_highlighter import MarkdownHighlighter
+from gui.image_preview import ImagePreviewController
 
 logger = logging.getLogger(__name__)
 
@@ -264,8 +263,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._failed_count: int = 0
         self._current_cancel_event: Optional[threading.Event] = None
         self._pending_engine_settings: Optional[Settings] = None
-        self._current_image_page_idx: int = 0
-        self._current_ctk_image: Optional[ctk.CTkImage] = None
+        self._image_preview: Optional[ImagePreviewController] = None
+        self._legacy_current_image_page_idx: int = 0
+        self._legacy_current_ctk_image: Optional[ctk.CTkImage] = None
         self._progress_indeterminate: bool = False
         self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._is_exporting: bool = False
@@ -304,6 +304,30 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Start periodic result queue polling
         self._process_result_queue()
+
+    @property
+    def _current_image_page_idx(self) -> int:
+        if self._image_preview is not None:
+            return self._image_preview.current_page_idx
+        return self._legacy_current_image_page_idx
+
+    @_current_image_page_idx.setter
+    def _current_image_page_idx(self, value: int) -> None:
+        self._legacy_current_image_page_idx = value
+        if self._image_preview is not None:
+            self._image_preview.current_page_idx = value
+
+    @property
+    def _current_ctk_image(self) -> Optional[ctk.CTkImage]:
+        if self._image_preview is not None:
+            return self._image_preview.current_ctk_image
+        return self._legacy_current_ctk_image
+
+    @_current_ctk_image.setter
+    def _current_ctk_image(self, value: Optional[ctk.CTkImage]) -> None:
+        self._legacy_current_ctk_image = value
+        if self._image_preview is not None:
+            self._image_preview.current_ctk_image = value
 
     # ==========================================================================
     # UI Layout Construction
@@ -650,74 +674,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._highlighter.configure_tags(self._tb_preview)
 
         # Tab 3: Image Preview with pagination controls and scrollable container
-        self._img_nav_bar = ctk.CTkFrame(tab_image, fg_color=COLOR_SURFACE_1, height=36, corner_radius=6)
-        self._img_nav_bar.pack(fill="x", padx=4, pady=(4, 6))
-        self._img_nav_bar.grid_columnconfigure(0, weight=0)
-        self._img_nav_bar.grid_columnconfigure(1, weight=0)
-        self._img_nav_bar.grid_columnconfigure(2, weight=0)
-        self._img_nav_bar.grid_columnconfigure(3, weight=1)
-        self._img_nav_bar.grid_columnconfigure(4, weight=0)
-
-        self._btn_img_prev = ctk.CTkButton(
-            self._img_nav_bar,
-            text="◀ Prev",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            width=65,
-            height=26,
-            fg_color=COLOR_INTERACTIVE_NEUTRAL,
-            hover_color=COLOR_INTERACTIVE_HOVER,
-            text_color=COLOR_TEXT_PRIMARY,
-            state="disabled",
-            command=self._on_img_prev,
+        self._image_preview = ImagePreviewController(
+            preview_tab=tab_image,
+            settings=self.settings,
+            get_current_item=self._get_selected_queue_item,
         )
-        self._btn_img_prev.grid(row=0, column=0, padx=(6, 4), pady=4)
-
-        self._lbl_img_page = ctk.CTkLabel(
-            self._img_nav_bar,
-            text="Page 0 of 0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=COLOR_TEXT_PRIMARY,
-        )
-        self._lbl_img_page.grid(row=0, column=1, padx=6, pady=4)
-
-        self._btn_img_next = ctk.CTkButton(
-            self._img_nav_bar,
-            text="Next ▶",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            width=65,
-            height=26,
-            fg_color=COLOR_INTERACTIVE_NEUTRAL,
-            hover_color=COLOR_INTERACTIVE_HOVER,
-            text_color=COLOR_TEXT_PRIMARY,
-            state="disabled",
-            command=self._on_img_next,
-        )
-        self._btn_img_next.grid(row=0, column=2, padx=(4, 6), pady=4)
-
-        self._lbl_img_info = ctk.CTkLabel(
-            self._img_nav_bar,
-            text="",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self._lbl_img_info.grid(row=0, column=4, padx=10, pady=4, sticky="e")
-
-        self._img_scroll = ctk.CTkScrollableFrame(
-            tab_image,
-            corner_radius=6,
-            fg_color=COLOR_SURFACE_2,
-            scrollbar_button_color=COLOR_SCROLLBAR_THUMB,
-            scrollbar_button_hover_color=COLOR_SCROLLBAR_THUMB_HOVER,
-        )
-        self._img_scroll.pack(fill="both", expand=True, padx=4, pady=(0, 4))
-
-        self._img_display_label = ctk.CTkLabel(
-            self._img_scroll,
-            text="No image preview available for this document.\nProcess a document to inspect scan raster.",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=COLOR_TEXT_MUTED,
-        )
-        self._img_display_label.pack(expand=True, pady=40)
+        self._img_nav_bar = self._image_preview.nav_bar
+        self._btn_img_prev = self._image_preview.btn_prev
+        self._lbl_img_page = self._image_preview.lbl_page
+        self._btn_img_next = self._image_preview.btn_next
+        self._lbl_img_info = self._image_preview.lbl_info
+        self._img_scroll = self._image_preview.scroll_frame
+        self._img_display_label = self._image_preview.display_label
 
         # Tab 4: JSON Tree Textbox
         self._tb_json = ctk.CTkTextbox(
@@ -1438,23 +1406,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Parse text in _tb_preview and apply typography tags."""
         self._highlighter.apply_tags(self._tb_preview)
 
+    def _get_selected_queue_item(self) -> Optional[QueueItem]:
+        """Return the currently selected QueueItem, if any."""
+        if self._selected_item_id and self._selected_item_id in self._queue_items:
+            return self._queue_items[self._selected_item_id]
+        return None
+
     def _load_image_page_on_demand(
         self,
         file_path: Path,
-        page_index: int,
+        page_index: int = 0,
         effective_dpi: Optional[int] = None,
     ) -> Tuple[Optional[Image.Image], Optional[str]]:
-        """Load and rasterize a single page on-demand from disk without holding base64 strings in memory.
-
-        If the source file no longer exists (moved or deleted after enqueue), returns a clean
-        descriptive error message without raising exceptions.
-        """
-        if not file_path.is_file():
-            return None, f"Source file unavailable:\n{file_path.name}\n\n(File was moved or deleted after enqueue)"
-
-        if effective_dpi is None:
-            effective_dpi = getattr(self.settings, "dpi", 100) or 100
-
+        """Load and rasterize a single page on-demand via ImagePreviewController."""
+        if self._image_preview is not None:
+            return self._image_preview.load_page(file_path, page_index=page_index, effective_dpi=effective_dpi)
+        effective_dpi = effective_dpi or getattr(self.settings, "dpi", 100) or 100
         try:
             raw_bytes = rasterize_page(file_path, page_idx=page_index, dpi=effective_dpi)
             pil_img = Image.open(io.BytesIO(raw_bytes))
@@ -1467,98 +1434,23 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _render_image_preview(self, item: QueueItem) -> None:
         """Render original raster scan image for the active document page on-demand."""
-        if not (item.result and item.result.pages):
-            self._reset_image_preview()
-            return
-
-        total_img_pages = len(item.result.pages)
-        if total_img_pages == 0:
-            self._reset_image_preview()
-            return
-
-        self._current_image_page_idx = max(0, min(self._current_image_page_idx, total_img_pages - 1))
-        target_page = item.result.pages[self._current_image_page_idx]
-
-        dpi_val = getattr(item, "processed_dpi", None) or getattr(self.settings, "dpi", 100) or 100
-        pil_img, err_msg = self._load_image_page_on_demand(
-            item.file_path,
-            page_index=self._current_image_page_idx,
-            effective_dpi=dpi_val,
-        )
-
-        if err_msg or pil_img is None:
-            self._current_ctk_image = None
-            self._img_display_label.configure(
-                image="",
-                text=err_msg or "Failed to load image preview",
-            )
-            self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
-            self._lbl_img_info.configure(text="")
-            self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
-            self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
-            return
-
-        try:
-            if pil_img.mode not in ("RGB", "RGBA"):
-                pil_img = pil_img.convert("RGB")
-
-            orig_w, orig_h = pil_img.size
-            max_w, max_h = 620, 750
-            scale = min(max_w / orig_w, max_h / orig_h, 1.0)
-            disp_w = max(1, int(orig_w * scale))
-            disp_h = max(1, int(orig_h * scale))
-
-            scaled_img = pil_img.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
-            ctk_img = ctk.CTkImage(light_image=scaled_img, dark_image=scaled_img, size=(disp_w, disp_h))
-            self._current_ctk_image = ctk_img
-
-            self._img_display_label.configure(image=ctk_img, text="")
-            self._lbl_img_page.configure(text=f"Page {self._current_image_page_idx + 1} of {total_img_pages}")
-            info_txt = f"{orig_w} × {orig_h} px @ {dpi_val} DPI"
-            if target_page.truncated:
-                info_txt += " · ⚠ Truncated"
-            self._lbl_img_info.configure(text=info_txt)
-            self._btn_img_prev.configure(state="normal" if self._current_image_page_idx > 0 else "disabled")
-            self._btn_img_next.configure(state="normal" if self._current_image_page_idx < total_img_pages - 1 else "disabled")
-        except Exception as exc:
-            self._current_ctk_image = None
-            self._img_display_label.configure(
-                image="",
-                text=f"Failed to display image raster: {exc}",
-            )
-            self._lbl_img_page.configure(text="Page Error")
-            self._lbl_img_info.configure(text="")
-            self._btn_img_prev.configure(state="disabled")
-            self._btn_img_next.configure(state="disabled")
+        if self._image_preview is not None:
+            self._image_preview.render(item)
 
     def _reset_image_preview(self) -> None:
         """Reset the image preview controls and canvas to empty state."""
-        self._current_image_page_idx = 0
-        self._current_ctk_image = None
-        self._img_display_label.configure(
-            image="",
-            text="No image preview available for this document.\nProcess a document to inspect scan raster.",
-        )
-        self._lbl_img_page.configure(text="Page 0 of 0")
-        self._lbl_img_info.configure(text="")
-        self._btn_img_prev.configure(state="disabled")
-        self._btn_img_next.configure(state="disabled")
+        if self._image_preview is not None:
+            self._image_preview.reset()
 
     def _on_img_prev(self) -> None:
         """Navigate to the previous page in Image Preview."""
-        if self._current_image_page_idx > 0:
-            self._current_image_page_idx -= 1
-            if self._selected_item_id and self._selected_item_id in self._queue_items:
-                self._render_image_preview(self._queue_items[self._selected_item_id])
+        if self._image_preview is not None:
+            self._image_preview.on_prev(self._get_selected_queue_item())
 
     def _on_img_next(self) -> None:
         """Navigate to the next page in Image Preview."""
-        if self._selected_item_id and self._selected_item_id in self._queue_items:
-            item = self._queue_items[self._selected_item_id]
-            total_pages = len(item.result.pages) if item.result and item.result.pages else 0
-            if self._current_image_page_idx < total_pages - 1:
-                self._current_image_page_idx += 1
-                self._render_image_preview(item)
+        if self._image_preview is not None:
+            self._image_preview.on_next(self._get_selected_queue_item())
 
     def _set_textbox_content(self, textbox: ctk.CTkTextbox, content: str) -> None:
         """Safely update text in a read-only CTkTextbox."""

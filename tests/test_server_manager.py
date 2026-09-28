@@ -1,5 +1,6 @@
 """Unit tests for core/server_manager.py."""
 
+import atexit
 import subprocess
 import sys
 import threading
@@ -326,6 +327,58 @@ def test_server_manager_lifecycle_callback_on_start_and_stop(tmp_path):
         assert callback_mock.call_count == 2
     finally:
         mgr.shutdown()
+
+
+def test_server_manager_lifecycle_callback_may_reenter_manager(tmp_path):
+    """B10: a lifecycle callback that calls poll_status()/get_status_info() must not deadlock."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    # This test deliberately provokes a deadlock on regression; the atexit hook
+    # would then block interpreter shutdown on the held lock, so drop it.
+    atexit.unregister(mgr._atexit_hook)
+
+    def reentrant_callback() -> None:
+        mgr.poll_status()
+        mgr.get_status_info()
+        mgr.get_recent_logs()
+
+    mgr.on_lifecycle_change = reentrant_callback
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    outcome = {"error": None}
+
+    def run_lifecycle() -> None:
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+                with patch("subprocess.Popen", return_value=mock_proc):
+                    mgr.start()
+            mgr.stop()
+        except Exception as exc:  # pragma: no cover - failure path
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run_lifecycle, name="B10ReentrantCallback", daemon=True)
+    worker.start()
+    worker.join(timeout=10.0)
+
+    try:
+        assert not worker.is_alive(), "B10: lifecycle callback re-entering ServerManager deadlocked"
+        assert outcome["error"] is None, f"B10: callback raised {outcome['error']!r}"
+    finally:
+        mgr.on_lifecycle_change = None
+        if not worker.is_alive():
+            # A deadlocked worker still holds the lock; calling shutdown() here
+            # would hang the main thread, so only clean up on the pass path.
+            mgr.shutdown()
 
 
 def test_server_manager_registers_atexit():

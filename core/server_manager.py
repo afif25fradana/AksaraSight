@@ -384,11 +384,18 @@ class ServerManager:
             recent_logs=list(self._log_buffer),
         )
 
-    def _notify_lifecycle_change(self) -> None:
-        """Invoke lifecycle change callback if registered."""
-        if self.on_lifecycle_change:
+    def _notify_lifecycle_change(
+        self, callback: Optional[Callable[[], None]]
+    ) -> None:
+        """Invoke the lifecycle change callback captured under the lock.
+
+        The caller passes a reference captured while holding the lock so the
+        callback runs after the lock is released. Exceptions raised by the
+        callback are swallowed to keep lifecycle transitions resilient.
+        """
+        if callback:
             try:
-                self.on_lifecycle_change()
+                callback()
             except Exception as exc:
                 logger.debug("Error in on_lifecycle_change callback: %s", exc)
 
@@ -422,6 +429,7 @@ class ServerManager:
             FileNotFoundError: If the llama-server executable cannot be located.
             RuntimeError: If a managed server is already running or start fails.
         """
+        callback: Optional[Callable[[], None]] = None
         with self._lock:
             # Check if a compatible server is already running
             active_ep = endpoint or self.settings.local_endpoint
@@ -431,133 +439,135 @@ class ServerManager:
                 self._status = cur_status
                 self._last_message = f"Connected to existing server ({cur_msg})"
                 logger.info("Server already running on %s; adopting as external", active_ep)
-                self._notify_lifecycle_change()
-                return
+                callback = self.on_lifecycle_change
+            else:
+                if self._process is not None and self._process.poll() is None:
+                    raise RuntimeError("A managed server process is already running.")
 
-            if self._process is not None and self._process.poll() is None:
-                raise RuntimeError("A managed server process is already running.")
-
-            # Resolve executable path (uses effective_llama_server_path to support managed runtime)
-            candidate_path = server_path or self.settings.effective_llama_server_path
-            if not candidate_path:
-                which_path = shutil.which("llama-server")
-                candidate_path = which_path
-
-            if not candidate_path or not Path(candidate_path).is_file():
-                if self.settings.runtime_mode == "managed" and not server_path:
-                    backend = getattr(self.settings, "managed_backend_override", "auto")
-                    raise FileNotFoundError(
-                        f"Managed llama.cpp runtime is not installed for backend '{backend}'. "
-                        "Open Settings to download the recommended runtime."
-                    )
+                # Resolve executable path (uses effective_llama_server_path to support managed runtime)
+                candidate_path = server_path or self.settings.effective_llama_server_path
                 if not candidate_path:
+                    which_path = shutil.which("llama-server")
+                    candidate_path = which_path
+
+                if not candidate_path or not Path(candidate_path).is_file():
+                    if self.settings.runtime_mode == "managed" and not server_path:
+                        backend = getattr(self.settings, "managed_backend_override", "auto")
+                        raise FileNotFoundError(
+                            f"Managed llama.cpp runtime is not installed for backend '{backend}'. "
+                            "Open Settings to download the recommended runtime."
+                        )
+                    if not candidate_path:
+                        raise FileNotFoundError(
+                            "llama-server executable path is not configured. "
+                            "Configure the path to llama-server.exe in Settings."
+                        )
                     raise FileNotFoundError(
-                        "llama-server executable path is not configured. "
+                        f"llama-server executable not found at '{candidate_path}'. "
                         "Configure the path to llama-server.exe in Settings."
                     )
-                raise FileNotFoundError(
-                    f"llama-server executable not found at '{candidate_path}'. "
-                    "Configure the path to llama-server.exe in Settings."
-                )
 
-            resolved_path = str(Path(candidate_path).resolve())
-            repo = model_repo or self.settings.model_repo
+                resolved_path = str(Path(candidate_path).resolve())
+                repo = model_repo or self.settings.model_repo
 
-            # Extract port
-            parsed = urlsplit(active_ep)
-            port = parsed.port or 8080
+                # Extract port
+                parsed = urlsplit(active_ep)
+                port = parsed.port or 8080
 
-            # Determine model flag: -m for local GGUF file, -hf for Hugging Face repo
-            model_flag = "-m" if (Path(repo).is_file() or repo.lower().endswith(".gguf")) else "-hf"
+                # Determine model flag: -m for local GGUF file, -hf for Hugging Face repo
+                model_flag = "-m" if (Path(repo).is_file() or repo.lower().endswith(".gguf")) else "-hf"
 
-            # Verified optimal hardware arguments
-            cmd = [
-                resolved_path,
-                model_flag, repo,
-                "--host", "127.0.0.1",
-                "--port", str(port),
-                "-ngl", "99",
-                "-c", "8192",
-                "--parallel", "1",
-            ]
+                # Verified optimal hardware arguments
+                cmd = [
+                    resolved_path,
+                    model_flag, repo,
+                    "--host", "127.0.0.1",
+                    "--port", str(port),
+                    "-ngl", "99",
+                    "-c", "8192",
+                    "--parallel", "1",
+                ]
 
-            # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
-            if model_flag == "-m":
-                model_path = Path(repo).resolve()
-                mmproj_candidates: List[Path] = []
-                if model_path.parent.is_dir():
-                    for p in model_path.parent.iterdir():
-                        if p.is_file() and p.suffix.lower() == ".gguf" and "mmproj" in p.name.lower():
-                            mmproj_candidates.append(p)
+                # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
+                if model_flag == "-m":
+                    model_path = Path(repo).resolve()
+                    mmproj_candidates: List[Path] = []
+                    if model_path.parent.is_dir():
+                        for p in model_path.parent.iterdir():
+                            if p.is_file() and p.suffix.lower() == ".gguf" and "mmproj" in p.name.lower():
+                                mmproj_candidates.append(p)
 
-                if mmproj_candidates:
-                    chosen_mmproj = sorted(mmproj_candidates)[0]
-                    cmd.extend(["--mmproj", str(chosen_mmproj)])
-                    logger.info("Auto-detected adjacent multimodal projector for local model: %s", chosen_mmproj.name)
-                else:
-                    logger.warning(
-                        "Local GGUF model '%s' specified without an adjacent mmproj file (*mmproj*.gguf). "
-                        "Multimodal image input will fail unless an explicit --mmproj projector is configured.",
-                        repo,
+                    if mmproj_candidates:
+                        chosen_mmproj = sorted(mmproj_candidates)[0]
+                        cmd.extend(["--mmproj", str(chosen_mmproj)])
+                        logger.info("Auto-detected adjacent multimodal projector for local model: %s", chosen_mmproj.name)
+                    else:
+                        logger.warning(
+                            "Local GGUF model '%s' specified without an adjacent mmproj file (*mmproj*.gguf). "
+                            "Multimodal image input will fail unless an explicit --mmproj projector is configured.",
+                            repo,
+                        )
+
+                logger.info("Launching server subprocess: %s", " ".join(cmd))
+                self._log_buffer.clear()
+                self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
+
+                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        encoding="utf-8",
+                        errors="replace",
+                        creationflags=creationflags,
+                        cwd=str(Path(resolved_path).parent),
                     )
+                    self._process = proc
+                    self._ownership = ServerOwnership.MANAGED
+                    self._status = ServerStatus.STARTING
+                    self._last_message = "Starting llama-server..."
 
-            logger.info("Launching server subprocess: %s", " ".join(cmd))
-            self._log_buffer.clear()
-            self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
+                    # Attach to Windows Job Object with KILL_ON_JOB_CLOSE
+                    if sys.platform == "win32" and hasattr(proc, "_handle") and proc._handle:
+                        self._job_handle = _create_kill_on_close_job()
+                        if self._job_handle:
+                            _assign_process_to_job(self._job_handle, int(proc._handle))
 
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                    # Start non-blocking stdout reader thread
+                    def _drain_stdout(p: subprocess.Popen) -> None:
+                        if p.stdout is None:
+                            return
+                        try:
+                            for line in p.stdout:
+                                cleaned = line.rstrip("\r\n")
+                                if cleaned:
+                                    with self._lock:
+                                        self._log_buffer.append(cleaned)
+                        except Exception:
+                            pass
 
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    encoding="utf-8",
-                    errors="replace",
-                    creationflags=creationflags,
-                    cwd=str(Path(resolved_path).parent),
-                )
-                self._process = proc
-                self._ownership = ServerOwnership.MANAGED
-                self._status = ServerStatus.STARTING
-                self._last_message = "Starting llama-server..."
+                    reader = threading.Thread(
+                        target=_drain_stdout,
+                        args=(proc,),
+                        name="ServerStdoutReader",
+                        daemon=True,
+                    )
+                    reader.start()
+                    self._reader_thread = reader
+                    callback = self.on_lifecycle_change
 
-                # Attach to Windows Job Object with KILL_ON_JOB_CLOSE
-                if sys.platform == "win32" and hasattr(proc, "_handle") and proc._handle:
-                    self._job_handle = _create_kill_on_close_job()
-                    if self._job_handle:
-                        _assign_process_to_job(self._job_handle, int(proc._handle))
-
-                # Start non-blocking stdout reader thread
-                def _drain_stdout(p: subprocess.Popen) -> None:
-                    if p.stdout is None:
-                        return
-                    try:
-                        for line in p.stdout:
-                            cleaned = line.rstrip("\r\n")
-                            if cleaned:
-                                with self._lock:
-                                    self._log_buffer.append(cleaned)
-                    except Exception:
-                        pass
-
-                reader = threading.Thread(
-                    target=_drain_stdout,
-                    args=(proc,),
-                    name="ServerStdoutReader",
-                    daemon=True,
-                )
-                reader.start()
-                self._reader_thread = reader
-                self._notify_lifecycle_change()
-
-            except Exception as spawn_exc:
-                self._status = ServerStatus.ERROR
-                self._ownership = ServerOwnership.NONE
-                self._last_message = f"Failed to spawn server process: {spawn_exc}"
-                raise RuntimeError(f"Failed to launch llama-server: {spawn_exc}") from spawn_exc
+                except Exception as spawn_exc:
+                    self._status = ServerStatus.ERROR
+                    self._ownership = ServerOwnership.NONE
+                    self._last_message = f"Failed to spawn server process: {spawn_exc}"
+                    raise RuntimeError(f"Failed to launch llama-server: {spawn_exc}") from spawn_exc
+        # Invoke the lifecycle callback outside the lock so a callback that
+        # re-enters ServerManager (poll_status/get_status_info/start/stop) cannot deadlock.
+        self._notify_lifecycle_change(callback)
 
     def stop(self) -> None:
         """Gracefully terminate the managed server process.
@@ -566,6 +576,7 @@ class ServerManager:
         If the server was started externally by the user (ServerOwnership.EXTERNAL),
         this method is an intentional NO-OP and will NOT terminate the external server.
         """
+        callback: Optional[Callable[[], None]] = None
         with self._lock:
             if self._ownership != ServerOwnership.MANAGED or self._process is None:
                 logger.info("stop() called but server is not managed; leaving untouched")
@@ -594,7 +605,10 @@ class ServerManager:
                 self._status = ServerStatus.OFFLINE
                 self._last_message = "Server stopped"
                 self._log_buffer.append("[ServerManager] Server process stopped.")
-                self._notify_lifecycle_change()
+                callback = self.on_lifecycle_change
+        # Invoke the lifecycle callback outside the lock so a callback that
+        # re-enters ServerManager (poll_status/get_status_info/start/stop) cannot deadlock.
+        self._notify_lifecycle_change(callback)
 
     def shutdown(self) -> None:
         """Tear down all resources and terminate managed processes on application exit."""

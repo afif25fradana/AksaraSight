@@ -7,24 +7,41 @@ import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
+import warnings
 import pytest
 import customtkinter as ctk
 
-# Resilient _tkinter.create wrapper to prevent transient Tcl 8.6 file-sharing violations on Windows CI
+# Resilient _tkinter.create wrapper to retry transient Tcl 8.6 initialization errors on Windows CI
 import _tkinter
 
 _orig_tkinter_create = _tkinter.create
 
 
-def _resilient_tkinter_create(*args: Any, **kwargs: Any) -> Any:
-    for attempt in range(3):
+def _create_with_retry(
+    create_fn: Any,
+    *args: Any,
+    attempts: int = 3,
+    delay: float = 0.15,
+    **kwargs: Any,
+) -> Any:
+    current_delay = delay
+    for attempt in range(attempts):
         try:
-            return _orig_tkinter_create(*args, **kwargs)
+            return create_fn(*args, **kwargs)
         except _tkinter.TclError as exc:
-            if "couldn't read file" in str(exc) and attempt < 2:
-                time.sleep(0.15)
-                continue
-            raise
+            if attempt == attempts - 1:
+                raise
+            warnings.warn(
+                f"Retrying _tkinter.create after transient error: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            time.sleep(current_delay)
+            current_delay *= 2
+
+
+def _resilient_tkinter_create(*args: Any, **kwargs: Any) -> Any:
+    return _create_with_retry(_orig_tkinter_create, *args, **kwargs)
 
 
 _tkinter.create = _resilient_tkinter_create
@@ -3304,6 +3321,79 @@ def test_settings_window_download_error_callback_updates_status():
     finally:
         win.destroy()
         parent.destroy()
+
+
+def test_create_with_retry_first_call_success():
+    mock_fn = MagicMock(return_value="created")
+    with patch("time.sleep") as mock_sleep:
+        res = _create_with_retry(mock_fn, "arg1", key="val")
+    assert res == "created"
+    mock_fn.assert_called_once_with("arg1", key="val")
+    mock_sleep.assert_not_called()
+
+
+def test_create_with_retry_two_tcl_errors_then_success():
+    mock_fn = MagicMock(
+        side_effect=[
+            _tkinter.TclError("transient error 1"),
+            _tkinter.TclError("transient error 2"),
+            "success_obj",
+        ]
+    )
+    with patch("time.sleep") as mock_sleep, pytest.warns(RuntimeWarning) as record:
+        res = _create_with_retry(mock_fn)
+    assert res == "success_obj"
+    assert mock_fn.call_count == 3
+    assert mock_sleep.call_args_list == [call(0.15), call(0.3)]
+    assert len(record) == 2
+    assert "Retrying _tkinter.create" in str(record[0].message)
+
+
+def test_create_with_retry_three_tcl_errors_raises():
+    mock_fn = MagicMock(
+        side_effect=[
+            _tkinter.TclError("err1"),
+            _tkinter.TclError("err2"),
+            _tkinter.TclError("err3 final"),
+        ]
+    )
+    with patch("time.sleep") as mock_sleep, pytest.warns(RuntimeWarning) as record:
+        with pytest.raises(_tkinter.TclError) as exc_info:
+            _create_with_retry(mock_fn)
+    assert "err3 final" in str(exc_info.value)
+    assert mock_fn.call_count == 3
+    assert mock_sleep.call_args_list == [call(0.15), call(0.3)]
+    assert len(record) == 2
+
+
+def test_create_with_retry_non_tcl_error_propagates_immediately():
+    mock_fn = MagicMock(side_effect=TypeError("unexpected type"))
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(TypeError) as exc_info:
+            _create_with_retry(mock_fn)
+    assert "unexpected type" in str(exc_info.value)
+    assert mock_fn.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        'invalid command name "tcl_findLibrary"',
+        "couldn't read file",
+        "Can't find a usable init.tcl in the following directories",
+    ],
+)
+def test_create_with_retry_known_messages_retried(msg):
+    mock_fn = MagicMock(side_effect=[_tkinter.TclError(msg), "ok"])
+    with patch("time.sleep") as mock_sleep, pytest.warns(RuntimeWarning) as record:
+        res = _create_with_retry(mock_fn)
+    assert res == "ok"
+    assert mock_fn.call_count == 2
+    mock_sleep.assert_called_once_with(0.15)
+    assert len(record) == 1
+    assert msg in str(record[0].message)
+
 
 
 

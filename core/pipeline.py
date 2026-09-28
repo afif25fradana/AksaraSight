@@ -453,3 +453,103 @@ def ingest(
             source,
             max_image_dimension=max_image_dimension,
         )
+
+
+def rasterize_page(
+    path: Union[str, Path],
+    page_idx: int = 0,
+    dpi: int = 100,
+) -> bytes:
+    """Rasterize a single document page into raw PNG image bytes.
+
+    Encapsulates all PDFium C API calls under _PDFIUM_LOCK and handles
+    single/multi-page image formats via Pillow.
+
+    Args:
+        path: Path to the target document or image file.
+        page_idx: 0-indexed page sequence number to render.
+        dpi: Target rasterization resolution (default: 100).
+
+    Returns:
+        bytes: Encoded PNG image bytes representing the rendered page raster.
+
+    Raises:
+        FilePreflightError: If the source file does not exist or is inaccessible.
+        EmptyDocumentError: If the document contains 0 pages.
+        CorruptDocumentError: If document raster streams or headers cannot be decoded.
+        UnsupportedFormatError: If document format is unrecognized.
+    """
+    check_preflight(path)
+    file_path = Path(path)
+    suffix = file_path.suffix.lower()
+    scale = max(0.1, dpi / 72.0)
+
+    if suffix == ".pdf" or is_pdf(file_path):
+        try:
+            with _PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(str(file_path))
+                try:
+                    n_pages = len(doc)
+                    if n_pages == 0:
+                        raise EmptyDocumentError(f"PDF contains 0 pages: {file_path.name}")
+                    idx = max(0, min(page_idx, n_pages - 1))
+                    page = doc[idx]
+                    try:
+                        pil_img = page.render(scale=scale).to_pil()
+                        buf = io.BytesIO()
+                        pil_img.save(buf, format="PNG")
+                        return buf.getvalue()
+                    finally:
+                        page.close()
+                finally:
+                    doc.close()
+        except pdfium.PdfiumError as pdf_err:
+            # Fallback for mislabeled extension (e.g. JPEG renamed to .pdf)
+            try:
+                with Image.open(file_path) as img:
+                    n_frames = getattr(img, "n_frames", 1)
+                    idx = max(0, min(page_idx, n_frames - 1))
+                    img.seek(idx)
+                    rgb_img = img.convert("RGB")
+                    buf = io.BytesIO()
+                    rgb_img.save(buf, format="PNG")
+                    return buf.getvalue()
+            except Exception as fallback_exc:
+                raise CorruptDocumentError(f"Failed to rasterize PDF page: {fallback_exc}") from fallback_exc
+        except EmptyDocumentError:
+            raise
+        except Exception as exc:
+            raise CorruptDocumentError(f"Failed to rasterize PDF page: {exc}") from exc
+
+    # Standalone image formats (PNG, JPG, TIFF, etc.)
+    try:
+        with Image.open(file_path) as img:
+            n_frames = getattr(img, "n_frames", 1)
+            idx = max(0, min(page_idx, n_frames - 1))
+            img.seek(idx)
+            rgb_img = img.convert("RGB")
+            buf = io.BytesIO()
+            rgb_img.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception as img_exc:
+        # Fallback if image extension was actually a mislabeled PDF
+        try:
+            with _PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(str(file_path))
+                try:
+                    n_pages = len(doc)
+                    if n_pages > 0:
+                        idx = max(0, min(page_idx, n_pages - 1))
+                        page = doc[idx]
+                        try:
+                            pil_img = page.render(scale=scale).to_pil()
+                            buf = io.BytesIO()
+                            pil_img.save(buf, format="PNG")
+                            return buf.getvalue()
+                        finally:
+                            page.close()
+                finally:
+                    doc.close()
+        except Exception:
+            pass
+        raise CorruptDocumentError(f"Failed to load image: {img_exc}") from img_exc

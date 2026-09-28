@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
+import io
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ from core.formatter import (
     save_artifacts,
 )
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
-from core.pipeline import _PDFIUM_LOCK
+from core.pipeline import _PDFIUM_LOCK, PipelineError, rasterize_page
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
 # Color tokens (WCAG 2.1 AA verified)
 # Re-exported from gui.theme for backward compatibility
@@ -1451,67 +1452,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if not file_path.is_file():
             return None, f"Source file unavailable:\n{file_path.name}\n\n(File was moved or deleted after enqueue)"
 
-        suffix = file_path.suffix.lower()
         if effective_dpi is None:
             effective_dpi = getattr(self.settings, "dpi", 100) or 100
-        scale = effective_dpi / 72.0
 
-        if suffix == ".pdf":
-            try:
-                with _PDFIUM_LOCK:
-                    doc = pdfium.PdfDocument(str(file_path))
-                    try:
-                        n_pages = len(doc)
-                        if n_pages == 0:
-                            return None, f"PDF contains 0 pages: {file_path.name}"
-                        idx = max(0, min(page_index, n_pages - 1))
-                        page = doc[idx]
-                        try:
-                            pil_img = page.render(scale=scale).to_pil()
-                            return pil_img, None
-                        finally:
-                            page.close()
-                    finally:
-                        doc.close()
-            except pdfium.PdfiumError:
-                # Mislabeled extension fallback (e.g. JPEG renamed to .pdf)
-                try:
-                    with Image.open(file_path) as img:
-                        n_frames = getattr(img, "n_frames", 1)
-                        idx = max(0, min(page_index, n_frames - 1))
-                        img.seek(idx)
-                        return img.convert("RGB"), None
-                except Exception as fallback_exc:
-                    return None, f"Failed to rasterize PDF page: {fallback_exc}"
-            except Exception as exc:
-                return None, f"Failed to rasterize PDF page: {exc}"
-
-        # Standalone images (PNG, JPG, TIFF, etc.)
         try:
-            with Image.open(file_path) as img:
-                n_frames = getattr(img, "n_frames", 1)
-                idx = max(0, min(page_index, n_frames - 1))
-                img.seek(idx)
-                return img.convert("RGB"), None
+            raw_bytes = rasterize_page(file_path, page_idx=page_index, dpi=effective_dpi)
+            pil_img = Image.open(io.BytesIO(raw_bytes))
+            pil_img.load()
+            return pil_img, None
+        except PipelineError as exc:
+            return None, f"Failed to load image preview: {exc}"
         except Exception as exc:
-            # Fallback if image extension was actually a mislabeled PDF
-            try:
-                with _PDFIUM_LOCK:
-                    doc = pdfium.PdfDocument(str(file_path))
-                    try:
-                        n_pages = len(doc)
-                        if n_pages > 0:
-                            idx = max(0, min(page_index, n_pages - 1))
-                            page = doc[idx]
-                            try:
-                                return page.render(scale=scale).to_pil(), None
-                            finally:
-                                page.close()
-                    finally:
-                        doc.close()
-            except Exception:
-                pass
-            return None, f"Failed to load image: {exc}"
+            return None, f"Failed to load image preview: {exc}"
 
     def _render_image_preview(self, item: QueueItem) -> None:
         """Render original raster scan image for the active document page on-demand."""

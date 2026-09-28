@@ -46,6 +46,7 @@ from .pipeline import (
     check_preflight,
     ingest,
     is_pdf,
+    rasterize_page,
 )
 from .runtime_manager import (
     RuntimeDownloadError,

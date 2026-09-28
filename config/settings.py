@@ -400,8 +400,12 @@ class Settings:
 
         # Atomic write
         temp_file = target.with_suffix(".env.tmp")
-        temp_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        temp_file.replace(target)
+        try:
+            temp_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            temp_file.replace(target)
+        except Exception:
+            temp_file.unlink(missing_ok=True)
+            raise
 
         # Synchronize os.environ so in-process environment readers see new values
         for k, v in managed.items():

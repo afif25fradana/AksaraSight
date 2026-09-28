@@ -351,12 +351,21 @@ class ServerManager:
                         self._last_message = "Server process exited cleanly"
                     return self._build_status_info_locked()
 
-            # 2. Probe endpoint
-            probe_status, probe_msg = probe_server_health(
-                self.settings.local_endpoint,
-                timeout=1.5,
-                session=self._session,
-            )
+            endpoint = self.settings.local_endpoint
+            session = self._session
+
+        # 2. Probe endpoint outside lock
+        probe_status, probe_msg = probe_server_health(
+            endpoint,
+            timeout=1.5,
+            session=session,
+        )
+
+        # 3. Update status under lock
+        with self._lock:
+            if self._stopping:
+                # stop() was invoked during probe; preserve stop state
+                return self._build_status_info_locked()
 
             if probe_status == ServerStatus.READY:
                 self._status = ServerStatus.READY
@@ -561,8 +570,8 @@ class ServerManager:
                                 if cleaned:
                                     with self._lock:
                                         self._log_buffer.append(cleaned)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("stdout reader stopped: %s", exc)
 
                     reader = threading.Thread(
                         target=_drain_stdout,

@@ -655,4 +655,26 @@ def test_save_to_env_max_tokens(tmp_path):
     assert "OCR_MAX_TOKENS='8192'" in content
 
 
+def test_save_to_env_cleans_up_tmp_on_write_failure(tmp_path):
+    """Verify save_to_env cleans up .env.tmp if writing fails (e.g. disk full)."""
+    env_file = tmp_path / ".env"
+    tmp_file = tmp_path / ".env.tmp"
+    s = Settings()
+
+    original_write_text = Path.write_text
+
+    def failing_write_text(self, *args, **kwargs):
+        if self.name.endswith(".tmp"):
+            original_write_text(self, "partial data", encoding="utf-8")
+            raise OSError("Disk full")
+        return original_write_text(self, *args, **kwargs)
+
+    with patch.object(Path, "write_text", side_effect=failing_write_text, autospec=True):
+        with pytest.raises(OSError, match="Disk full"):
+            s.save_to_env(env_file)
+
+    assert not tmp_file.exists()
+
+
+
 

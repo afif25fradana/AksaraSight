@@ -1163,3 +1163,44 @@ def test_server_manager_start_popen_raises_oserror_leaves_no_orphan(tmp_path):
         assert mgr._job_handle is None
     finally:
         mgr.shutdown()
+
+
+def test_poll_status_releases_lock_during_health_probe():
+    """Verify poll_status releases _lock during HTTP probe so concurrent callers do not block."""
+    mgr = ServerManager()
+    probe_started = threading.Event()
+    thread_b_done = threading.Event()
+    thread_b_elapsed = []
+
+    def slow_probe(*args, **kwargs):
+        probe_started.set()
+        time.sleep(2.0)
+        return ServerStatus.READY, "Server is healthy"
+
+    def thread_b_worker():
+        assert probe_started.wait(timeout=2.0) is True
+        start_time = time.monotonic()
+        info = mgr.get_status_info()
+        elapsed = time.monotonic() - start_time
+        thread_b_elapsed.append((elapsed, info))
+        thread_b_done.set()
+
+    try:
+        with patch("core.server_manager.probe_server_health", side_effect=slow_probe):
+            thread_a = threading.Thread(target=mgr.poll_status, daemon=True)
+            thread_b = threading.Thread(target=thread_b_worker, daemon=True)
+
+            thread_a.start()
+            thread_b.start()
+
+            assert thread_b_done.wait(timeout=1.5) is True
+            assert len(thread_b_elapsed) == 1
+            elapsed, info = thread_b_elapsed[0]
+            assert elapsed < 0.5
+            assert info is not None
+
+            thread_a.join(timeout=3.0)
+            assert not thread_a.is_alive()
+    finally:
+        mgr.shutdown()
+

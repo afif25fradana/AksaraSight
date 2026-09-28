@@ -305,24 +305,28 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Start periodic result queue polling
         self._process_result_queue()
 
+    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
     @property
     def _current_image_page_idx(self) -> int:
         if self._image_preview is not None:
             return self._image_preview.current_page_idx
         return self._legacy_current_image_page_idx
 
+    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
     @_current_image_page_idx.setter
     def _current_image_page_idx(self, value: int) -> None:
         self._legacy_current_image_page_idx = value
         if self._image_preview is not None:
             self._image_preview.current_page_idx = value
 
+    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
     @property
     def _current_ctk_image(self) -> Optional[ctk.CTkImage]:
         if self._image_preview is not None:
             return self._image_preview.current_ctk_image
         return self._legacy_current_ctk_image
 
+    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
     @_current_ctk_image.setter
     def _current_ctk_image(self, value: Optional[ctk.CTkImage]) -> None:
         self._legacy_current_ctk_image = value

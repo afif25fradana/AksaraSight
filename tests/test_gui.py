@@ -2372,6 +2372,9 @@ def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
 
 def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> None:
     """Verify Export All runs on background daemon thread and prevents concurrent duplicate exports (P8)."""
+    import os
+    import traceback
+
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2398,7 +2401,7 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
 
         def slow_save_artifacts(result, **kwargs):
             export_start_event.set()
-            export_finish_event.wait(timeout=2.0)
+            export_finish_event.wait(timeout=10.0)
             return [export_target / f"{Path(result.file_path).stem}.md"]
 
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
@@ -2410,7 +2413,7 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
             assert thread1.daemon is True
 
             # Wait until export worker enters save loop
-            assert export_start_event.wait(timeout=1.0) is True
+            assert export_start_event.wait(timeout=10.0) is True
 
             # Verify exporting lock and UI state
             assert app._is_exporting is True
@@ -2423,9 +2426,28 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
 
             # Let export finish
             export_finish_event.set()
-            app.wait_for_export(timeout=3.0)
+            app.wait_for_export(timeout=10.0)
+
+        def _format_thread_stacks() -> str:
+            frames = sys._current_frames()
+            threads = {th.ident: th for th in threading.enumerate()}
+            lines = []
+            for tid, frame in frames.items():
+                th = threads.get(tid)
+                name = th.name if th else f"Thread-{tid}"
+                stack = "".join(traceback.format_stack(frame))
+                lines.append(f"--- Thread: {name} (ident={tid}) ---\n{stack}")
+            for th in threading.enumerate():
+                if th.ident not in frames:
+                    lines.append(f"--- Thread: {th.name} (ident={th.ident}, alive={th.is_alive()}) [no frame] ---\n")
+            return "\n".join(lines)
 
         # After export completion
+        assert not thread1.is_alive(), (
+            f"Export thread '{thread1.name}' is still alive after wait_for_export(timeout=10.0)! "
+            f"os.cpu_count()={os.cpu_count()}\n"
+            f"Thread stacks:\n{_format_thread_stacks()}"
+        )
         assert app._is_exporting is False
         assert "Exported 2 documents" in app._footer_status.cget("text")
     finally:

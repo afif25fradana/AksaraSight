@@ -4,6 +4,7 @@ import atexit
 import subprocess
 import sys
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -381,6 +382,401 @@ def test_server_manager_lifecycle_callback_may_reenter_manager(tmp_path):
             mgr.shutdown()
 
 
+def test_server_manager_stop_does_not_block_stdout_reader(tmp_path):
+    """B11: stop() must release the state lock while waiting so the reader keeps draining."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    burst_size = 40
+    drained = threading.Event()
+
+    def _lines():
+        for i in range(burst_size):
+            yield f"[server] line {i}\n"
+        drained.set()
+
+    class FakeProc:
+        def __init__(self):
+            self.stdout = _lines()  # generator consumed by the reader thread
+            self.pid = 4242
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            # Only returns once the reader has drained the burst; otherwise the
+            # pipe would fill and a real child would block on write.
+            if not drained.wait(timeout):
+                raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout)
+            return 0
+
+        def kill(self):
+            pass
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", return_value=FakeProc()), \
+             patch("core.server_manager._create_kill_on_close_job", return_value=None):
+            mgr.start()
+            t0 = time.time()
+            mgr.stop()
+            elapsed = time.time() - t0
+
+        assert elapsed < 1.5, f"B11: stop() blocked on the stdout reader for {elapsed:.2f}s"
+        assert drained.is_set(), "B11: reader never drained the burst while stop() waited"
+        assert len(mgr.get_recent_logs(1000)) >= burst_size
+    finally:
+        mgr.on_lifecycle_change = None
+        mgr.shutdown()
+
+
+def test_server_manager_start_waits_for_inflight_stop(tmp_path):
+    """B11: start() arriving during stop() waits until the old process is reported dead."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    wait_entered = threading.Event()
+    stop_release = threading.Event()
+
+    class OldProc:
+        pid = 1111
+        stdout = iter(())
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            wait_entered.set()
+            stop_release.wait(timeout=30.0)
+            return 0
+
+        def kill(self):
+            pass
+
+    class NewProc:
+        pid = 2222
+        stdout = iter(())
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    old_proc, new_proc = OldProc(), NewProc()
+    spawns = [old_proc, new_proc]
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", side_effect=lambda *a, **k: spawns.pop(0)) as mock_popen, \
+             patch("core.server_manager._create_kill_on_close_job", return_value=None):
+            mgr.start()
+            assert mgr._process is old_proc
+
+            stop_thread = threading.Thread(target=mgr.stop, name="StopThread")
+            stop_thread.start()
+            assert wait_entered.wait(5.0), "stop() never reached the blocking wait"
+
+            start_thread = threading.Thread(target=mgr.start, name="StartThread")
+            start_thread.start()
+            time.sleep(0.3)
+
+            # start() must be serialized behind the in-flight stop(): no new spawn
+            # and no adoption of the still-dying server as EXTERNAL.
+            assert start_thread.is_alive()
+            assert mock_popen.call_count == 1
+            assert mgr.ownership == ServerOwnership.NONE
+
+            stop_release.set()
+            stop_thread.join(timeout=10.0)
+            start_thread.join(timeout=10.0)
+
+            assert not stop_thread.is_alive()
+            assert not start_thread.is_alive()
+            assert mock_popen.call_count == 2
+            assert mgr._process is new_proc
+            assert mgr.ownership == ServerOwnership.MANAGED
+    finally:
+        mgr.on_lifecycle_change = None
+        mgr.shutdown()
+
+
+def test_server_manager_poll_status_during_stop_does_not_adopt_or_corrupt_state(tmp_path):
+    """B11: poll_status() called mid-stop() while probe answers READY must not adopt as EXTERNAL."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    wait_entered = threading.Event()
+    stop_release = threading.Event()
+
+    class DyingProc:
+        pid = 3333
+        stdout = iter(())
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            wait_entered.set()
+            stop_release.wait(timeout=30.0)
+            return 0
+
+        def kill(self):
+            pass
+
+    proc = DyingProc()
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", return_value=proc), \
+             patch("core.server_manager._create_kill_on_close_job", return_value=None):
+            mgr.start()
+            assert mgr._process is proc
+            assert mgr.ownership == ServerOwnership.MANAGED
+
+        stop_thread = threading.Thread(target=mgr.stop, name="StopThread")
+        stop_thread.start()
+        assert wait_entered.wait(5.0), "stop() never reached wait"
+
+        # During the stop wait, simulate the dying server still answering probes with READY
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Old still answering")):
+            mid_stop_info = mgr.poll_status()
+
+        # poll_status must recognize the stopping state, return OFFLINE/NONE, and NOT adopt
+        assert mid_stop_info.status == ServerStatus.OFFLINE
+        assert mid_stop_info.ownership == ServerOwnership.NONE
+        assert mgr.ownership == ServerOwnership.NONE
+        assert mgr.status == ServerStatus.OFFLINE
+
+        # Let stop() finish
+        stop_release.set()
+        stop_thread.join(timeout=10.0)
+        assert not stop_thread.is_alive()
+
+        # Final state must be completely clean and OFFLINE/NONE (never corrupted to EXTERNAL)
+        assert mgr.status == ServerStatus.OFFLINE
+        assert mgr.ownership == ServerOwnership.NONE
+        assert mgr._process is None
+        final_info = mgr.get_status_info()
+        assert final_info.status == ServerStatus.OFFLINE
+        assert final_info.ownership == ServerOwnership.NONE
+    finally:
+        mgr.on_lifecycle_change = None
+        mgr.shutdown()
+
+
+def test_server_manager_lifecycle_callback_may_call_stop_or_start_from_adoption():
+    """B11: callback invoked on external adoption may call stop()/start() without deadlocking."""
+    mgr = ServerManager()
+    atexit.unregister(mgr._atexit_hook)
+    call_log = []
+
+    def callback():
+        call_log.append("cb")
+        if len(call_log) == 1:
+            # First adoption: call stop() (noop for external) and poll_status()
+            mgr.stop()
+            mgr.poll_status()
+
+    mgr.on_lifecycle_change = callback
+    outcome = {"error": None}
+
+    def run():
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+                mgr.start()
+        except Exception as exc:
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="AdoptionCallbackReentry", daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+
+    try:
+        assert not worker.is_alive(), "Adoption callback deadlocked on start()/stop()"
+        assert outcome["error"] is None
+        assert "cb" in call_log
+    finally:
+        mgr.on_lifecycle_change = None
+        if not worker.is_alive():
+            mgr.shutdown()
+
+
+def test_server_manager_lifecycle_callback_may_call_stop_from_managed_spawn(tmp_path):
+    """B11: callback invoked on managed spawn may call stop() without deadlocking."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    atexit.unregister(mgr._atexit_hook)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    called = [0]
+
+    def callback():
+        called[0] += 1
+        if called[0] == 1:
+            # Called from start() spawn path: immediately stop the server
+            mgr.stop()
+
+    mgr.on_lifecycle_change = callback
+    outcome = {"error": None}
+
+    def run():
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+                 patch("subprocess.Popen", return_value=mock_proc):
+                mgr.start()
+        except Exception as exc:
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="SpawnCallbackReentry", daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+
+    try:
+        assert not worker.is_alive(), "Managed spawn callback deadlocked on stop()"
+        assert outcome["error"] is None
+        assert called[0] == 2  # Once for start, once for stop
+        assert mgr.status == ServerStatus.OFFLINE
+    finally:
+        mgr.on_lifecycle_change = None
+        if not worker.is_alive():
+            mgr.shutdown()
+
+
+def test_server_manager_lifecycle_callback_may_call_start_from_stop(tmp_path):
+    """B11: callback invoked on stop() may call poll_status()/start() without deadlocking."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    atexit.unregister(mgr._atexit_hook)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    called = [0]
+
+    def callback():
+        called[0] += 1
+        if called[0] == 2:
+            # Called from stop(): call poll_status()
+            mgr.poll_status()
+
+    mgr.on_lifecycle_change = callback
+    outcome = {"error": None}
+
+    def run():
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+                 patch("subprocess.Popen", return_value=mock_proc):
+                mgr.start()
+            mgr.stop()
+        except Exception as exc:
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="StopCallbackReentry", daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+
+    try:
+        assert not worker.is_alive(), "Stop callback deadlocked"
+        assert outcome["error"] is None
+        assert called[0] == 2
+    finally:
+        mgr.on_lifecycle_change = None
+        if not worker.is_alive():
+            mgr.shutdown()
+
+
+def test_server_manager_start_failure_after_popen_kills_orphan_and_sets_error(tmp_path):
+    """B11: failure after Popen (e.g. reader thread or job setup) kills the child and sets ERROR."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_stdout = MagicMock()
+    mock_proc.stdout = mock_stdout
+
+    with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+         patch("subprocess.Popen", return_value=mock_proc), \
+         patch("threading.Thread.start", side_effect=RuntimeError("Can't start thread")):
+        with pytest.raises(RuntimeError, match="Failed to launch llama-server"):
+            mgr.start()
+
+    # The child process must be killed, waited on, and its stdout pipe closed
+    mock_proc.kill.assert_called_once()
+    mock_proc.wait.assert_called_once_with(timeout=2.0)
+    mock_stdout.close.assert_called_once()
+
+    # State must be cleanly ERROR, ownership NONE, and _process None
+    assert mgr.status == ServerStatus.ERROR
+    assert mgr.ownership == ServerOwnership.NONE
+    assert mgr._process is None
+
+
 def test_server_manager_registers_atexit():
     """Verify ServerManager registers an atexit shutdown hook."""
     import atexit
@@ -734,5 +1130,36 @@ def test_server_manager_trust_env_disabled() -> None:
         mgr.shutdown()
 
 
+def test_server_manager_start_popen_raises_oserror_leaves_no_orphan(tmp_path):
+    """Popen raising OSError must surface as RuntimeError with the original message.
 
+    Because proc is never assigned, the kill/wait/stdout.close cleanup branch
+    must not be entered, and state must be cleanly ERROR/NONE with no job handle.
+    """
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
 
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+    )
+    mgr = ServerManager(settings=settings)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", side_effect=OSError("Permission denied")) as mock_popen:
+            with pytest.raises(RuntimeError, match="Failed to launch llama-server.*Permission denied"):
+                mgr.start()
+
+        mock_popen.assert_called_once()
+        # Popen raised, so proc was never assigned; kill must not have been called.
+        assert mock_popen.return_value.kill.call_count == 0
+        # Original error message must be reflected in manager state.
+        assert "Permission denied" in mgr._last_message
+        # State must be cleanly reset
+        assert mgr.status == ServerStatus.ERROR
+        assert mgr.ownership == ServerOwnership.NONE
+        assert mgr._process is None
+        assert mgr._job_handle is None
+    finally:
+        mgr.shutdown()

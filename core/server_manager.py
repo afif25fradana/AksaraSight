@@ -275,9 +275,17 @@ class ServerManager:
         self._ownership: ServerOwnership = ServerOwnership.NONE
         self._status: ServerStatus = ServerStatus.OFFLINE
         self._last_message: str = "Offline"
+        self._stopping: bool = False
         self._log_buffer: deque[str] = deque(maxlen=200)
         self._reader_thread: Optional[threading.Thread] = None
+        # _lock guards state only and is held briefly. It is never held across
+        # terminate()/wait()/kill() or process spawns, so the stdout reader can
+        # keep draining while a lifecycle operation is in flight.
         self._lock = threading.Lock()
+        # _lifecycle_lock serializes start() and stop() as whole operations. It may
+        # be held across terminate()/wait()/kill() so a start() arriving mid-stop()
+        # waits until the old process is dead instead of racing it for the port.
+        self._lifecycle_lock = threading.Lock()
         self._atexit_hook = atexit.register(self.shutdown)
         self._job_handle: Optional[int] = None
         self.on_lifecycle_change: Optional[Callable[[], None]] = None
@@ -323,6 +331,10 @@ class ServerManager:
             ServerStatusInfo: Up-to-date server state snapshot.
         """
         with self._lock:
+            if self._stopping:
+                # Process is actively being terminated by stop(). Do not probe or adopt.
+                return self._build_status_info_locked()
+
             # 1. Check managed subprocess if one was launched
             if self._process is not None:
                 ret = self._process.poll()
@@ -430,18 +442,21 @@ class ServerManager:
             RuntimeError: If a managed server is already running or start fails.
         """
         callback: Optional[Callable[[], None]] = None
-        with self._lock:
+        with self._lifecycle_lock:
             # Check if a compatible server is already running
             active_ep = endpoint or self.settings.local_endpoint
             cur_status, cur_msg = probe_server_health(active_ep, timeout=1.5, session=self._session)
             if cur_status in (ServerStatus.READY, ServerStatus.STARTING):
-                self._ownership = ServerOwnership.EXTERNAL
-                self._status = cur_status
-                self._last_message = f"Connected to existing server ({cur_msg})"
+                with self._lock:
+                    self._ownership = ServerOwnership.EXTERNAL
+                    self._status = cur_status
+                    self._last_message = f"Connected to existing server ({cur_msg})"
+                    callback = self.on_lifecycle_change
                 logger.info("Server already running on %s; adopting as external", active_ep)
-                callback = self.on_lifecycle_change
             else:
-                if self._process is not None and self._process.poll() is None:
+                with self._lock:
+                    existing_proc = self._process
+                if existing_proc is not None and existing_proc.poll() is None:
                     raise RuntimeError("A managed server process is already running.")
 
                 # Resolve executable path (uses effective_llama_server_path to support managed runtime)
@@ -509,11 +524,14 @@ class ServerManager:
                         )
 
                 logger.info("Launching server subprocess: %s", " ".join(cmd))
-                self._log_buffer.clear()
-                self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
+                with self._lock:
+                    self._log_buffer.clear()
+                    self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
 
                 creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+                proc: Optional[subprocess.Popen] = None
+                job_handle: Optional[int] = None
                 try:
                     proc = subprocess.Popen(
                         cmd,
@@ -526,16 +544,12 @@ class ServerManager:
                         creationflags=creationflags,
                         cwd=str(Path(resolved_path).parent),
                     )
-                    self._process = proc
-                    self._ownership = ServerOwnership.MANAGED
-                    self._status = ServerStatus.STARTING
-                    self._last_message = "Starting llama-server..."
 
                     # Attach to Windows Job Object with KILL_ON_JOB_CLOSE
                     if sys.platform == "win32" and hasattr(proc, "_handle") and proc._handle:
-                        self._job_handle = _create_kill_on_close_job()
-                        if self._job_handle:
-                            _assign_process_to_job(self._job_handle, int(proc._handle))
+                        job_handle = _create_kill_on_close_job()
+                        if job_handle:
+                            _assign_process_to_job(job_handle, int(proc._handle))
 
                     # Start non-blocking stdout reader thread
                     def _drain_stdout(p: subprocess.Popen) -> None:
@@ -557,15 +571,42 @@ class ServerManager:
                         daemon=True,
                     )
                     reader.start()
-                    self._reader_thread = reader
-                    callback = self.on_lifecycle_change
+
+                    with self._lock:
+                        self._process = proc
+                        self._ownership = ServerOwnership.MANAGED
+                        self._status = ServerStatus.STARTING
+                        self._last_message = "Starting llama-server..."
+                        if job_handle:
+                            self._job_handle = job_handle
+                        self._reader_thread = reader
+                        callback = self.on_lifecycle_change
 
                 except Exception as spawn_exc:
-                    self._status = ServerStatus.ERROR
-                    self._ownership = ServerOwnership.NONE
-                    self._last_message = f"Failed to spawn server process: {spawn_exc}"
+                    if proc is not None:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                        try:
+                            proc.wait(timeout=2.0)
+                        except Exception:
+                            pass
+                        if proc.stdout is not None:
+                            try:
+                                proc.stdout.close()
+                            except Exception:
+                                pass
+                    if sys.platform == "win32" and job_handle is not None:
+                        _close_job_handle(job_handle)
+                    with self._lock:
+                        self._process = None
+                        self._job_handle = None
+                        self._status = ServerStatus.ERROR
+                        self._ownership = ServerOwnership.NONE
+                        self._last_message = f"Failed to spawn server process: {spawn_exc}"
                     raise RuntimeError(f"Failed to launch llama-server: {spawn_exc}") from spawn_exc
-        # Invoke the lifecycle callback outside the lock so a callback that
+        # Invoke the lifecycle callback outside both locks so a callback that
         # re-enters ServerManager (poll_status/get_status_info/start/stop) cannot deadlock.
         self._notify_lifecycle_change(callback)
 
@@ -577,15 +618,29 @@ class ServerManager:
         this method is an intentional NO-OP and will NOT terminate the external server.
         """
         callback: Optional[Callable[[], None]] = None
-        with self._lock:
-            if self._ownership != ServerOwnership.MANAGED or self._process is None:
-                logger.info("stop() called but server is not managed; leaving untouched")
-                return
+        with self._lifecycle_lock:
+            with self._lock:
+                if self._ownership != ServerOwnership.MANAGED or self._process is None:
+                    logger.info("stop() called but server is not managed; leaving untouched")
+                    return
 
-            proc = self._process
-            logger.info("Stopping managed server process (PID %s)...", proc.pid)
-            self._log_buffer.append("[ServerManager] Stopping server process...")
+                proc = self._process
+                job_handle = self._job_handle
+                # Mark as stopping and clear process/ownership under the lock so poll_status()
+                # does not probe or adopt the dying process, a serialized start() waits,
+                # and the stdout reader thread is not blocked while waiting for termination.
+                self._stopping = True
+                self._process = None
+                self._job_handle = None
+                self._ownership = ServerOwnership.NONE
+                self._status = ServerStatus.OFFLINE
+                self._last_message = "Stopping server..."
+                logger.info("Stopping managed server process (PID %s)...", proc.pid)
+                self._log_buffer.append("[ServerManager] Stopping server process...")
 
+            # Blocking termination runs outside self._lock (still serialized by
+            # _lifecycle_lock) so _drain_stdout() keeps draining and a chatty child
+            # can exit cleanly instead of filling its stdout pipe and being killed.
             try:
                 proc.terminate()
                 try:
@@ -597,16 +652,16 @@ class ServerManager:
             except Exception as stop_exc:
                 logger.warning("Error stopping server process: %s", stop_exc)
             finally:
-                if sys.platform == "win32" and self._job_handle is not None:
-                    _close_job_handle(self._job_handle)
-                    self._job_handle = None
-                self._process = None
-                self._ownership = ServerOwnership.NONE
-                self._status = ServerStatus.OFFLINE
-                self._last_message = "Server stopped"
-                self._log_buffer.append("[ServerManager] Server process stopped.")
-                callback = self.on_lifecycle_change
-        # Invoke the lifecycle callback outside the lock so a callback that
+                if sys.platform == "win32" and job_handle is not None:
+                    _close_job_handle(job_handle)
+                with self._lock:
+                    self._stopping = False
+                    self._status = ServerStatus.OFFLINE
+                    self._ownership = ServerOwnership.NONE
+                    self._last_message = "Server stopped"
+                    self._log_buffer.append("[ServerManager] Server process stopped.")
+                    callback = self.on_lifecycle_change
+        # Invoke the lifecycle callback outside both locks so a callback that
         # re-enters ServerManager (poll_status/get_status_info/start/stop) cannot deadlock.
         self._notify_lifecycle_change(callback)
 

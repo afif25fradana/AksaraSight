@@ -72,6 +72,7 @@ from gui.theme import (
 )
 
 from gui.settings_window import SettingsWindow
+from gui.preview_highlighter import MarkdownHighlighter
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._server_poller_thread: Optional[threading.Thread] = None
         self._server_stop_thread: Optional[threading.Thread] = None
         self._server_start_thread: Optional[threading.Thread] = None
+        self._highlighter = MarkdownHighlighter()
 
         # Window appearance and geometry
         ctk.set_appearance_mode("dark")
@@ -644,19 +646,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._tb_preview.pack(side="top", fill="both", expand=True, padx=4, pady=(4, 2))
 
         # Configure rich markdown tags on underlying Tk text widget
-        tw = self._tb_preview._textbox
-        tw.tag_config("h1", font=("Segoe UI", 15, "bold"), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("h2", font=("Segoe UI", 13, "bold"), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("h3", font=("Segoe UI", 12, "bold"), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("bold", font=("Segoe UI", 12, "bold"), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("italic", font=("Segoe UI", 12, "italic"), foreground=COLOR_TEXT_SECONDARY)
-        tw.tag_config("code_inline", font=("Consolas", 11), foreground=COLOR_ACCENT_TEXT, background=COLOR_SURFACE_1)
-        tw.tag_config("code_block", font=("Consolas", 11), foreground=COLOR_TEXT_PRIMARY, background=COLOR_SURFACE_1)
-        tw.tag_config("table_header", font=("Consolas", 11, "bold"), foreground=COLOR_ACCENT_TEXT, background=COLOR_SURFACE_1)
-        tw.tag_config("table_row", font=("Consolas", 11), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("bullet", font=("Segoe UI", 12), foreground=COLOR_TEXT_PRIMARY)
-        tw.tag_config("divider", foreground=COLOR_SURFACE_BORDER)
-        tw.tag_config("muted", foreground=COLOR_TEXT_MUTED)
+        self._highlighter.configure_tags(self._tb_preview)
 
         # Tab 3: Image Preview with pagination controls and scrollable container
         self._img_nav_bar = ctk.CTkFrame(tab_image, fg_color=COLOR_SURFACE_1, height=36, corner_radius=6)
@@ -1433,100 +1423,19 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._set_textbox_content(self._tb_preview, raw_text)
 
         try:
-            self._apply_markdown_tags()
+            self._highlighter.apply_tags(self._tb_preview)
         except Exception as exc:
             # Graceful degradation fallback: clear tags and retain plain text
             logger.warning("Markdown tag rendering error, falling back to plain text: %s", exc)
-            self._clear_preview_tags()
+            self._highlighter.clear_tags(self._tb_preview)
 
     def _clear_preview_tags(self) -> None:
         """Remove all formatting tags from the preview text widget."""
-        tw = self._tb_preview._textbox
-        for tag in (
-            "h1", "h2", "h3", "bold", "italic", "code_inline",
-            "code_block", "table_header", "table_row", "bullet",
-            "divider", "muted",
-        ):
-            tw.tag_remove(tag, "1.0", "end")
+        self._highlighter.clear_tags(self._tb_preview)
 
     def _apply_markdown_tags(self) -> None:
         """Parse text in _tb_preview and apply typography tags."""
-        tw = self._tb_preview._textbox
-        self._clear_preview_tags()
-
-        end_index = tw.index("end-1c")
-        if not end_index or "." not in end_index:
-            return
-        total_lines = int(end_index.split(".")[0])
-        in_code_block = False
-
-        for line_no in range(1, total_lines + 1):
-            start_idx = f"{line_no}.0"
-            end_idx = f"{line_no}.end"
-            line = tw.get(start_idx, end_idx)
-            stripped = line.strip()
-
-            # Fenced code block check
-            if stripped.startswith("```"):
-                in_code_block = not in_code_block
-                tw.tag_add("muted", start_idx, end_idx)
-                continue
-
-            if in_code_block:
-                tw.tag_add("code_block", start_idx, end_idx)
-                continue
-
-            if not stripped:
-                continue
-
-            # Headings
-            if stripped.startswith("# "):
-                tw.tag_add("h1", start_idx, end_idx)
-                continue
-            elif stripped.startswith("## "):
-                tw.tag_add("h2", start_idx, end_idx)
-                continue
-            elif stripped.startswith("### "):
-                tw.tag_add("h3", start_idx, end_idx)
-                continue
-
-            # Horizontal dividers
-            if stripped in ("---", "***", "___") or re.match(r"^[-*_]{3,}$", stripped):
-                tw.tag_add("divider", start_idx, end_idx)
-                continue
-
-            # Table rows
-            if stripped.startswith("|") and stripped.endswith("|"):
-                if re.match(r"^\|[\s\-:|]+\|$", stripped):
-                    tw.tag_add("muted", start_idx, end_idx)
-                else:
-                    prev_line = tw.get(f"{line_no-1}.0", f"{line_no-1}.end").strip() if line_no > 1 else ""
-                    if not (prev_line.startswith("|") and prev_line.endswith("|")):
-                        tw.tag_add("table_header", start_idx, end_idx)
-                    else:
-                        tw.tag_add("table_row", start_idx, end_idx)
-                continue
-
-            # Unordered & ordered list bullets
-            if stripped.startswith(("- ", "* ", "+ ")) or re.match(r"^\d+\.\s", stripped):
-                tw.tag_add("bullet", start_idx, end_idx)
-
-            # Blockquotes
-            if stripped.startswith(">"):
-                tw.tag_add("italic", start_idx, end_idx)
-                continue
-
-            # Inline code: `code`
-            for m in re.finditer(r"`([^`]+)`", line):
-                tw.tag_add("code_inline", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
-
-            # Bold: **bold** or __bold__
-            for m in re.finditer(r"(\*\*|__)(.*?)\1", line):
-                tw.tag_add("bold", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
-
-            # Italic: *text*
-            for m in re.finditer(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", line):
-                tw.tag_add("italic", f"{line_no}.{m.start()}", f"{line_no}.{m.end()}")
+        self._highlighter.apply_tags(self._tb_preview)
 
     def _load_image_page_on_demand(
         self,

@@ -3400,6 +3400,69 @@ def test_create_with_retry_known_messages_retried(msg):
     assert msg in str(record[0].message)
 
 
+def test_export_success_message_persists_through_worker_events(tmp_path: Path):
+    """Verify transient export success text is not prematurely overwritten by worker events."""
+    mock_engine = MagicMock()
+    app = OCRApp(engine=mock_engine)
+    app.withdraw()
+
+    try:
+        f1 = tmp_path / "doc1.pdf"
+        f1.write_bytes(b"data1")
+        app._task_queue.put = lambda item, *args, **kwargs: None
+        app.enqueue_file(f1)
+
+        file_id = str(f1.resolve())
+        res1 = OCRResult(file_path=file_id, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# 1")])
+        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_items[file_id].result = res1
+        app._select_queue_item(file_id)
+
+        out_dir = tmp_path / "export_persist_test"
+        out_dir.mkdir()
+
+        # 1. Test Export All persistence
+        with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
+             patch("gui.app.save_artifacts", return_value=[out_dir / "doc1.md"]):
+            app._on_export_all()
+            app.wait_for_export()
+
+        assert app._btn_export_all.cget("text") == "Exported All!"
+
+        # Simulate a worker event arriving during the cooldown window
+        event = WorkerEvent(
+            event_type=WorkerEventType.STARTED,
+            file_path="another_doc.pdf",
+        )
+        app._handle_worker_event(event)
+
+        # Assert text was NOT overwritten to "Export All"
+        assert app._btn_export_all.cget("text") == "Exported All!"
+
+        # 2. Test Export Selected persistence
+        with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
+             patch("gui.app.save_artifacts", return_value=[out_dir / "doc1.md"]):
+            app._on_export_selected()
+
+        assert app._btn_export_selected.cget("text") == "Exported!"
+
+        # Simulate another worker event
+        app._handle_worker_event(event)
+
+        # Assert text was NOT overwritten to "Export Selected"
+        assert app._btn_export_selected.cget("text") == "Exported!"
+
+        # 3. Test reset helpers
+        app._reset_export_all_button()
+        assert app._btn_export_all.cget("text") == "Export All"
+
+        app._reset_export_selected_button()
+        assert app._btn_export_selected.cget("text") == "Export Selected"
+
+    finally:
+        app._on_closing()
+
+
 
 
 

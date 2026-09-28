@@ -1742,8 +1742,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy.configure(state="normal" if selected_completed else "disabled")
 
         # Export Selected: swap colors to preserve muted identity when disabled
+        export_selected_text = (
+            "Exported!"
+            if self._btn_export_selected.cget("text") == "Exported!"
+            else "Export Selected"
+        )
         if selected_completed:
             self._btn_export_selected.configure(
+                text=export_selected_text,
                 state="normal",
                 fg_color=COLOR_ACCENT_PRIMARY,
                 text_color="#ffffff",
@@ -1751,6 +1757,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             )
         else:
             self._btn_export_selected.configure(
+                text=export_selected_text,
                 state="disabled",
                 fg_color=COLOR_INTERACTIVE_NEUTRAL,
                 text_color=COLOR_TEXT_SUBTLE,
@@ -1761,9 +1768,14 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if self._is_exporting:
             self._btn_export_all.configure(text="Exporting...", state="disabled")
         else:
+            export_all_text = (
+                "Exported All!"
+                if self._btn_export_all.cget("text") == "Exported All!"
+                else "Export All"
+            )
             self._btn_export_all.configure(
-                text="Export All",
-                state="normal" if completed_count > 0 else "disabled"
+                text=export_all_text,
+                state="normal" if completed_count > 0 else "disabled",
             )
 
     def _update_queue_header(self) -> None:
@@ -1847,7 +1859,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
             self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
             self._btn_export_selected.configure(text="Exported!")
-            self.after(1200, lambda: self._btn_export_selected.configure(text="Export Selected"))
+            self.after(1200, self._reset_export_selected_button)
         except Exception as exc:
             logger.warning("Failed to export selected document: %s", exc)
             self._update_footer(f"Export error: {_friendly_err(exc)}")
@@ -1927,6 +1939,13 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._export_thread = thread
         thread.start()
         return thread
+
+    def _reset_export_selected_button(self) -> None:
+        """Reset the Export Selected button text after export completes."""
+        if self._is_shutting_down:
+            return
+        self._btn_export_selected.configure(text="Export Selected")
+        self._update_action_buttons()
 
     def _reset_export_all_button(self) -> None:
         """Reset the Export All button text and enabled state after export completes."""

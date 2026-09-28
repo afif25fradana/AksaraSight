@@ -464,6 +464,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         f1.write_bytes(b"data1")
         f2.write_bytes(b"data2")
 
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 
@@ -531,6 +532,7 @@ def test_real_save_artifacts_integration_end_to_end(tmp_path):
     try:
         f1 = tmp_path / "report.pdf"
         f1.write_bytes(b"dummy")
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
 
         file_id = str(f1.resolve())
@@ -584,6 +586,7 @@ def test_export_all_disambiguates_filename_collisions_end_to_end(tmp_path):
         file_b.write_bytes(b"b")
         file_c.write_bytes(b"c")
 
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file_a)
         app.enqueue_file(file_b)
         app.enqueue_file(file_c)
@@ -687,6 +690,7 @@ def test_export_selected_with_docx_format(tmp_path: Path):
     try:
         f = tmp_path / "single_doc.png"
         f.write_bytes(b"data")
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f)
 
         file_id = str(f.resolve())
@@ -733,6 +737,7 @@ def test_export_all_with_docx_format(tmp_path: Path):
         f1.write_bytes(b"1")
         f2.write_bytes(b"2")
 
+        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 

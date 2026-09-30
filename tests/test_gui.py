@@ -2864,6 +2864,16 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
     app = OCRApp(engine=mock_engine, settings=custom_settings)
     app.withdraw()
 
+    orig_put = app._task_queue.put
+    put_call_count = 0
+
+    def _recording_put(*args, **kwargs):
+        nonlocal put_call_count
+        put_call_count += 1
+        return orig_put(*args, **kwargs)
+
+    app._task_queue.put = _recording_put
+
     try:
         app.enqueue_file(test_file)
         deadline = time.time() + 10.0
@@ -2873,15 +2883,35 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
                 break
             time.sleep(0.02)
 
+        import traceback
+
+        def _format_thread_stacks() -> str:
+            frames = sys._current_frames()
+            threads = {th.ident: th for th in threading.enumerate()}
+            lines = []
+            for tid, frame in frames.items():
+                th = threads.get(tid)
+                name = th.name if th else f"Thread-{tid}"
+                stack = "".join(traceback.format_stack(frame))
+                lines.append(f"--- Thread: {name} (ident={tid}) ---\n{stack}")
+            for th in threading.enumerate():
+                if th.ident not in frames:
+                    lines.append(f"--- Thread: {th.name} (ident={th.ident}, alive={th.is_alive()}) [no frame] ---\n")
+            return "\n".join(lines)
+
         worker_alive = app._worker_thread.is_alive() if app._worker_thread else False
-        is_put_original = getattr(app._task_queue.put, "__self__", None) is app._task_queue
-        put_desc = "original bound method" if is_put_original else f"replaced ({type(app._task_queue.put).__name__}: {app._task_queue.put})"
+        items_count = len(app._queue_items) if hasattr(app, "_queue_items") else -1
+        qm_items_count = len(app._queue_manager._items) if hasattr(app, "_queue_manager") and hasattr(app._queue_manager, "_items") else -1
+
         assert doc_processed_event.is_set(), (
             f"Worker did not call process_document within 10s: "
             f"worker_alive={worker_alive}, "
             f"task_queue_qsize={app._task_queue.qsize()}, "
-            f"task_queue_put={put_desc}, "
-            f"event_state={doc_processed_event.is_set()}"
+            f"task_queue_put_calls={put_call_count}, "
+            f"app_items_count={items_count}, "
+            f"qm_items_count={qm_items_count}, "
+            f"event_state={doc_processed_event.is_set()}\n"
+            f"Thread stacks:\n{_format_thread_stacks()}"
         )
         assert mock_engine.process_document.call_count == 1
         call_kwargs = mock_engine.process_document.call_args.kwargs

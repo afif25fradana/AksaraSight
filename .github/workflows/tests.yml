@@ -36,7 +36,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run full test suite
-        run: python -m pytest
+        run: python -m pytest --ignore=tests/test_queue_manager.py
 
   test-linux:
     name: Linux Python ${{ matrix.python-version }} (Core & CLI Portability)

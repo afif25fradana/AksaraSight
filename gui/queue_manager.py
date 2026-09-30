@@ -1,6 +1,5 @@
 """Queue manager controller for AksaraSight GUI.
 
-Extracted from the main application as part of Phase 3 GUI modularization.
 Manages queue item state, row widgets, list selection, and ingest batches.
 """
 

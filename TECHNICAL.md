@@ -31,19 +31,27 @@ AksaraSight/
 │   ├── docx_export.py     # Markdown-to-DOCX conversion with OOXML table fidelity
 │   ├── hardware.py        # NVIDIA CUDA, Vulkan, and CPU hardware probe
 │   ├── runtime_manager.py # Managed llama-server download, SHA-256 verification, and unpack
-│   ├── server_manager.py  # Win32 Job Object process supervision and health polling
+│   ├── server_manager.py  # Local inference process lifecycle supervision and health polling
+│   ├── job_object.py      # Win32 Job Object process containment (KILL_ON_JOB_CLOSE)
 │   ├── models.py          # Strict dataclasses (JobConfig, PageResult, OCRResult)
 │   └── constants.py       # Application constants and version single source of truth
 ├── cli/                   # Scriptable command-line interface
 │   └── main.py            # Streaming CLI entrypoint, argument parsing, batch processor
 ├── gui/                   # Desktop GUI Studio (CustomTkinter)
-│   ├── app.py             # Main application window, drag-and-drop, worker threads
-│   ├── settings_window.py # Runtime manager, preferences modal, backend toggle
+│   ├── app.py             # Main application window and coordinator (~1,497 lines)
+│   ├── queue_manager.py   # QueueManager: queue state, list selection, card widgets
+│   ├── export_controller.py # ExportController: artifact exports, format resolution, export threads
+│   ├── server_controller.py # ServerUIController: health polling, status pill, server actions
+│   ├── worker_coordinator.py # WorkerCoordinator: background task loop and result dispatch
+│   ├── image_preview.py   # ImagePreviewController: page preview rendering, zoom, pan
+│   ├── preview_highlighter.py # MarkdownHighlighter: syntax highlighting and preview tabs
+│   ├── security_dialog.py # SecurityConfirmationDialog: remote endpoint opt-in confirmation
+│   ├── settings_window.py # SettingsWindow: runtime manager, preferences modal, backend toggle
 │   └── theme.py           # Dark theme color tokens and styling helpers
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
-└── tests/                 # Automated unit and integration test suite
+└── tests/                 # Automated test suite (553 unit, integration, and UI tests across 17 files)
 ```
 
 ### Architectural Guarantees & Concurrency
@@ -202,17 +210,17 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 ## Testing, Build Verification & Portable Packaging
 
 ### Running the Test Suite
-The test suite consists of two distinct tiers:
-1. **Core & CLI Suite**: Headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, and runtime supervision. Runs on both Linux and Windows.
+The test suite consists of 553 automated tests across 17 test files, configured via `pytest.ini`:
+1. **Core & CLI Suite**: Headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, controllers, and runtime supervision. Runs on both Linux and Windows.
 2. **Desktop GUI Suite**: Tkinter and CustomTkinter desktop interface tests, run on Windows.
 
 Run tests from the repository root:
 
 ```powershell
-# Fast subset (headless, excludes GUI tests; verified green on Linux CI; ~5s)
-python -m pytest --ignore=tests/test_gui.py
+# Fast subset (headless, excludes GUI and queue manager tests; verified green on Linux CI; ~5s)
+python -m pytest --ignore=tests/test_gui.py --ignore=tests/test_queue_manager.py
 
-# Complete test suite (verified green on Windows CI; ~85s)
+# Complete test suite (553 tests; verified green on Windows CI; ~90s)
 python -m pytest
 ```
 

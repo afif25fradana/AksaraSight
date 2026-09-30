@@ -1,6 +1,5 @@
 """Server UI and supervision controller for AksaraSight Desktop Studio.
 
-Extracted from the main application as part of Phase 3.3 GUI modularization.
 Manages backend server health polling, status pill styling, start/stop worker
 threads, auto-start on launch, and graceful poller termination.
 """

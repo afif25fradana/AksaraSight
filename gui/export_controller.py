@@ -1,6 +1,5 @@
 """Export controller for AksaraSight Desktop Studio.
 
-Extracted from the main application as part of Phase 3.2 GUI modularization.
 Manages single and batch artifact exports, format selection, background export
 worker threads, and transient action button text/state transitions.
 """

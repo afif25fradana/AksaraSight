@@ -2868,6 +2868,7 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
         app.enqueue_file(test_file)
         deadline = time.time() + 10.0
         while time.time() < deadline:
+            app.update()
             app._process_result_queue()
             if doc_processed_event.is_set() and app._status_label.cget("text").startswith("Done:"):
                 break

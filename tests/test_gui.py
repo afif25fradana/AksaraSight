@@ -222,7 +222,6 @@ def test_supported_extensions_filtering(tmp_path):
         invalid_file = tmp_path / "unsupported.docx"
         invalid_file.write_bytes(b"content")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(valid_file)
         app.enqueue_file(invalid_file)
 
@@ -313,7 +312,6 @@ def test_preview_placeholders_for_unprocessed_items(tmp_path):
         file1 = tmp_path / "sample.pdf"
         file1.write_bytes(b"content")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file1)
         file1_id = str(file1.resolve())
         item = app._queue_items[file1_id]
@@ -366,7 +364,6 @@ def test_clear_finished_behavior(tmp_path):
         f2 = tmp_path / "f2.pdf"
         f3 = tmp_path / "f3.pdf"
         f4 = tmp_path / "f4.pdf"
-        app._task_queue.put = lambda item, *args, **kwargs: None
         for f in (f1, f2, f3, f4):
             f.write_bytes(b"data")
             app.enqueue_file(f)
@@ -432,7 +429,6 @@ def test_copy_to_clipboard(tmp_path):
     try:
         test_file = tmp_path / "notes.pdf"
         test_file.write_bytes(b"data")
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(test_file)
 
         file_id = str(test_file.resolve())
@@ -900,7 +896,6 @@ def test_queue_row_hover_enter_leave_and_selected_guard(tmp_path):
         file_a.write_bytes(b"dummy1")
         file_b.write_bytes(b"dummy2")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file_a)
         app.enqueue_file(file_b)
 
@@ -1136,7 +1131,6 @@ def test_queue_item_file_type_chips(tmp_path: Path) -> None:
         png_file = tmp_path / "diagram.png"
         png_file.write_bytes(b"\x89PNG dummy")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(pdf_file)
         app.enqueue_file(png_file)
 
@@ -1335,7 +1329,6 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
         frame2 = Image.new("RGB", (60, 60), color="green")
         frame3 = Image.new("RGB", (60, 60), color="blue")
         frame1.save(test_file, format="TIFF", save_all=True, append_images=[frame2, frame3])
-        app._task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
         item = app._queue_items[item_id]

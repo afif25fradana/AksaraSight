@@ -73,6 +73,7 @@ from gui.theme import (
 from gui.settings_window import SettingsWindow
 from gui.preview_highlighter import MarkdownHighlighter
 from gui.image_preview import ImagePreviewController
+from gui.export_controller import ExportController
 from gui.queue_manager import (
     QueueItem,
     QueueItemStatus,
@@ -233,8 +234,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._legacy_current_ctk_image: Optional[ctk.CTkImage] = None
         self._progress_indeterminate: bool = False
         self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
-        self._is_exporting: bool = False
-        self._export_thread: Optional[threading.Thread] = None
+        self._is_exporting_legacy: bool = False
+        self._export_controller: Optional[ExportController] = None
         self._runtime_download_thread: Optional[threading.Thread] = None
         self._ui_callback_queue: queue.Queue[Tuple[Any, tuple, dict]] = queue.Queue()
 
@@ -259,6 +260,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             on_queue_emptied=self._on_queue_emptied,
             on_queue_changed=self._update_action_buttons,
         )
+
+        if self._export_controller is not None:
+            self._export_controller.queue_manager = self._queue_manager
 
         # Auto-start managed server if enabled in settings and offline
         if self.settings.auto_start_server:
@@ -346,6 +350,60 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     @_total_count.setter
     def _total_count(self, value: int) -> None:
         self._queue_manager.total_count = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _is_exporting(self) -> bool:
+        if self._export_controller is not None:
+            return self._export_controller.is_exporting
+        return self._is_exporting_legacy
+
+    # ponytail: remove in Phase 5
+    @_is_exporting.setter
+    def _is_exporting(self, value: bool) -> None:
+        self._is_exporting_legacy = value
+        if self._export_controller is not None:
+            self._export_controller._is_exporting = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _export_thread(self) -> Optional[threading.Thread]:
+        if self._export_controller is not None:
+            return self._export_controller.export_thread
+        return None
+
+    # ponytail: remove in Phase 5
+    @_export_thread.setter
+    def _export_thread(self, value: Optional[threading.Thread]) -> None:
+        if self._export_controller is not None:
+            self._export_controller._export_thread = value
+
+    # ponytail: remove in Phase 5
+    def _on_export_selected(self) -> None:
+        if self._export_controller is not None:
+            self._export_controller.on_export_selected()
+
+    # ponytail: remove in Phase 5
+    def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
+        if self._export_controller is not None:
+            return self._export_controller.on_export_all(sync=sync)
+        return None
+
+    # ponytail: remove in Phase 5
+    def _reset_export_selected_button(self) -> None:
+        if self._export_controller is not None:
+            self._export_controller.reset_export_selected_button()
+
+    # ponytail: remove in Phase 5
+    def _reset_export_all_button(self) -> None:
+        if self._export_controller is not None:
+            self._export_controller.reset_export_all_button()
+
+    # ponytail: remove in Phase 5
+    def _get_selected_export_format(self) -> OutputFormat:
+        if self._export_controller is not None:
+            return self._export_controller.get_selected_export_format()
+        return OutputFormat.BOTH
 
 
     # ==========================================================================
@@ -867,6 +925,25 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._btn_export_all.grid(row=0, column=4, sticky="e", padx=0)
 
+        # Export Controller
+        self._export_controller = ExportController(
+            queue_manager=lambda: self._queue_manager,
+            safe_after=self._safe_after,
+            after=self.after,
+            update_footer=self._update_footer,
+            is_shutting_down=lambda: self._is_shutting_down,
+            shutdown_event=self._shutdown_event,
+            drain_ui_callbacks=self._drain_ui_callbacks,
+            ask_directory=lambda *args, **kwargs: filedialog.askdirectory(*args, **kwargs),
+            save_artifacts=lambda *a, **kw: save_artifacts(*a, **kw),
+            resolve_unique_stem=lambda *a, **kw: resolve_unique_stem(*a, **kw),
+            btn_export_selected=self._btn_export_selected,
+            btn_export_all=self._btn_export_all,
+            opt_export_format=self._opt_export_format,
+            format_error=_friendly_err,
+            on_action_buttons_changed=self._update_action_buttons,
+        )
+
     def _build_footer(self) -> None:
         """Build the bottom status bar (~30px height) with trust indicator and counters."""
         footer_frame = ctk.CTkFrame(self, corner_radius=0, height=30, fg_color=COLOR_SURFACE_1)
@@ -1211,41 +1288,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         self._btn_copy.configure(state="normal" if selected_completed else "disabled")
 
-        # Export Selected: swap colors to preserve muted identity when disabled
-        export_selected_text = (
-            "Exported!"
-            if self._btn_export_selected.cget("text") == "Exported!"
-            else "Export Selected"
-        )
-        if selected_completed:
-            self._btn_export_selected.configure(
-                text=export_selected_text,
-                state="normal",
-                fg_color=COLOR_ACCENT_PRIMARY,
-                text_color="#ffffff",
-                border_width=0,
-            )
-        else:
-            self._btn_export_selected.configure(
-                text=export_selected_text,
-                state="disabled",
-                fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                text_color=COLOR_TEXT_SUBTLE,
-                border_width=1,
-                border_color=COLOR_SURFACE_BORDER,
-            )
-
-        if self._is_exporting:
-            self._btn_export_all.configure(text="Exporting...", state="disabled")
-        else:
-            export_all_text = (
-                "Exported All!"
-                if self._btn_export_all.cget("text") == "Exported All!"
-                else "Export All"
-            )
-            self._btn_export_all.configure(
-                text=export_all_text,
-                state="normal" if completed_count > 0 else "disabled",
+        if self._export_controller is not None:
+            self._export_controller.update_buttons(
+                selected_completed=selected_completed,
+                completed_count=completed_count,
             )
 
     # ponytail: remove in Phase 5
@@ -1289,144 +1335,18 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy.configure(text="Copied!")
         self.after(1200, lambda: self._btn_copy.configure(text="Copy to Clipboard"))
 
-    def _get_selected_export_format(self) -> OutputFormat:
-        """Return the OutputFormat corresponding to the currently selected export option."""
-        if hasattr(self, "_opt_export_format"):
-            val = self._opt_export_format.get()
-            if val == "Word Document (.docx)":
-                return OutputFormat.DOCX
-        return OutputFormat.BOTH
-
-    def _on_export_selected(self) -> None:
-        """Export artifacts for the currently selected document."""
-        if not self._selected_item_id or self._selected_item_id not in self._queue_items:
-            return
-
-        item = self._queue_items[self._selected_item_id]
-        if not item.result:
-            return
-
-        out_dir = filedialog.askdirectory(title="Select Output Directory for Document")
-        if not out_dir:
-            return
-
-        out_path = Path(out_dir)
-        try:
-            unique_stem = resolve_unique_stem(item.file_path.stem, output_dir=out_path, used_stems=set())
-            config = JobConfig(output_format=self._get_selected_export_format())
-            saved = save_artifacts(item.result, config=config, output_dir=out_path, base_name=unique_stem)
-            self._update_footer(f"Exported {len(saved)} files to {out_path.name}")
-            self._btn_export_selected.configure(text="Exported!")
-            self.after(1200, self._reset_export_selected_button)
-        except Exception as exc:
-            logger.warning("Failed to export selected document: %s", exc)
-            self._update_footer(f"Export error: {_friendly_err(exc)}")
-
-    def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
-        """Export artifacts for all successfully processed documents in the queue."""
-        if self._is_exporting:
-            return None
-
-        completed_items = [
-            it
-            for it in self._queue_items.values()
-            if it.status == QueueItemStatus.SUCCESS and it.result is not None
-        ]
-        if not completed_items:
-            return None
-
-        out_dir = filedialog.askdirectory(title="Select Output Directory for All Results")
-        if not out_dir:
-            return None
-
-        out_path = Path(out_dir)
-        self._is_exporting = True
-        self._btn_export_all.configure(text="Exporting...", state="disabled")
-        self._update_footer(f"Exporting 0/{len(completed_items)} documents...")
-
-        def _do_export() -> None:
-            total_saved = 0
-            used_stems: Set[str] = set()
-            config = JobConfig(output_format=self._get_selected_export_format())
-            total_docs = len(completed_items)
-            failed_docs = 0
-            last_err = None
-            try:
-                for idx, it in enumerate(completed_items, start=1):
-                    if self._is_shutting_down or self._shutdown_event.is_set():
-                        return
-                    if it.result is None:
-                        raise RuntimeError(f"Queue item {it.file_path.name} marked completed but missing OCRResult")
-                    try:
-                        unique_stem = resolve_unique_stem(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
-                        saved = save_artifacts(it.result, config=config, output_dir=out_path, base_name=unique_stem)
-                        total_saved += len(saved)
-                    except Exception as doc_exc:
-                        failed_docs += 1
-                        last_err = doc_exc
-                        logger.warning("Export error on %s: %s", it.file_path.name, doc_exc)
-                    self._safe_after(
-                        0,
-                        lambda i=idx, n=total_docs: self._update_footer(f"Exporting {i}/{n} documents..."),
-                    )
-
-                def _on_finish() -> None:
-                    if failed_docs > 0:
-                        self._update_footer(
-                            f"Export completed: {total_docs - failed_docs}/{total_docs} succeeded "
-                            f"({failed_docs} failed: {_friendly_err(last_err)})"
-                        )
-                    else:
-                        self._update_footer(f"Exported {total_docs} documents ({total_saved} files) to {out_path.name}")
-                    self._btn_export_all.configure(text="Exported All!")
-                    self.after(1200, self._reset_export_all_button)
-
-                self._safe_after(0, _on_finish)
-            except Exception as exc:
-                logger.warning("Export All error: %s", exc)
-                self._safe_after(0, lambda e=exc: self._update_footer(f"Export All error: {_friendly_err(e)}"))
-                self._safe_after(0, self._reset_export_all_button)
-            finally:
-                self._is_exporting = False
-
-        if sync:
-            _do_export()
-            return None
-
-        thread = threading.Thread(target=_do_export, name="ExportAllWorker", daemon=True)
-        self._export_thread = thread
-        thread.start()
-        return thread
-
-    def _reset_export_selected_button(self) -> None:
-        """Reset the Export Selected button text after export completes."""
-        if self._is_shutting_down:
-            return
-        self._btn_export_selected.configure(text="Export Selected")
-        self._update_action_buttons()
-
-    def _reset_export_all_button(self) -> None:
-        """Reset the Export All button text and enabled state after export completes."""
-        if self._is_shutting_down:
-            return
-        completed_count = sum(
-            1 for it in self._queue_items.values()
-            if it.status == QueueItemStatus.SUCCESS and it.result is not None
-        )
-        self._btn_export_all.configure(
-            text="Export All",
-            state="normal" if completed_count > 0 else "disabled",
-        )
-
     def wait_for_export(self, timeout: float = 3.0) -> None:
         """Wait for any active background export thread to complete and drain main loop callbacks."""
-        if self._export_thread and self._export_thread.is_alive():
-            self._export_thread.join(timeout=timeout)
-        self._drain_ui_callbacks()
-        try:
-            self.update()
-        except Exception:
-            pass
+        if self._export_controller is not None:
+            self._export_controller.wait_for_export(timeout=timeout)
+        else:
+            if self._export_thread and self._export_thread.is_alive():
+                self._export_thread.join(timeout=timeout)
+            self._drain_ui_callbacks()
+            try:
+                self.update()
+            except Exception:
+                pass
 
     def _on_queue_emptied(self) -> None:
         """Reset preview and status displays when all finished items are cleared and queue is empty."""

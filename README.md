@@ -23,7 +23,7 @@ I built this because most modern OCR tools require uploading files to third-part
 The easiest way to run AksaraSight on Windows:
 
 1. Go to the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page.
-2. Download `AksaraSight-v1.1.1-windows-x64.zip`.
+2. Download `AksaraSight-v1.2.0-windows-x64.zip`.
 3. Extract the zip anywhere and double-click `AksaraSight.exe`.
 
 ### Option 2: Running from source

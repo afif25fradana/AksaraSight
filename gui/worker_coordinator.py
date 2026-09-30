@@ -16,7 +16,6 @@ import sys
 import threading
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from unittest.mock import NonCallableMock
 
 from config.settings import Settings
 from core.client import resolve_chat_endpoint
@@ -33,6 +32,14 @@ from gui.theme import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_callable_factory(obj: Any) -> bool:
+    """Return True if obj is a callable factory function and not a test mock."""
+    if not callable(obj):
+        return False
+    cls_module = getattr(getattr(obj, "__class__", None), "__module__", "")
+    return "unittest.mock" not in cls_module
 
 
 class WorkerEventType(str, Enum):
@@ -120,7 +127,7 @@ class WorkerCoordinator:
     @property
     def engine(self) -> Any:
         """Return resolved engine instance or callable result."""
-        if callable(self._engine) and not isinstance(self._engine, NonCallableMock):
+        if _is_callable_factory(self._engine):
             return self._engine()
         return self._engine
 
@@ -131,7 +138,7 @@ class WorkerCoordinator:
     @property
     def settings(self) -> Any:
         """Return resolved settings instance or callable result."""
-        if callable(self._settings) and not isinstance(self._settings, NonCallableMock):
+        if _is_callable_factory(self._settings):
             return self._settings()
         return self._settings
 
@@ -142,7 +149,7 @@ class WorkerCoordinator:
     @property
     def queue_manager(self) -> Any:
         """Return resolved queue manager instance or callable result."""
-        if callable(self._queue_manager) and not isinstance(self._queue_manager, NonCallableMock):
+        if _is_callable_factory(self._queue_manager):
             return self._queue_manager()
         return self._queue_manager
 

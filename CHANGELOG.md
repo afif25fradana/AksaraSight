@@ -6,6 +6,26 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
+### v1.2.0 — GUI Modularization, Architecture Consolidation & Test Expansion (October 1, 2026)
+*Focus: Desktop GUI modularization into dedicated controllers, test suite expansion to 553 tests, server manager lifecycle lock hardening, and documentation sanitization. (Architectural consolidation; no breaking changes).*
+- **Modular GUI Controllers (`gui/`)**: Extracted 7 dedicated, testable controller modules from `gui/app.py`:
+  - `QueueManager` (`gui/queue_manager.py`): Queue item state, list selection, and batch ingestion.
+  - `ExportController` (`gui/export_controller.py`): Single and batch artifact exports, cooldown state machines, and export threads.
+  - `ServerUIController` (`gui/server_controller.py`): Health polling cadence, status pill visual states, and server actions.
+  - `WorkerCoordinator` (`gui/worker_coordinator.py`): Background task dequeueing, boundary settings staging, and result dispatch.
+  - `ImagePreviewController` (`gui/image_preview.py`): On-demand page preview rendering, pagination, and rasterization.
+  - `MarkdownHighlighter` (`gui/preview_highlighter.py`): Real-time preview syntax highlighting.
+  - `SecurityConfirmationDialog` (`gui/security_dialog.py`): Remote endpoint opt-in confirmation.
+  - Core helper `Win32JobObject` (`core/job_object.py`): OS process containment with `KILL_ON_JOB_CLOSE`.
+  - Reduced `gui/app.py` from ~2,700 lines down to 1,497 lines, with all temporary migration facades cleanly removed.
+- **Test Suite Expansion (553 Tests)**: Test suite expanded from 417 to 553 automated tests across 17 test files, achieving 100% green pass rate across Windows (Python 3.10 & 3.14) and Linux headless matrix legs.
+- **Server Lifecycle Concurrency Hardening (`core/server_manager.py`)**: Introduced `_lifecycle_lock` to serialize process start/stop lifecycles across blocking process termination, freeing `_lock` to guard state snapshots without deadlock risk during concurrent stdout draining.
+- **DOCX Nested List & Image Node Support (`core/docx_export.py`)**: Added recursive AST rendering for deeply nested bullet/ordered lists with depth indentation, and converted image AST nodes into clean visible placeholders.
+- **CI Matrix & Dependency Pinning**: Added Python 3.10 to the GitHub Actions test matrix alongside 3.14; pinned direct dependencies across runtime, dev, and build manifests.
+- **Documentation Sanitization**: Stripped internal AI process markers from codebase docstrings and synchronized technical architecture guides.
+
+---
+
 ### v1.1.1 — Maintenance, Test-Suite Hardening & Documentation Synchronization (September 22, 2026)
 *Focus: Release readiness, version alignment, batch CLI assertion hardening, and documentation synchronization. (Patch/hardening; no breaking changes).*
 - **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.

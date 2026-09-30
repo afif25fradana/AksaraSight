@@ -1,9 +1,11 @@
+import gc
 import inspect
 from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
+import traceback
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
@@ -2864,6 +2866,9 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
     app = OCRApp(engine=mock_engine, settings=custom_settings)
     app.withdraw()
 
+    # Finalize orphaned Font objects before the worker can trigger GC
+    gc.collect()
+
     try:
         app.enqueue_file(test_file)
         deadline = time.time() + 10.0
@@ -2877,12 +2882,26 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
         worker_alive = app._worker_thread.is_alive() if app._worker_thread else False
         is_put_original = getattr(app._task_queue.put, "__self__", None) is app._task_queue
         put_desc = "original bound method" if is_put_original else f"replaced ({type(app._task_queue.put).__name__}: {app._task_queue.put})"
+
+        worker_frames = sys._current_frames()
+        worker_stack = "None"
+        worker_id = None
+        for th in threading.enumerate():
+            if th.name == "OCRWorkerThread":
+                worker_id = th.ident
+                break
+        if worker_id is None and app._worker_thread:
+            worker_id = app._worker_thread.ident
+        if worker_id is not None and worker_id in worker_frames:
+            worker_stack = "".join(traceback.format_stack(worker_frames[worker_id])[-12:])
+
         assert doc_processed_event.is_set(), (
             f"Worker did not call process_document within 10s: "
             f"worker_alive={worker_alive}, "
             f"task_queue_qsize={app._task_queue.qsize()}, "
             f"task_queue_put={put_desc}, "
-            f"event_state={doc_processed_event.is_set()}"
+            f"event_state={doc_processed_event.is_set()},\n"
+            f"worker_stack=\n{worker_stack}"
         )
         assert mock_engine.process_document.call_count == 1
         call_kwargs = mock_engine.process_document.call_args.kwargs

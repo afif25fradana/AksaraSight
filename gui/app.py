@@ -74,6 +74,7 @@ from gui.settings_window import SettingsWindow
 from gui.preview_highlighter import MarkdownHighlighter
 from gui.image_preview import ImagePreviewController
 from gui.export_controller import ExportController
+from gui.server_controller import ServerUIController
 from gui.queue_manager import (
     QueueItem,
     QueueItemStatus,
@@ -203,9 +204,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if hasattr(self.server_manager, "on_lifecycle_change") and hasattr(self.engine, "invalidate_backend_verification"):
             self.server_manager.on_lifecycle_change = self.engine.invalidate_backend_verification
         self._settings_window: Optional[SettingsWindow] = None
-        self._server_poller_thread: Optional[threading.Thread] = None
-        self._server_stop_thread: Optional[threading.Thread] = None
-        self._server_start_thread: Optional[threading.Thread] = None
+        self._server_controller: Optional[ServerUIController] = None
+        self._legacy_server_poller_thread: Optional[threading.Thread] = None
+        self._legacy_server_stop_thread: Optional[threading.Thread] = None
+        self._legacy_server_start_thread: Optional[threading.Thread] = None
+        self._legacy_last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._highlighter = MarkdownHighlighter()
 
         # Window appearance and geometry
@@ -233,7 +236,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._legacy_current_image_page_idx: int = 0
         self._legacy_current_ctk_image: Optional[ctk.CTkImage] = None
         self._progress_indeterminate: bool = False
-        self._last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._is_exporting_legacy: bool = False
         self._export_controller: Optional[ExportController] = None
         self._runtime_download_thread: Optional[threading.Thread] = None
@@ -264,18 +266,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if self._export_controller is not None:
             self._export_controller.queue_manager = self._queue_manager
 
-        # Auto-start managed server if enabled in settings and offline
-        if self.settings.auto_start_server:
-            try:
-                init_info = self.server_manager.poll_status()
-                if init_info.status == ServerStatus.OFFLINE:
-                    logger.info("auto_start_server enabled; starting backend server process...")
-                    self.server_manager.start()
-            except Exception as auto_start_err:
-                logger.warning("Failed to auto-start backend server on launch: %s", auto_start_err)
-
-        # Start periodic server health poller
-        self._start_server_poller()
+        # Auto-start managed server if enabled and start periodic health poller
+        if self._server_controller is not None:
+            self._server_controller.auto_start_if_needed()
+            self._server_controller.start_poller()
+        else:
+            self._start_server_poller()
 
         # Protocol handlers
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -405,6 +401,77 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return self._export_controller.get_selected_export_format()
         return OutputFormat.BOTH
 
+    # ponytail: remove in Phase 5
+    @property
+    def _last_applied_server_status(self) -> Optional[Tuple[ServerStatus, ServerOwnership]]:
+        if getattr(self, "_server_controller", None) is not None:
+            return self._server_controller.last_applied_server_status
+        return self._legacy_last_applied_server_status
+
+    # ponytail: remove in Phase 5
+    @_last_applied_server_status.setter
+    def _last_applied_server_status(self, value: Optional[Tuple[ServerStatus, ServerOwnership]]) -> None:
+        self._legacy_last_applied_server_status = value
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.last_applied_server_status = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _server_poller_thread(self) -> Optional[threading.Thread]:
+        if getattr(self, "_server_controller", None) is not None:
+            return self._server_controller.server_poller_thread
+        return self._legacy_server_poller_thread
+
+    # ponytail: remove in Phase 5
+    @_server_poller_thread.setter
+    def _server_poller_thread(self, value: Optional[threading.Thread]) -> None:
+        self._legacy_server_poller_thread = value
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.server_poller_thread = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _server_start_thread(self) -> Optional[threading.Thread]:
+        if getattr(self, "_server_controller", None) is not None:
+            return self._server_controller.server_start_thread
+        return self._legacy_server_start_thread
+
+    # ponytail: remove in Phase 5
+    @_server_start_thread.setter
+    def _server_start_thread(self, value: Optional[threading.Thread]) -> None:
+        self._legacy_server_start_thread = value
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.server_start_thread = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _server_stop_thread(self) -> Optional[threading.Thread]:
+        if getattr(self, "_server_controller", None) is not None:
+            return self._server_controller.server_stop_thread
+        return self._legacy_server_stop_thread
+
+    # ponytail: remove in Phase 5
+    @_server_stop_thread.setter
+    def _server_stop_thread(self, value: Optional[threading.Thread]) -> None:
+        self._legacy_server_stop_thread = value
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.server_stop_thread = value
+
+    # ponytail: remove in Phase 5
+    def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.apply_server_status_update(info)
+
+    # ponytail: remove in Phase 5
+    def _on_server_action_clicked(self) -> None:
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.on_server_action_clicked()
+
+    # ponytail: remove in Phase 5
+    def _start_server_poller(self) -> None:
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.start_poller()
+
 
     # ==========================================================================
     # UI Layout Construction
@@ -518,6 +585,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             command=self._open_settings_dialog,
         )
         self._btn_settings.pack(side="left", padx=(0, 0))
+
+        # Server UI Controller
+        self._server_controller = ServerUIController(
+            server_manager=lambda: self.server_manager,
+            settings=lambda: self.settings,
+            engine=self.engine,
+            safe_after=self._safe_after,
+            is_shutting_down=lambda: self._is_shutting_down,
+            shutdown_event=self._shutdown_event,
+            update_footer=self._update_footer,
+            server_status_pill=self._server_status_pill,
+            btn_server_action=self._btn_server_action,
+            format_error=_friendly_err,
+        )
+        if self._legacy_last_applied_server_status is not None:
+            self._server_controller.last_applied_server_status = self._legacy_last_applied_server_status
 
     def _build_body(self) -> None:
         """Build the 2-column main body area."""
@@ -1735,171 +1818,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         else:
             self._ui_callback_queue.put((func, args, kwargs))
 
-    def _start_server_poller(self) -> None:
-        """Start background daemon thread periodically querying server health."""
-        try:
-            self._apply_server_status_update(self.server_manager.get_status_info())
-        except Exception:
-            pass
 
-        def _poller_worker() -> None:
-            while not self._shutdown_event.is_set():
-                poll_interval = 10.0
-                try:
-                    info = self.server_manager.poll_status()
-                    self._safe_after(0, self._apply_server_status_update, info)
-                    if info.status == ServerStatus.STARTING:
-                        poll_interval = 2.0
-                    else:
-                        poll_interval = 10.0
-                except Exception as exc:
-                    logger.debug("Server status poll error: %s", exc)
-                    poll_interval = 10.0
-
-                if self._shutdown_event.wait(timeout=poll_interval):
-                    break
-
-        thread = threading.Thread(target=_poller_worker, name="ServerPollerThread", daemon=True)
-        thread.start()
-        self._server_poller_thread = thread
-
-    def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
-        """Update header status pill and action button from ServerStatusInfo."""
-        if self._is_shutting_down:
-            return
-
-        status = info.status
-        ownership = info.ownership
-
-        if self._last_applied_server_status == (status, ownership):
-            return
-        self._last_applied_server_status = (status, ownership)
-
-        if status != ServerStatus.READY and hasattr(self.engine, "invalidate_backend_verification"):
-            self.engine.invalidate_backend_verification()
-
-        if status == ServerStatus.READY:
-            ownership_lbl = " (Managed)" if ownership == ServerOwnership.MANAGED else " (Ext)"
-            self._server_status_pill.configure(
-                text=f"● READY{ownership_lbl}",
-                fg_color="#0f3322",
-                text_color="#34d399",
-            )
-            if ownership == ServerOwnership.MANAGED:
-                self._btn_server_action.configure(
-                    text="Stop Server",
-                    state="normal",
-                    fg_color="#3d1419",
-                    hover_color="#541b22",
-                    text_color="#fb7185",
-                    border_color="#732531",
-                )
-            else:
-                self._btn_server_action.configure(
-                    text="External",
-                    state="disabled",
-                    fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                    text_color=COLOR_TEXT_MUTED,
-                    border_color=COLOR_SURFACE_BORDER,
-                )
-
-        elif status == ServerStatus.STARTING:
-            self._server_status_pill.configure(
-                text="● STARTING",
-                fg_color="#3d2a00",
-                text_color="#fbbf24",
-            )
-            if ownership == ServerOwnership.MANAGED:
-                self._btn_server_action.configure(
-                    text="Cancel Launch",
-                    state="normal",
-                    fg_color="#3d1419",
-                    hover_color="#541b22",
-                    text_color="#fb7185",
-                    border_color="#732531",
-                )
-            else:
-                self._btn_server_action.configure(
-                    text="Starting...",
-                    state="disabled",
-                    fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                    text_color=COLOR_TEXT_MUTED,
-                    border_color=COLOR_SURFACE_BORDER,
-                )
-
-        elif status == ServerStatus.ERROR:
-            self._server_status_pill.configure(
-                text="● ERROR",
-                fg_color="#3d1419",
-                text_color="#fb7185",
-            )
-            self._btn_server_action.configure(
-                text="Start Server",
-                state="normal",
-                fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                hover_color=COLOR_INTERACTIVE_HOVER,
-                text_color=COLOR_TEXT_PRIMARY,
-                border_color=COLOR_SURFACE_BORDER,
-            )
-
-        else:  # OFFLINE
-            self._server_status_pill.configure(
-                text="● OFFLINE",
-                fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                text_color=COLOR_TEXT_MUTED,
-            )
-            self._btn_server_action.configure(
-                text="Start Server",
-                state="normal",
-                fg_color=COLOR_INTERACTIVE_NEUTRAL,
-                hover_color=COLOR_INTERACTIVE_HOVER,
-                text_color=COLOR_TEXT_PRIMARY,
-                border_color=COLOR_SURFACE_BORDER,
-            )
-
-    def _on_server_action_clicked(self) -> None:
-        """Handle user clicks on the server Start/Stop action button."""
-        status = self.server_manager.status
-        ownership = self.server_manager.ownership
-
-        if (status in (ServerStatus.READY, ServerStatus.STARTING)) and ownership == ServerOwnership.MANAGED:
-            self._btn_server_action.configure(text="Stopping...", state="disabled")
-
-            def _stop_worker() -> None:
-                try:
-                    self.server_manager.stop()
-                except Exception as stop_err:
-                    logger.warning("Error stopping server: %s", stop_err)
-                    self._safe_after(0, lambda e=stop_err: self._update_footer(f"Server stop failed: {_friendly_err(e)}"))
-                finally:
-                    info = self.server_manager.poll_status()
-                    self._safe_after(0, self._apply_server_status_update, info)
-
-            stop_thread = threading.Thread(target=_stop_worker, name="ServerStopWorker", daemon=True)
-            self._server_stop_thread = stop_thread
-            stop_thread.start()
-
-        elif status in (ServerStatus.OFFLINE, ServerStatus.ERROR):
-            self._btn_server_action.configure(text="Starting...", state="disabled")
-            self._server_status_pill.configure(
-                text="● STARTING",
-                fg_color="#3d2a00",
-                text_color="#fbbf24",
-            )
-
-            def _start_worker() -> None:
-                try:
-                    self.server_manager.start()
-                except Exception as start_err:
-                    logger.warning("Error starting server: %s", start_err)
-                    self._safe_after(0, lambda e=start_err: self._update_footer(f"Server start failed: {_friendly_err(e)}"))
-                finally:
-                    info = self.server_manager.poll_status()
-                    self._safe_after(0, self._apply_server_status_update, info)
-
-            start_thread = threading.Thread(target=_start_worker, name="ServerStartWorker", daemon=True)
-            self._server_start_thread = start_thread
-            start_thread.start()
 
     def _open_settings_dialog(self) -> None:
         """Open the modal Preferences and Serving Configuration dialog."""
@@ -2026,19 +1945,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if hasattr(self, "_runtime_download_thread") and self._runtime_download_thread is not None and self._runtime_download_thread.is_alive():
             self._runtime_download_thread.join(timeout=1.0)
 
-        # 5. Join server poller thread
-        if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:
-            if self._server_poller_thread.is_alive():
-                self._server_poller_thread.join(timeout=1.0)
-
-        # 6. Stop managed server and close server manager
-        try:
+        # 5. Join server poller and worker threads via ServerUIController
+        if hasattr(self, "_server_controller") and self._server_controller is not None:
+            self._server_controller.shutdown(timeout=1.0)
+        else:
+            if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:
+                if self._server_poller_thread.is_alive():
+                    self._server_poller_thread.join(timeout=1.0)
             if hasattr(self, "_server_stop_thread") and self._server_stop_thread is not None:
                 if self._server_stop_thread.is_alive():
                     self._server_stop_thread.join(timeout=1.0)
             if hasattr(self, "_server_start_thread") and self._server_start_thread is not None:
                 if self._server_start_thread.is_alive():
                     self._server_start_thread.join(timeout=1.0)
+
+        # 6. Stop managed server and close server manager
+        try:
             if hasattr(self, "server_manager") and self.server_manager is not None:
                 if getattr(self.server_manager, "is_managed", False):
                     logger.info("Stopping managed server process on application exit...")

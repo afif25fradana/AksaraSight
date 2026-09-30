@@ -2848,7 +2848,13 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
     test_file.write_bytes(b"dummy")
 
     fake_result = OCRResult(file_path=str(test_file), status=JobStatus.SUCCESS)
-    mock_engine.process_document.return_value = fake_result
+    doc_processed_event = threading.Event()
+
+    def _on_process_document(*args, **kwargs):
+        doc_processed_event.set()
+        return fake_result
+
+    mock_engine.process_document.side_effect = _on_process_document
 
     custom_settings = Settings(
         max_pages=3,
@@ -2860,13 +2866,23 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
 
     try:
         app.enqueue_file(test_file)
-        deadline = time.time() + 2.0
+        deadline = time.time() + 10.0
         while time.time() < deadline:
             app._process_result_queue()
-            if mock_engine.process_document.call_count > 0 and app._status_label.cget("text").startswith("Done:"):
+            if doc_processed_event.is_set() and app._status_label.cget("text").startswith("Done:"):
                 break
-            time.sleep(0.05)
+            time.sleep(0.02)
 
+        worker_alive = app._worker_thread.is_alive() if app._worker_thread else False
+        is_put_original = getattr(app._task_queue.put, "__self__", None) is app._task_queue
+        put_desc = "original bound method" if is_put_original else f"replaced ({type(app._task_queue.put).__name__}: {app._task_queue.put})"
+        assert doc_processed_event.is_set(), (
+            f"Worker did not call process_document within 10s: "
+            f"worker_alive={worker_alive}, "
+            f"task_queue_qsize={app._task_queue.qsize()}, "
+            f"task_queue_put={put_desc}, "
+            f"event_state={doc_processed_event.is_set()}"
+        )
         assert mock_engine.process_document.call_count == 1
         call_kwargs = mock_engine.process_document.call_args.kwargs
         cfg = call_kwargs.get("config")

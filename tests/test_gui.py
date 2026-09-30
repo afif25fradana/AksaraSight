@@ -93,7 +93,7 @@ def test_app_initialization_and_clean_shutdown():
 
     try:
         assert app.title() == "AksaraSight Local Studio"
-        assert app._worker_thread.is_alive()
+        assert app._worker_coordinator.worker_thread.is_alive()
         assert not app._is_shutting_down
         assert not app._shutdown_event.is_set()
         assert app._status_label is app._footer_status
@@ -104,8 +104,8 @@ def test_app_initialization_and_clean_shutdown():
     assert app._shutdown_event.is_set()
     assert mock_engine.close.call_count == 1
     # Worker thread should terminate
-    app._worker_thread.join(timeout=1.0)
-    assert not app._worker_thread.is_alive()
+    app._worker_coordinator.worker_thread.join(timeout=1.0)
+    assert not app._worker_coordinator.worker_thread.is_alive()
 
 
 def test_app_enqueue_and_worker_success(tmp_path):
@@ -126,7 +126,7 @@ def test_app_enqueue_and_worker_success(tmp_path):
         # Wait for worker thread to process item
         deadline = time.time() + 2.0
         while time.time() < deadline:
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             if mock_engine.process_document.call_count > 0 and app._status_label.cget("text").startswith("Done:"):
                 break
             time.sleep(0.05)
@@ -155,7 +155,7 @@ def test_app_worker_processing_failure(tmp_path):
 
         deadline = time.time() + 2.0
         while time.time() < deadline:
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             if mock_engine.process_document.call_count > 0 and app._status_label.cget("text").startswith("Failed:"):
                 break
             time.sleep(0.05)
@@ -177,11 +177,11 @@ def test_app_worker_loop_fatal_crash():
         def crashing_get(*args: Any, **kwargs: Any) -> Any:
             raise SystemError("Simulated unhandled runtime catastrophe")
 
-        app._task_queue.get = crashing_get
+        app._worker_coordinator.task_queue.get = crashing_get
 
         deadline = time.time() + 2.0
         while time.time() < deadline:
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             if "Fatal Worker Error:" in app._status_label.cget("text"):
                 break
             time.sleep(0.05)
@@ -224,13 +224,13 @@ def test_supported_extensions_filtering(tmp_path):
         invalid_file = tmp_path / "unsupported.docx"
         invalid_file.write_bytes(b"content")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(valid_file)
         app.enqueue_file(invalid_file)
 
-        assert str(valid_file.resolve()) in app._queue_items
-        assert str(invalid_file.resolve()) not in app._queue_items
-        assert len(app._queue_items) == 1
+        assert str(valid_file.resolve()) in app._queue_manager.items
+        assert str(invalid_file.resolve()) not in app._queue_manager.items
+        assert len(app._queue_manager.items) == 1
     finally:
         app._on_closing()
 
@@ -254,8 +254,8 @@ def test_selection_race_condition(tmp_path):
         file2_id = str(file2.resolve())
 
         # Select file 1 explicitly and switch to Text Preview
-        app._select_queue_item(file1_id)
-        assert app._selected_item_id == file1_id
+        app._queue_manager.select_item(file1_id)
+        assert app._queue_manager.selected_item_id == file1_id
         app.select_tab("Text Preview")
 
         # Verify preview pane currently reflects file 1
@@ -276,10 +276,10 @@ def test_selection_race_condition(tmp_path):
             result=result2,
         )
 
-        app._handle_worker_event(event2)
+        app._worker_coordinator.handle_worker_event(event2)
 
         # Race-free check: active selection must STILL be file 1
-        assert app._selected_item_id == file1_id
+        assert app._queue_manager.selected_item_id == file1_id
 
         # Preview pane must NOT have been overwritten by file 2
         preview_text_after_race = app._tb_preview.get("1.0", "end")
@@ -287,7 +287,7 @@ def test_selection_race_condition(tmp_path):
         assert "Page 2 Extracted Heading" not in preview_text_after_race
 
         # Underlying queue item and row for file 2 MUST be updated
-        item2 = app._queue_items[file2_id]
+        item2 = app._queue_manager.items[file2_id]
         assert item2.status == QueueItemStatus.SUCCESS
         assert item2.duration == 1.5
         assert item2.result is result2
@@ -296,8 +296,8 @@ def test_selection_race_condition(tmp_path):
         assert "1.5s" in item2.detail_label.cget("text")
 
         # Now when user selects file 2, preview pane updates to file 2's content
-        app._select_queue_item(file2_id)
-        assert app._selected_item_id == file2_id
+        app._queue_manager.select_item(file2_id)
+        assert app._queue_manager.selected_item_id == file2_id
         assert "Page 2 Extracted Heading" in app._tb_preview.get("1.0", "end")
         app.select_tab("Raw Markdown")
         assert "Page 2 Extracted Heading" in app._tb_markdown.get("1.0", "end")
@@ -315,13 +315,13 @@ def test_preview_placeholders_for_unprocessed_items(tmp_path):
         file1 = tmp_path / "sample.pdf"
         file1.write_bytes(b"content")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file1)
         file1_id = str(file1.resolve())
-        item = app._queue_items[file1_id]
+        item = app._queue_manager.items[file1_id]
 
         # 1. QUEUED state
-        app._select_queue_item(file1_id)
+        app._queue_manager.select_item(file1_id)
         assert "is queued for processing" in app._tb_markdown.get("1.0", "end")
         app.select_tab("Text Preview")
         assert "Document Queued: sample.pdf" in app._tb_preview.get("1.0", "end")
@@ -368,7 +368,7 @@ def test_clear_finished_behavior(tmp_path):
         f2 = tmp_path / "f2.pdf"
         f3 = tmp_path / "f3.pdf"
         f4 = tmp_path / "f4.pdf"
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         for f in (f1, f2, f3, f4):
             f.write_bytes(b"data")
             app.enqueue_file(f)
@@ -377,48 +377,48 @@ def test_clear_finished_behavior(tmp_path):
 
         # Set diverse statuses:
         # id1 -> SUCCESS
-        app._queue_items[id1].status = QueueItemStatus.SUCCESS
-        app._queue_items[id1].result = OCRResult(file_path=id1, status=JobStatus.SUCCESS)
+        app._queue_manager.items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id1].result = OCRResult(file_path=id1, status=JobStatus.SUCCESS)
         # id2 -> PROCESSING
-        app._queue_items[id2].status = QueueItemStatus.PROCESSING
+        app._queue_manager.items[id2].status = QueueItemStatus.PROCESSING
         # id3 -> QUEUED
-        app._queue_items[id3].status = QueueItemStatus.QUEUED
+        app._queue_manager.items[id3].status = QueueItemStatus.QUEUED
         # id4 -> FAILED
-        app._queue_items[id4].status = QueueItemStatus.FAILED
-        app._queue_items[id4].error = "Corrupt PDF"
+        app._queue_manager.items[id4].status = QueueItemStatus.FAILED
+        app._queue_manager.items[id4].error = "Corrupt PDF"
 
         # Select id1 (completed item)
-        app._select_queue_item(id1)
-        assert app._selected_item_id == id1
+        app._queue_manager.select_item(id1)
+        assert app._queue_manager.selected_item_id == id1
 
         # Execute Clear Finished
-        app._on_clear_finished()
+        app._queue_manager.clear_finished()
 
         # Finished items (id1 and id4) must be removed
-        assert id1 not in app._queue_items
-        assert id4 not in app._queue_items
+        assert id1 not in app._queue_manager.items
+        assert id4 not in app._queue_manager.items
 
         # Unfinished items (id2 and id3) must remain
-        assert id2 in app._queue_items
-        assert id3 in app._queue_items
-        assert len(app._queue_items) == 2
+        assert id2 in app._queue_manager.items
+        assert id3 in app._queue_manager.items
+        assert len(app._queue_manager.items) == 2
 
         # Active selection should shift to first remaining item (id2)
-        assert app._selected_item_id == id2
+        assert app._queue_manager.selected_item_id == id2
 
         # Executing Clear Finished again when no finished items exist is a safe no-op
-        app._on_clear_finished()
-        assert len(app._queue_items) == 2
+        app._queue_manager.clear_finished()
+        assert len(app._queue_manager.items) == 2
 
         # Mark remaining as SUCCESS and clear again to verify empty state restoration
-        app._queue_items[id2].status = QueueItemStatus.SUCCESS
-        app._queue_items[id2].result = OCRResult(file_path=id2, status=JobStatus.SUCCESS)
-        app._queue_items[id3].status = QueueItemStatus.SUCCESS
-        app._queue_items[id3].result = OCRResult(file_path=id3, status=JobStatus.SUCCESS)
+        app._queue_manager.items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id2].result = OCRResult(file_path=id2, status=JobStatus.SUCCESS)
+        app._queue_manager.items[id3].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id3].result = OCRResult(file_path=id3, status=JobStatus.SUCCESS)
 
-        app._on_clear_finished()
-        assert len(app._queue_items) == 0
-        assert app._selected_item_id is None
+        app._queue_manager.clear_finished()
+        assert len(app._queue_manager.items) == 0
+        assert app._queue_manager.selected_item_id is None
         assert "No document selected" in app._tb_preview.get("1.0", "end")
         assert app._empty_queue_label.winfo_manager() == "pack"
     finally:
@@ -434,11 +434,11 @@ def test_copy_to_clipboard(tmp_path):
     try:
         test_file = tmp_path / "notes.pdf"
         test_file.write_bytes(b"data")
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(test_file)
 
         file_id = str(test_file.resolve())
-        item = app._queue_items[file_id]
+        item = app._queue_manager.items[file_id]
         item.status = QueueItemStatus.SUCCESS
         item.result = OCRResult(
             file_path=file_id,
@@ -446,7 +446,7 @@ def test_copy_to_clipboard(tmp_path):
             pages=[PageResult(page_num=1, markdown="## Sample Heading\n\nBody text")],
         )
 
-        app._select_queue_item(file_id)
+        app._queue_manager.select_item(file_id)
         assert app._btn_copy.cget("state") == "normal"
 
         app._on_copy_clipboard()
@@ -470,7 +470,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         f1.write_bytes(b"data1")
         f2.write_bytes(b"data2")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 
@@ -480,13 +480,13 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         res1 = OCRResult(file_path=id1, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# 1")])
         res2 = OCRResult(file_path=id2, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# 2")])
 
-        app._queue_items[id1].status = QueueItemStatus.SUCCESS
-        app._queue_items[id1].result = res1
+        app._queue_manager.items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id1].result = res1
 
-        app._queue_items[id2].status = QueueItemStatus.SUCCESS
-        app._queue_items[id2].result = res2
+        app._queue_manager.items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id2].result = res2
 
-        app._select_queue_item(id1)
+        app._queue_manager.select_item(id1)
         assert app._btn_export_selected.cget("state") == "normal"
         assert app._btn_export_selected.cget("fg_color") == COLOR_ACCENT_PRIMARY
         assert app._btn_export_all.cget("state") == "normal"
@@ -497,7 +497,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         # 1. Export Selected
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
              patch("gui.app.save_artifacts", return_value=[export_target / "doc1.md"]) as mock_save:
-            app._on_export_selected()
+            app._export_controller.on_export_selected()
             mock_save.assert_called_once_with(
                 res1,
                 config=JobConfig(output_format=OutputFormat.BOTH),
@@ -509,7 +509,7 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         # 2. Export All
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
              patch("gui.app.save_artifacts", return_value=[export_target / "doc.md"]) as mock_save_all:
-            app._on_export_all()
+            app._export_controller.on_export_all()
             app.wait_for_export()
             assert mock_save_all.call_count == 2
             mock_save_all.assert_has_calls([
@@ -521,8 +521,8 @@ def test_export_selected_and_export_all_mocked(tmp_path):
         # 3. User cancels dialog -> save_artifacts not called
         with patch("gui.app.filedialog.askdirectory", return_value=""), \
              patch("gui.app.save_artifacts") as mock_cancel:
-            app._on_export_selected()
-            app._on_export_all()
+            app._export_controller.on_export_selected()
+            app._export_controller.on_export_all()
             mock_cancel.assert_not_called()
 
     finally:
@@ -538,7 +538,7 @@ def test_real_save_artifacts_integration_end_to_end(tmp_path):
     try:
         f1 = tmp_path / "report.pdf"
         f1.write_bytes(b"dummy")
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
 
         file_id = str(f1.resolve())
@@ -547,17 +547,17 @@ def test_real_save_artifacts_integration_end_to_end(tmp_path):
             status=JobStatus.SUCCESS,
             pages=[PageResult(page_num=1, markdown="# Real End-to-End Export")],
         )
-        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
-        app._queue_items[file_id].result = res
+        app._queue_manager.items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[file_id].result = res
 
-        app._select_queue_item(file_id)
+        app._queue_manager.select_item(file_id)
 
         export_target = tmp_path / "actual_export"
         export_target.mkdir()
 
         # Real save_artifacts called directly (NO MOCK on save_artifacts!)
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)):
-            app._on_export_selected()
+            app._export_controller.on_export_selected()
 
         md_file = export_target / "report.md"
         json_file = export_target / "report.json"
@@ -592,28 +592,28 @@ def test_export_all_disambiguates_filename_collisions_end_to_end(tmp_path):
         file_b.write_bytes(b"b")
         file_c.write_bytes(b"c")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file_a)
         app.enqueue_file(file_b)
         app.enqueue_file(file_c)
 
         id_a, id_b, id_c = str(file_a.resolve()), str(file_b.resolve()), str(file_c.resolve())
 
-        app._queue_items[id_a].status = QueueItemStatus.SUCCESS
-        app._queue_items[id_a].result = OCRResult(file_path=id_a, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept A")])
+        app._queue_manager.items[id_a].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id_a].result = OCRResult(file_path=id_a, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept A")])
 
-        app._queue_items[id_b].status = QueueItemStatus.SUCCESS
-        app._queue_items[id_b].result = OCRResult(file_path=id_b, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept B")])
+        app._queue_manager.items[id_b].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id_b].result = OCRResult(file_path=id_b, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept B")])
 
-        app._queue_items[id_c].status = QueueItemStatus.SUCCESS
-        app._queue_items[id_c].result = OCRResult(file_path=id_c, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept C")])
+        app._queue_manager.items[id_c].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id_c].result = OCRResult(file_path=id_c, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Invoice Dept C")])
 
         export_target = tmp_path / "batch_out"
         export_target.mkdir()
 
         # Execute Export All with real save_artifacts
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)):
-            app._on_export_all()
+            app._export_controller.on_export_all()
             app.wait_for_export()
 
         # Verify all 3 documents were preserved with unique non-colliding filenames
@@ -675,7 +675,7 @@ def test_export_format_selector_default_state():
         # (1) Default value is Markdown & JSON
         assert app._opt_export_format.get() == "Markdown & JSON (.md + .json)"
         # (2) Maps to OutputFormat.BOTH
-        assert app._get_selected_export_format() == OutputFormat.BOTH
+        assert app._export_controller.get_selected_export_format() == OutputFormat.BOTH
         # (3) Exactly 2 options available
         assert app._opt_export_format._values == [
             "Markdown & JSON (.md + .json)",
@@ -696,7 +696,7 @@ def test_export_selected_with_docx_format(tmp_path: Path):
     try:
         f = tmp_path / "single_doc.png"
         f.write_bytes(b"data")
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f)
 
         file_id = str(f.resolve())
@@ -705,19 +705,19 @@ def test_export_selected_with_docx_format(tmp_path: Path):
             status=JobStatus.SUCCESS,
             pages=[PageResult(page_num=1, markdown="# Word Document Heading\nParagraph content.")],
         )
-        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
-        app._queue_items[file_id].result = res
-        app._select_queue_item(file_id)
+        app._queue_manager.items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[file_id].result = res
+        app._queue_manager.select_item(file_id)
 
         # Switch format selector to Word Document (.docx)
         app._opt_export_format.set("Word Document (.docx)")
-        assert app._get_selected_export_format() == OutputFormat.DOCX
+        assert app._export_controller.get_selected_export_format() == OutputFormat.DOCX
 
         out_dir = tmp_path / "docx_single_out"
         out_dir.mkdir()
 
         with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)):
-            app._on_export_selected()
+            app._export_controller.on_export_selected()
 
         docx_file = out_dir / "single_doc.docx"
         assert docx_file.exists()
@@ -743,7 +743,7 @@ def test_export_all_with_docx_format(tmp_path: Path):
         f1.write_bytes(b"1")
         f2.write_bytes(b"2")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 
@@ -751,21 +751,21 @@ def test_export_all_with_docx_format(tmp_path: Path):
         res1 = OCRResult(file_path=id1, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# Doc 1")])
         res2 = OCRResult(file_path=id2, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# Doc 2")])
 
-        app._queue_items[id1].status = QueueItemStatus.SUCCESS
-        app._queue_items[id1].result = res1
-        app._queue_items[id2].status = QueueItemStatus.SUCCESS
-        app._queue_items[id2].result = res2
+        app._queue_manager.items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id1].result = res1
+        app._queue_manager.items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id2].result = res2
 
         # Switch format selector to Word Document (.docx)
         app._opt_export_format.set("Word Document (.docx)")
-        assert app._get_selected_export_format() == OutputFormat.DOCX
+        assert app._export_controller.get_selected_export_format() == OutputFormat.DOCX
 
         out_dir = tmp_path / "docx_batch_out"
         out_dir.mkdir()
 
         with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
              patch("gui.app.save_artifacts", return_value={"docx": out_dir / "doc.docx"}) as mock_save:
-            app._on_export_all()
+            app._export_controller.on_export_all()
             app.wait_for_export()
 
             assert mock_save.call_count == 2
@@ -790,7 +790,7 @@ def test_export_all_docx_failure_during_batch_preserves_remaining_and_sanitizes(
         f1.write_bytes(b"fail")
         f2.write_bytes(b"success")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
         app.enqueue_file(f2)
 
@@ -799,10 +799,10 @@ def test_export_all_docx_failure_during_batch_preserves_remaining_and_sanitizes(
         res1 = OCRResult(file_path=str(private_path), status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Doc 1")])
         res2 = OCRResult(file_path=id2, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Doc 2")])
 
-        app._queue_items[id1].status = QueueItemStatus.SUCCESS
-        app._queue_items[id1].result = res1
-        app._queue_items[id2].status = QueueItemStatus.SUCCESS
-        app._queue_items[id2].result = res2
+        app._queue_manager.items[id1].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id1].result = res1
+        app._queue_manager.items[id2].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[id2].result = res2
 
         app._opt_export_format.set("Word Document (.docx)")
 
@@ -823,7 +823,7 @@ def test_export_all_docx_failure_during_batch_preserves_remaining_and_sanitizes(
 
         with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
              patch("gui.app.save_artifacts", side_effect=side_effect_save) as mock_save:
-            app._on_export_all()
+            app._export_controller.on_export_all()
             app.wait_for_export()
 
             # (1) Both files were attempted — loop was NOT aborted by first failure!
@@ -902,56 +902,56 @@ def test_queue_row_hover_enter_leave_and_selected_guard(tmp_path):
         file_a.write_bytes(b"dummy1")
         file_b.write_bytes(b"dummy2")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(file_a)
         app.enqueue_file(file_b)
 
         id_a = str(file_a.resolve())
         id_b = str(file_b.resolve())
 
-        item_a = app._queue_items[id_a]
-        item_b = app._queue_items[id_b]
+        item_a = app._queue_manager.items[id_a]
+        item_b = app._queue_manager.items[id_b]
 
         # file_a was first item, so it was auto-selected
-        assert app._selected_item_id == id_a
+        assert app._queue_manager.selected_item_id == id_a
         assert item_a.row_frame is not None and item_b.row_frame is not None
         assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
         assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
         # 1. Hover over unselected row (item_b): flips to COLOR_INTERACTIVE_HOVER
         event_b = SimpleNamespace(widget=item_b.row_frame, item_id=id_b)
-        app._on_queue_row_enter(event_b, item_id=id_b)
+        app._queue_manager._on_row_enter(event_b, item_id=id_b)
         assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_HOVER
 
         # 2. Leave unselected row (item_b): reverts to COLOR_INTERACTIVE_NEUTRAL
-        app._on_queue_row_leave(event_b, item_id=id_b)
+        app._queue_manager._on_row_leave(event_b, item_id=id_b)
         assert item_b.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
         # 3. Hover over selected row (item_a): MUST NOT clobber COLOR_ROW_SELECTED_BG
         event_a = SimpleNamespace(widget=item_a.row_frame, item_id=id_a)
-        app._on_queue_row_enter(event_a, item_id=id_a)
+        app._queue_manager._on_row_enter(event_a, item_id=id_a)
         assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
 
         # Leave selected row: still COLOR_ROW_SELECTED_BG
-        app._on_queue_row_leave(event_a, item_id=id_a)
+        app._queue_manager._on_row_leave(event_a, item_id=id_a)
         assert item_a.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
 
         # 4. Switch selection to item_b and verify roles swap
-        app._select_queue_item(id_b)
-        assert app._selected_item_id == id_b
+        app._queue_manager.select_item(id_b)
+        assert app._queue_manager.selected_item_id == id_b
         assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
         assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
         # Hover over now-unselected item_a: flips to COLOR_INTERACTIVE_HOVER
-        app._on_queue_row_enter(event_a, item_id=id_a)
+        app._queue_manager._on_row_enter(event_a, item_id=id_a)
         assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_HOVER
-        app._on_queue_row_leave(event_a, item_id=id_a)
+        app._queue_manager._on_row_leave(event_a, item_id=id_a)
         assert item_a.row_frame.cget("fg_color") == COLOR_INTERACTIVE_NEUTRAL
 
         # Hover over now-selected item_b: preserved as COLOR_ROW_SELECTED_BG
-        app._on_queue_row_enter(event_b, item_id=id_b)
+        app._queue_manager._on_row_enter(event_b, item_id=id_b)
         assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
-        app._on_queue_row_leave(event_b, item_id=id_b)
+        app._queue_manager._on_row_leave(event_b, item_id=id_b)
         assert item_b.row_frame.cget("fg_color") == COLOR_ROW_SELECTED_BG
     finally:
         app._on_closing()
@@ -1015,27 +1015,27 @@ def test_gui_cancellation_flow(tmp_path):
 
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
-        item = app._queue_items[item_id]
+        item = app._queue_manager.items[item_id]
 
         # Simulate STARTED event
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.STARTED,
                 file_path=item_id,
             )
         )
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
 
         # Wire up a mock cancel event as would exist during in-flight processing
         import threading
         fake_cancel_event = threading.Event()
-        app._current_cancel_event = fake_cancel_event
+        app._worker_coordinator.current_cancel_event = fake_cancel_event
         app._update_action_buttons()
 
         assert app._btn_cancel.cget("state") == "normal"
 
         # User clicks cancel
-        app._on_cancel_current()
+        app._worker_coordinator.cancel_current()
         assert fake_cancel_event.is_set()
         assert app._btn_cancel.cget("state") == "disabled"
         assert app._btn_cancel.cget("text") == "Cancelling..."
@@ -1049,7 +1049,7 @@ def test_gui_cancellation_flow(tmp_path):
             error="Processing cancelled by user after page 1",
             pages=[PageResult(page_num=1, markdown="# Page 1 Done", status=JobStatus.SUCCESS)],
         )
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.CANCELLED,
                 file_path=item_id,
@@ -1057,8 +1057,8 @@ def test_gui_cancellation_flow(tmp_path):
                 error=cancelled_result.error,
             )
         )
-        app._current_cancel_event = None
-        app._process_result_queue()
+        app._worker_coordinator.current_cancel_event = None
+        app._worker_coordinator.process_result_queue()
 
         assert item.status == QueueItemStatus.CANCELLED
         assert item.badge_label is not None and item.detail_label is not None
@@ -1074,8 +1074,8 @@ def test_gui_cancellation_flow(tmp_path):
         assert "# Page 1 Done" in tb_content
 
         # Clear finished includes cancelled items
-        app._on_clear_finished()
-        assert item_id not in app._queue_items
+        app._queue_manager.clear_finished()
+        assert item_id not in app._queue_manager.items
     finally:
         app._on_closing()
 
@@ -1105,15 +1105,15 @@ def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
         app.wait_for_ingest()
 
         # The folder itself must NOT be queued
-        assert str(drop_folder.resolve()) not in app._queue_items
+        assert str(drop_folder.resolve()) not in app._queue_manager.items
 
         # Supported children must be queued
-        assert str(doc1.resolve()) in app._queue_items
-        assert str(img1.resolve()) in app._queue_items
+        assert str(doc1.resolve()) in app._queue_manager.items
+        assert str(img1.resolve()) in app._queue_manager.items
 
         # Unsupported files must be skipped
-        assert str(unsupported_doc.resolve()) not in app._queue_items
-        assert len(app._queue_items) == 2
+        assert str(unsupported_doc.resolve()) not in app._queue_manager.items
+        assert len(app._queue_manager.items) == 2
 
         # Test empty folder drop
         empty_folder = tmp_path / "empty_folder"
@@ -1121,7 +1121,7 @@ def test_gui_folder_drop_recursive_ingest(tmp_path: Path) -> None:
         app.enqueue_file(empty_folder)
         app.wait_for_ingest()
         assert "No supported documents in empty_folder" in app._footer_status.cget("text")
-        assert len(app._queue_items) == 2
+        assert len(app._queue_manager.items) == 2
     finally:
         app._on_closing()
 
@@ -1138,12 +1138,12 @@ def test_queue_item_file_type_chips(tmp_path: Path) -> None:
         png_file = tmp_path / "diagram.png"
         png_file.write_bytes(b"\x89PNG dummy")
 
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(pdf_file)
         app.enqueue_file(png_file)
 
-        pdf_item = app._queue_items[str(pdf_file.resolve())]
-        png_item = app._queue_items[str(png_file.resolve())]
+        pdf_item = app._queue_manager.items[str(pdf_file.resolve())]
+        png_item = app._queue_manager.items[str(png_file.resolve())]
 
         assert pdf_item.chip_label is not None
         assert pdf_item.chip_label.cget("text") == "PDF"
@@ -1260,21 +1260,21 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
         test_file.write_bytes(b"%PDF-1.4 multipage dummy")
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
-        item = app._queue_items[item_id]
+        item = app._queue_manager.items[item_id]
 
         # 1. Simulate STARTED event
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.STARTED,
                 file_path=item_id,
             )
         )
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert app._progress_bar.get() == 0.0
 
         # 2. Simulate PAGE_PROGRESS event (page 1 of 3)
         page1_res = PageResult(page_num=1, markdown="# Page 1 Content", status=JobStatus.SUCCESS)
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.PAGE_PROGRESS,
                 file_path=item_id,
@@ -1283,14 +1283,14 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
                 page_result=page1_res,
             )
         )
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert pytest.approx(app._progress_bar.get(), rel=1e-2) == 1.0 / 3.0
         assert app._lbl_page_counter.cget("text") == "Page 1 of 3"
         assert "Page 1/3" in app._footer_status.cget("text")
 
         # 3. Simulate PAGE_PROGRESS event (page 2 of 3)
         page2_res = PageResult(page_num=2, markdown="# Page 2 Content", status=JobStatus.SUCCESS)
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.PAGE_PROGRESS,
                 file_path=item_id,
@@ -1299,7 +1299,7 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
                 page_result=page2_res,
             )
         )
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert pytest.approx(app._progress_bar.get(), rel=1e-2) == 2.0 / 3.0
         assert app._lbl_page_counter.cget("text") == "Page 2 of 3"
 
@@ -1309,14 +1309,14 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
             status=JobStatus.SUCCESS,
             pages=[page1_res, page2_res, PageResult(page_num=3, markdown="# Page 3 Content")],
         )
-        app._result_queue.put(
+        app._worker_coordinator.result_queue.put(
             WorkerEvent(
                 event_type=WorkerEventType.COMPLETED,
                 file_path=item_id,
                 result=complete_result,
             )
         )
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert app._progress_bar.get() == 1.0
         assert "done" in app._lbl_page_counter.cget("text")
     finally:
@@ -1337,10 +1337,10 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
         frame2 = Image.new("RGB", (60, 60), color="green")
         frame3 = Image.new("RGB", (60, 60), color="blue")
         frame1.save(test_file, format="TIFF", save_all=True, append_images=[frame2, frame3])
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
-        item = app._queue_items[item_id]
+        item = app._queue_manager.items[item_id]
 
         # Initial state before processing: no images
         app.select_tab("Image Preview")
@@ -1362,7 +1362,7 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
         item.result = result
 
         # Render preview: should start on page 1 of 3
-        app._current_image_page_idx = 0
+        app._image_preview.current_page_idx = 0
         app.select_tab("Image Preview")
 
         assert app._lbl_img_page.cget("text") == "Page 1 of 3"
@@ -1372,21 +1372,21 @@ def test_image_preview_pagination(tmp_path: Path) -> None:
 
         # Next page -> Page 2 of 3
         app._on_img_next()
-        assert app._current_image_page_idx == 1
+        assert app._image_preview.current_page_idx == 1
         assert app._lbl_img_page.cget("text") == "Page 2 of 3"
         assert app._btn_img_prev.cget("state") == "normal"
         assert app._btn_img_next.cget("state") == "normal"
 
         # Next page -> Page 3 of 3 (last page)
         app._on_img_next()
-        assert app._current_image_page_idx == 2
+        assert app._image_preview.current_page_idx == 2
         assert app._lbl_img_page.cget("text") == "Page 3 of 3"
         assert app._btn_img_prev.cget("state") == "normal"
         assert app._btn_img_next.cget("state") == "disabled"
 
         # Prev page -> Page 2 of 3
         app._on_img_prev()
-        assert app._current_image_page_idx == 1
+        assert app._image_preview.current_page_idx == 1
         assert app._lbl_img_page.cget("text") == "Page 2 of 3"
         assert app._btn_img_prev.cget("state") == "normal"
         assert app._btn_img_next.cget("state") == "normal"
@@ -1664,7 +1664,7 @@ def test_server_status_pill_and_button_rendering():
 
     try:
         # 1. OFFLINE
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE, message="Offline")
         )
         assert app._server_status_pill.cget("text") == "● OFFLINE"
@@ -1672,7 +1672,7 @@ def test_server_status_pill_and_button_rendering():
         assert str(app._btn_server_action.cget("state")) == "normal"
 
         # 2a. STARTING (External / None)
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.STARTING, ownership=ServerOwnership.NONE, message="Booting")
         )
         assert app._server_status_pill.cget("text") == "● STARTING"
@@ -1680,7 +1680,7 @@ def test_server_status_pill_and_button_rendering():
         assert str(app._btn_server_action.cget("state")) == "disabled"
 
         # 2b. STARTING (Managed) -> Cancel Launch
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.STARTING, ownership=ServerOwnership.MANAGED, message="Booting")
         )
         assert app._server_status_pill.cget("text") == "● STARTING"
@@ -1688,7 +1688,7 @@ def test_server_status_pill_and_button_rendering():
         assert str(app._btn_server_action.cget("state")) == "normal"
 
         # 3. READY (Managed)
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.MANAGED, message="Ready")
         )
         assert app._server_status_pill.cget("text") == "● READY (Managed)"
@@ -1696,7 +1696,7 @@ def test_server_status_pill_and_button_rendering():
         assert str(app._btn_server_action.cget("state")) == "normal"
 
         # 4. READY (External)
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.EXTERNAL, message="Ready")
         )
         assert app._server_status_pill.cget("text") == "● READY (Ext)"
@@ -1704,7 +1704,7 @@ def test_server_status_pill_and_button_rendering():
         assert str(app._btn_server_action.cget("state")) == "disabled"
 
         # 5. ERROR
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.ERROR, ownership=ServerOwnership.NONE, message="Failed")
         )
         assert app._server_status_pill.cget("text") == "● ERROR"
@@ -1745,19 +1745,19 @@ def test_server_action_button_click_dispatches_start_and_stop():
         # Case A: When offline, click triggers start()
         mock_sm.status = ServerStatus.OFFLINE
         mock_sm.ownership = ServerOwnership.NONE
-        app._on_server_action_clicked()
+        app._server_controller.on_server_action_clicked()
         wait_for_call_count(mock_sm.start, 1)
 
         # Case B: When ready and managed, click triggers stop()
         mock_sm.status = ServerStatus.READY
         mock_sm.ownership = ServerOwnership.MANAGED
-        app._on_server_action_clicked()
+        app._server_controller.on_server_action_clicked()
         wait_for_call_count(mock_sm.stop, 1)
 
         # Case C: When starting and managed, click also triggers stop() (Cancel Launch)
         mock_sm.status = ServerStatus.STARTING
         mock_sm.ownership = ServerOwnership.MANAGED
-        app._on_server_action_clicked()
+        app._server_controller.on_server_action_clicked()
         wait_for_call_count(mock_sm.stop, 2)
     finally:
         app._on_closing()
@@ -1868,7 +1868,7 @@ def test_settings_dialog_opening_and_runtime_sync():
 
         # 3. Settings update deferred during active processing (SEC-3.1)
         fake_cancel = threading.Event()
-        app._current_cancel_event = fake_cancel
+        app._worker_coordinator.current_cancel_event = fake_cancel
         in_flight_settings = Settings(
             backend="vllm",
             local_endpoint="http://127.0.0.1:8000/v1",
@@ -1876,13 +1876,13 @@ def test_settings_dialog_opening_and_runtime_sync():
         )
         app._on_settings_saved(in_flight_settings)
         # Should be queued in _pending_engine_settings, not immediately applied to client
-        assert app._pending_engine_settings == in_flight_settings
+        assert app._worker_coordinator.pending_engine_settings == in_flight_settings
         assert app.engine.client.endpoint == "http://127.0.0.1:11434/v1/chat/completions"
 
         # Simulating document completion and next document start
-        app._current_cancel_event = None
-        app._apply_pending_engine_settings()
-        assert app._pending_engine_settings is None
+        app._worker_coordinator.current_cancel_event = None
+        app._worker_coordinator.apply_pending_engine_settings()
+        assert app._worker_coordinator.pending_engine_settings is None
         assert app.engine.client.endpoint == "http://127.0.0.1:8000/v1/chat/completions"
         assert app.engine.settings.backend == "vllm"
     finally:
@@ -1905,7 +1905,7 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
     app.withdraw()
 
     # Prevent background thread execution during deterministic event testing
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     try:
         app.enqueue_file(p_queued)
@@ -1921,8 +1921,8 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
         id_cancelled = str(p_cancelled.resolve())
 
         # Transition items to their distinct statuses
-        app._handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=id_proc))
-        app._handle_worker_event(
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=id_proc))
+        app._worker_coordinator.handle_worker_event(
             WorkerEvent(
                 WorkerEventType.COMPLETED,
                 file_path=id_success,
@@ -1933,12 +1933,12 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
                 ),
             )
         )
-        app._handle_worker_event(WorkerEvent(WorkerEventType.FAILED, file_path=id_failed, error="Mock decode failure"))
-        app._handle_worker_event(WorkerEvent(WorkerEventType.CANCELLED, file_path=id_cancelled, error="User cancelled"))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.FAILED, file_path=id_failed, error="Mock decode failure"))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.CANCELLED, file_path=id_cancelled, error="User cancelled"))
 
         # Verify all lifecycle states
         bracket_literals = ("[✓]", "[>]", "[✗]", "[ ]", "[-]")
-        for item_id, item in app._queue_items.items():
+        for item_id, item in app._queue_manager.items.items():
             assert item.badge_label is not None and item.detail_label is not None and item.row_frame is not None
             badge_text = item.badge_label.cget("text")
             detail_text = item.detail_label.cget("text")
@@ -1967,19 +1967,19 @@ def test_batch2_lazy_tab_rendering_lifecycle(tmp_path):
     p.write_bytes(b"%PDF-1.4 mock")
     app = OCRApp(settings=Settings(), engine=MagicMock())
     app.withdraw()
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     try:
         app.enqueue_file(p)
         item_id = str(p.resolve())
-        item = app._queue_items[item_id]
-        app._select_queue_item(item_id)
+        item = app._queue_manager.items[item_id]
+        app._queue_manager.select_item(item_id)
 
         # Tabview defaults to "Raw Markdown"
         assert app._tabview.get() == "Raw Markdown"
 
         # Fire page progress
-        app._handle_worker_event(
+        app._worker_coordinator.handle_worker_event(
             WorkerEvent(
                 WorkerEventType.PAGE_PROGRESS,
                 file_path=item_id,
@@ -2031,13 +2031,13 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
 
     app = OCRApp(settings=Settings(), engine=MagicMock())
     app.withdraw()
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     try:
         app.enqueue_file(pdf_path)
         item_id = str(pdf_path.resolve())
-        item = app._queue_items[item_id]
-        app._select_queue_item(item_id)
+        item = app._queue_manager.items[item_id]
+        app._queue_manager.select_item(item_id)
 
         # Complete with 2 pages and NO base64 images
         res = OCRResult(
@@ -2048,7 +2048,7 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
                 PageResult(page_num=2, markdown="Page 2 text"),
             ],
         )
-        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
 
         # Switch to Image Preview tab
         app.select_tab("Image Preview")
@@ -2076,16 +2076,16 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
             status=JobStatus.SUCCESS,
             pages=[PageResult(page_num=1, markdown="PNG text")],
         )
-        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=png_id, result=png_res))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=png_id, result=png_res))
 
-        app._select_queue_item(png_id)
+        app._queue_manager.select_item(png_id)
         assert app._tabview.get() == "Image Preview"
         assert app._lbl_img_page.cget("text") == "Page 1 of 1"
         assert app._img_display_label.cget("image") is not None
 
         # Fallback when source file is deleted/moved
         png_path.unlink()
-        app._render_preview(app._queue_items[png_id], tab_name="Image Preview")
+        app._render_preview(app._queue_manager.items[png_id], tab_name="Image Preview")
         assert not app._img_display_label.cget("image")
         assert "Source file unavailable" in app._img_display_label.cget("text")
     finally:
@@ -2100,12 +2100,12 @@ def test_batch2_queue_item_file_size_caching(tmp_path):
 
     app = OCRApp(settings=Settings(), engine=MagicMock())
     app.withdraw()
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     try:
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
-        item = app._queue_items[item_id]
+        item = app._queue_manager.items[item_id]
 
         assert item.file_size_str is not None
         assert "2.0 KB" in item.file_size_str or "2 KB" in item.file_size_str
@@ -2113,15 +2113,15 @@ def test_batch2_queue_item_file_size_caching(tmp_path):
         # Mock stat() to raise if called again
         with patch.object(Path, "stat", side_effect=RuntimeError("stat() should not be called")):
             # 1. format meta
-            meta = app._format_queue_item_meta(item)
+            meta = app._queue_manager.format_item_meta(item)
             assert item.file_size_str in meta
 
             # 2. lifecycle events
             assert item.detail_label is not None
-            app._handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=item_id))
+            app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.STARTED, file_path=item_id))
             assert item.file_size_str in item.detail_label.cget("text")
 
-            app._handle_worker_event(
+            app._worker_coordinator.handle_worker_event(
                 WorkerEvent(
                     WorkerEventType.PAGE_PROGRESS,
                     file_path=item_id,
@@ -2137,7 +2137,7 @@ def test_batch2_queue_item_file_size_caching(tmp_path):
                 status=JobStatus.SUCCESS,
                 pages=[PageResult(page_num=1, markdown="Done", latency=0.1)],
             )
-            app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
+            app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=item_id, result=res))
             assert item.file_size_str in item.detail_label.cget("text")
     finally:
         app._on_closing()
@@ -2155,7 +2155,7 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
 
     app = OCRApp(settings=Settings(), engine=MagicMock())
     app.withdraw()
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     try:
         app.enqueue_file(p_a)
@@ -2164,12 +2164,12 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
         id_b = str(p_b.resolve())
 
         # Initially select item A
-        app._select_queue_item(id_a)
-        assert app._selected_item_id == id_a
+        app._queue_manager.select_item(id_a)
+        assert app._queue_manager.selected_item_id == id_a
 
         # Switch selection to item B
-        app._select_queue_item(id_b)
-        assert app._selected_item_id == id_b
+        app._queue_manager.select_item(id_b)
+        assert app._queue_manager.selected_item_id == id_b
 
         # Worker emits PAGE_PROGRESS and COMPLETED for item A
         res_a = OCRResult(
@@ -2177,7 +2177,7 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
             status=JobStatus.SUCCESS,
             pages=[PageResult(page_num=1, markdown="# Content from Item A", latency=0.2)],
         )
-        app._handle_worker_event(
+        app._worker_coordinator.handle_worker_event(
             WorkerEvent(
                 WorkerEventType.PAGE_PROGRESS,
                 file_path=id_a,
@@ -2186,10 +2186,10 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
                 page_result=PageResult(page_num=1, markdown="# Content from Item A"),
             )
         )
-        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_a, result=res_a))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_a, result=res_a))
 
         # Item B must still be selected
-        assert app._selected_item_id == id_b
+        assert app._queue_manager.selected_item_id == id_b
 
         # Preview must NOT contain item A's content
         raw_text = app._tb_markdown.get("1.0", "end")
@@ -2201,7 +2201,7 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
             status=JobStatus.SUCCESS,
             pages=[PageResult(page_num=1, markdown="# Content from Item B", latency=0.3)],
         )
-        app._handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_b, result=res_b))
+        app._worker_coordinator.handle_worker_event(WorkerEvent(WorkerEventType.COMPLETED, file_path=id_b, result=res_b))
 
         # Active tab ("Raw Markdown") should now have Item B's content
         assert "Content from Item B" in app._tb_markdown.get("1.0", "end")
@@ -2228,14 +2228,14 @@ def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
     try:
         # 1. Queue Poller Backoff
         # Drain result queue
-        while not app._result_queue.empty():
-            app._result_queue.get_nowait()
+        while not app._worker_coordinator.result_queue.empty():
+            app._worker_coordinator.result_queue.get_nowait()
 
         scheduled_intervals = []
         orig_after = app.after
 
         def mock_after(ms, func, *args):
-            if func == app._process_result_queue:
+            if func == app._worker_coordinator.process_result_queue:
                 scheduled_intervals.append(ms)
                 return "mock_timer_id"
             return orig_after(ms, func, *args)
@@ -2244,24 +2244,24 @@ def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
 
         # Case A: Idle (empty task queue, not processing) -> 250ms
         scheduled_intervals.clear()
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert scheduled_intervals[-1] == 250
 
         # Case B: Pending items in task queue -> 50ms
-        app._task_queue.put(Path("test.pdf"))
+        app._worker_coordinator.task_queue.put(Path("test.pdf"))
         scheduled_intervals.clear()
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert scheduled_intervals[-1] == 50
 
         # Drain task queue
-        app._task_queue.get_nowait()
+        app._worker_coordinator.task_queue.get_nowait()
 
         # Case C: Worker actively processing (cancel event set) -> 50ms
-        app._current_cancel_event = threading.Event()
+        app._worker_coordinator.current_cancel_event = threading.Event()
         scheduled_intervals.clear()
-        app._process_result_queue()
+        app._worker_coordinator.process_result_queue()
         assert scheduled_intervals[-1] == 50
-        app._current_cancel_event = None
+        app._worker_coordinator.current_cancel_event = None
 
         # 2. Server status update caching (no redundant widget reconfiguration)
         from core.server_manager import ServerStatusInfo, ServerStatus, ServerOwnership
@@ -2277,17 +2277,17 @@ def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
         # First call: applies and configures widget
         pill_config_calls.clear()
         info1 = ServerStatusInfo(status=ServerStatus.READY, ownership=ServerOwnership.MANAGED, message="Running")
-        app._apply_server_status_update(info1)
+        app._server_controller.apply_server_status_update(info1)
         assert len(pill_config_calls) == 1
 
         # Second call with identical status & ownership: skips reconfiguration
         pill_config_calls.clear()
-        app._apply_server_status_update(info1)
+        app._server_controller.apply_server_status_update(info1)
         assert len(pill_config_calls) == 0
 
         # Third call with changed status: applies reconfiguration
         info2 = ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.MANAGED, message="Offline")
-        app._apply_server_status_update(info2)
+        app._server_controller.apply_server_status_update(info2)
         assert len(pill_config_calls) == 1
     finally:
         app._on_closing()
@@ -2320,22 +2320,22 @@ def test_batch3_batch_folder_drop_and_validation(tmp_path: Path) -> None:
         app.wait_for_ingest(timeout=5.0)
 
         # All 30 valid files must be in queue
-        assert len(app._queue_items) == 30
+        assert len(app._queue_manager.items) == 30
         for p in valid_files:
-            assert str(p.resolve()) in app._queue_items
+            assert str(p.resolve()) in app._queue_manager.items
 
         # Unsupported files must not be in queue
-        assert str((drop_dir / "ignore_0.txt").resolve()) not in app._queue_items
+        assert str((drop_dir / "ignore_0.txt").resolve()) not in app._queue_manager.items
 
         # Verify UI header and footer were updated
         assert app._queue_title.cget("text") == "Queue (30)"
         assert "30" in app._lbl_total_val.cget("text")
-        assert app._total_count == 30
+        assert app._queue_manager.total_count == 30
 
         # Re-dropping same folder must not create duplicates
         app.enqueue_file(drop_dir)
         app.wait_for_ingest(timeout=5.0)
-        assert len(app._queue_items) == 30
+        assert len(app._queue_manager.items) == 30
     finally:
         app._on_closing()
 
@@ -2360,9 +2360,9 @@ def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
                 status=QueueItemStatus.SUCCESS,
                 result=OCRResult(file_path=str(p.resolve()), status=JobStatus.SUCCESS),
             )
-            app._queue_items[item.item_id] = item
+            app._queue_manager.items[item.item_id] = item
 
-        app._update_queue_header()
+        app._queue_manager.update_header()
 
         # Verify cleanup prompt is now displayed
         assert app._queue_cleanup_hint.winfo_manager() == "grid"
@@ -2370,10 +2370,10 @@ def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
         assert "Clear Finished" in app._queue_cleanup_hint.cget("text")
 
         # Clear finished items
-        app._on_clear_finished()
+        app._queue_manager.clear_finished()
 
         # Verify queue is emptied and hint is hidden
-        assert len(app._queue_items) == 0
+        assert len(app._queue_manager.items) == 0
         assert app._queue_cleanup_hint.winfo_manager() == ""
     finally:
         app._on_closing()
@@ -2398,8 +2398,8 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
         p2.write_bytes(b"%PDF dummy 2")
         res2 = OCRResult(file_path=str(p2.resolve()), status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="Item 2")])
 
-        app._queue_items[str(p1.resolve())] = QueueItem(item_id=str(p1.resolve()), file_path=p1, status=QueueItemStatus.SUCCESS, result=res1)
-        app._queue_items[str(p2.resolve())] = QueueItem(item_id=str(p2.resolve()), file_path=p2, status=QueueItemStatus.SUCCESS, result=res2)
+        app._queue_manager.items[str(p1.resolve())] = QueueItem(item_id=str(p1.resolve()), file_path=p1, status=QueueItemStatus.SUCCESS, result=res1)
+        app._queue_manager.items[str(p2.resolve())] = QueueItem(item_id=str(p2.resolve()), file_path=p2, status=QueueItemStatus.SUCCESS, result=res2)
         app._update_action_buttons()
 
         export_target = tmp_path / "export_out"
@@ -2416,7 +2416,7 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
         with patch("gui.app.filedialog.askdirectory", return_value=str(export_target)), \
              patch("gui.app.save_artifacts", side_effect=slow_save_artifacts):
 
-            thread1 = app._on_export_all()
+            thread1 = app._export_controller.on_export_all()
             assert thread1 is not None
             assert thread1.is_alive()
             assert thread1.daemon is True
@@ -2425,12 +2425,12 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
             assert export_start_event.wait(timeout=10.0) is True
 
             # Verify exporting lock and UI state
-            assert app._is_exporting is True
+            assert app._export_controller.is_exporting is True
             assert app._btn_export_all.cget("text") == "Exporting..."
             assert app._btn_export_all.cget("state") == "disabled"
 
             # Attempt a concurrent second Export All call -> must be rejected
-            thread2 = app._on_export_all()
+            thread2 = app._export_controller.on_export_all()
             assert thread2 is None
 
             # Let export finish
@@ -2457,7 +2457,7 @@ def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> No
             f"os.cpu_count()={os.cpu_count()}\n"
             f"Thread stacks:\n{_format_thread_stacks()}"
         )
-        assert app._is_exporting is False
+        assert app._export_controller.is_exporting is False
         assert "Exported 2 documents" in app._footer_status.cget("text")
     finally:
         app._on_closing()
@@ -2874,14 +2874,14 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
         deadline = time.time() + 10.0
         while time.time() < deadline:
             app.update()
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             if doc_processed_event.is_set() and app._status_label.cget("text").startswith("Done:"):
                 break
             time.sleep(0.02)
 
-        worker_alive = app._worker_thread.is_alive() if app._worker_thread else False
-        is_put_original = getattr(app._task_queue.put, "__self__", None) is app._task_queue
-        put_desc = "original bound method" if is_put_original else f"replaced ({type(app._task_queue.put).__name__}: {app._task_queue.put})"
+        worker_alive = app._worker_coordinator.worker_thread.is_alive() if app._worker_coordinator.worker_thread else False
+        is_put_original = getattr(app._worker_coordinator.task_queue.put, "__self__", None) is app._worker_coordinator.task_queue
+        put_desc = "original bound method" if is_put_original else f"replaced ({type(app._worker_coordinator.task_queue.put).__name__}: {app._worker_coordinator.task_queue.put})"
 
         worker_frames = sys._current_frames()
         worker_stack = "None"
@@ -2890,15 +2890,15 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
             if th.name == "OCRWorkerThread":
                 worker_id = th.ident
                 break
-        if worker_id is None and app._worker_thread:
-            worker_id = app._worker_thread.ident
+        if worker_id is None and app._worker_coordinator.worker_thread:
+            worker_id = app._worker_coordinator.worker_thread.ident
         if worker_id is not None and worker_id in worker_frames:
             worker_stack = "".join(traceback.format_stack(worker_frames[worker_id])[-12:])
 
         assert doc_processed_event.is_set(), (
             f"Worker did not call process_document within 10s: "
             f"worker_alive={worker_alive}, "
-            f"task_queue_qsize={app._task_queue.qsize()}, "
+            f"task_queue_qsize={app._worker_coordinator.task_queue.qsize()}, "
             f"task_queue_put={put_desc}, "
             f"event_state={doc_processed_event.is_set()},\n"
             f"worker_stack=\n{worker_stack}"
@@ -2993,7 +2993,7 @@ def test_cli_gui_parity_job_config_and_page_count(tmp_path, monkeypatch):
             gui_app.enqueue_file(test_file)
             deadline = time.time() + 2.0
             while time.time() < deadline:
-                gui_app._process_result_queue()
+                gui_app._worker_coordinator.process_result_queue()
                 if len(captured_gui_result) > 0 and gui_app._status_label.cget("text").startswith("Done:"):
                     break
                 time.sleep(0.05)
@@ -3071,7 +3071,7 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         app._on_settings_saved(updated_settings)
 
         # Staged mechanism: _pending_engine_settings must hold updated_settings
-        assert app._pending_engine_settings == updated_settings
+        assert app._worker_coordinator.pending_engine_settings == updated_settings
 
         # In-flight doc1's JobConfig must NOT have changed
         assert doc1_cfg.dpi == 100
@@ -3084,7 +3084,7 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         # Wait for doc2 to be processed
         deadline = time.time() + 2.0
         while time.time() < deadline:
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             if len(captured_configs) >= 2:
                 break
             time.sleep(0.05)
@@ -3100,7 +3100,7 @@ def test_settings_change_mid_document_deferred_to_next_boundary(tmp_path):
         assert doc2_cfg.max_image_dimension == 2048
 
         # Staged pending settings was cleared at the document boundary
-        assert app._pending_engine_settings is None
+        assert app._worker_coordinator.pending_engine_settings is None
     finally:
         doc1_release.set()
         app._on_closing()
@@ -3152,7 +3152,7 @@ def test_processed_dpi_recording_and_image_caption(tmp_path):
             file_path=img_file,
             status=QueueItemStatus.QUEUED,
         )
-        app._queue_items[str(img_file)] = item
+        app._queue_manager.items[str(img_file)] = item
 
         # Post STARTED event with processed_dpi=300
         event = WorkerEvent(
@@ -3160,7 +3160,7 @@ def test_processed_dpi_recording_and_image_caption(tmp_path):
             file_path=str(img_file),
             processed_dpi=300,
         )
-        app._handle_worker_event(event)
+        app._worker_coordinator.handle_worker_event(event)
         assert item.processed_dpi == 300
 
         # Complete the item
@@ -3195,12 +3195,12 @@ def test_processed_dpi_staleness_warning_hint(tmp_path):
             result=OCRResult(file_path=doc_path, status=JobStatus.SUCCESS, pages=[PageResult(1, "text")]),
         )
         # settings.dpi is 200, item.processed_dpi is 100 -> warning hint should appear
-        meta = app._format_queue_item_meta(item)
+        meta = app._queue_manager.format_item_meta(item)
         assert "⚠ processed @100 DPI" in meta
 
         # When settings.dpi matches item.processed_dpi -> no warning hint
         app.settings = Settings(dpi=100)
-        meta_same = app._format_queue_item_meta(item)
+        meta_same = app._queue_manager.format_item_meta(item)
         assert "⚠" not in meta_same
     finally:
         app._on_closing()
@@ -3233,22 +3233,22 @@ def test_indeterminate_progress_mode_lifecycle(tmp_path):
     app.withdraw()
     try:
         item = QueueItem(item_id="item-1", file_path=doc_file)
-        app._queue_items[str(doc_file)] = item
+        app._queue_manager.items[str(doc_file)] = item
 
         # 1. STARTED event -> indeterminate mode
-        app._handle_worker_event(WorkerEvent(event_type=WorkerEventType.STARTED, file_path=str(doc_file)))
-        assert app._progress_indeterminate is True
+        app._worker_coordinator.handle_worker_event(WorkerEvent(event_type=WorkerEventType.STARTED, file_path=str(doc_file)))
+        assert app._worker_coordinator.progress_indeterminate is True
         assert app._progress_bar.cget("mode") == "indeterminate"
 
         # 2. PAGE_PROGRESS event -> switches back to determinate mode
-        app._handle_worker_event(WorkerEvent(
+        app._worker_coordinator.handle_worker_event(WorkerEvent(
             event_type=WorkerEventType.PAGE_PROGRESS,
             file_path=str(doc_file),
             current_page=1,
             total_pages=2,
             page_result=PageResult(1, "text"),
         ))
-        assert app._progress_indeterminate is False
+        assert app._worker_coordinator.progress_indeterminate is False
         assert app._progress_bar.cget("mode") == "determinate"
     finally:
         app._on_closing()
@@ -3287,7 +3287,7 @@ def test_gui_wires_server_manager_lifecycle_to_engine():
         assert mock_sm.on_lifecycle_change == mock_engine.invalidate_backend_verification
         # When status leaves READY, engine verification is invalidated
         from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
-        app._apply_server_status_update(
+        app._server_controller.apply_server_status_update(
             ServerStatusInfo(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE, message="Offline")
         )
         assert mock_engine.invalidate_backend_verification.called
@@ -3314,10 +3314,10 @@ def test_server_stop_error_callback_updates_footer():
     app.withdraw()
 
     try:
-        app._on_server_action_clicked()
-        assert app._server_stop_thread is not None
-        app._server_stop_thread.join(timeout=3.0)
-        assert not app._server_stop_thread.is_alive()
+        app._server_controller.on_server_action_clicked()
+        assert app._server_controller.server_stop_thread is not None
+        app._server_controller.server_stop_thread.join(timeout=3.0)
+        assert not app._server_controller.server_stop_thread.is_alive()
 
         app._drain_ui_callbacks()
 
@@ -3346,10 +3346,10 @@ def test_server_start_error_callback_updates_footer():
     app.withdraw()
 
     try:
-        app._on_server_action_clicked()
-        assert app._server_start_thread is not None
-        app._server_start_thread.join(timeout=3.0)
-        assert not app._server_start_thread.is_alive()
+        app._server_controller.on_server_action_clicked()
+        assert app._server_controller.server_start_thread is not None
+        app._server_controller.server_start_thread.join(timeout=3.0)
+        assert not app._server_controller.server_start_thread.is_alive()
 
         app._drain_ui_callbacks()
 
@@ -3474,14 +3474,14 @@ def test_export_success_message_persists_through_worker_events(tmp_path: Path):
     try:
         f1 = tmp_path / "doc1.pdf"
         f1.write_bytes(b"data1")
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
         app.enqueue_file(f1)
 
         file_id = str(f1.resolve())
         res1 = OCRResult(file_path=file_id, status=JobStatus.SUCCESS, pages=[PageResult(page_num=1, markdown="# 1")])
-        app._queue_items[file_id].status = QueueItemStatus.SUCCESS
-        app._queue_items[file_id].result = res1
-        app._select_queue_item(file_id)
+        app._queue_manager.items[file_id].status = QueueItemStatus.SUCCESS
+        app._queue_manager.items[file_id].result = res1
+        app._queue_manager.select_item(file_id)
 
         out_dir = tmp_path / "export_persist_test"
         out_dir.mkdir()
@@ -3489,7 +3489,7 @@ def test_export_success_message_persists_through_worker_events(tmp_path: Path):
         # 1. Test Export All persistence
         with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
              patch("gui.app.save_artifacts", return_value=[out_dir / "doc1.md"]):
-            app._on_export_all()
+            app._export_controller.on_export_all()
             app.wait_for_export()
 
         assert app._btn_export_all.cget("text") == "Exported All!"
@@ -3499,7 +3499,7 @@ def test_export_success_message_persists_through_worker_events(tmp_path: Path):
             event_type=WorkerEventType.STARTED,
             file_path="another_doc.pdf",
         )
-        app._handle_worker_event(event)
+        app._worker_coordinator.handle_worker_event(event)
 
         # Assert text was NOT overwritten to "Export All"
         assert app._btn_export_all.cget("text") == "Exported All!"
@@ -3507,21 +3507,21 @@ def test_export_success_message_persists_through_worker_events(tmp_path: Path):
         # 2. Test Export Selected persistence
         with patch("gui.app.filedialog.askdirectory", return_value=str(out_dir)), \
              patch("gui.app.save_artifacts", return_value=[out_dir / "doc1.md"]):
-            app._on_export_selected()
+            app._export_controller.on_export_selected()
 
         assert app._btn_export_selected.cget("text") == "Exported!"
 
         # Simulate another worker event
-        app._handle_worker_event(event)
+        app._worker_coordinator.handle_worker_event(event)
 
         # Assert text was NOT overwritten to "Export Selected"
         assert app._btn_export_selected.cget("text") == "Exported!"
 
         # 3. Test reset helpers
-        app._reset_export_all_button()
+        app._export_controller.reset_export_all_button()
         assert app._btn_export_all.cget("text") == "Export All"
 
-        app._reset_export_selected_button()
+        app._export_controller.reset_export_selected_button()
         assert app._btn_export_selected.cget("text") == "Export Selected"
 
     finally:

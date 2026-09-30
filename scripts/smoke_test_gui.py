@@ -66,7 +66,7 @@ def main() -> None:
         print("[3/4] Processing worker queue on main thread...")
         start_time = time.time()
         while time.time() - start_time < 3.0:
-            app._process_result_queue()
+            app._worker_coordinator.process_result_queue()
             app.update()
             if mock_engine.process_document.call_count >= 2:
                 break

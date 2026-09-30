@@ -106,7 +106,7 @@ def main() -> None:
         app.geometry("1140x700+20+10")
 
         # Prevent background worker from consuming demo queue items
-        app._task_queue.put = lambda item, *args, **kwargs: None
+        app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
         # Allow initial empty window to paint and capture empty queue state
         app.update()
@@ -156,45 +156,45 @@ def main() -> None:
                 PageResult(page_num=3, markdown="## Auditor Certification", latency=0.5),
             ],
         )
-        item_success = app._queue_items[id_success]
+        item_success = app._queue_manager.items[id_success]
         item_success.status = QueueItemStatus.SUCCESS
         item_success.duration = 1.4
         item_success.result = res_success
         assert item_success.badge_label is not None and item_success.detail_label is not None
         item_success.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
-        item_success.detail_label.configure(text=app._format_queue_item_meta(item_success))
+        item_success.detail_label.configure(text=app._queue_manager.format_item_meta(item_success))
 
         # 2. Processing item
-        item_proc = app._queue_items[id_proc]
+        item_proc = app._queue_manager.items[id_proc]
         item_proc.status = QueueItemStatus.PROCESSING
         assert item_proc.badge_label is not None and item_proc.detail_label is not None
         item_proc.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
-        item_proc.detail_label.configure(text=app._format_queue_item_meta(item_proc))
+        item_proc.detail_label.configure(text=app._queue_manager.format_item_meta(item_proc))
 
         # 3. Failed item
-        item_failed = app._queue_items[id_failed]
+        item_failed = app._queue_manager.items[id_failed]
         item_failed.status = QueueItemStatus.FAILED
         item_failed.error = "Corrupted xref table in document header"
         assert item_failed.badge_label is not None and item_failed.detail_label is not None
         item_failed.badge_label.configure(text="●", text_color=COLOR_STATUS_FAILED)
-        item_failed.detail_label.configure(text=app._format_queue_item_meta(item_failed))
+        item_failed.detail_label.configure(text=app._queue_manager.format_item_meta(item_failed))
 
         # 4. Queued item
-        item_queued = app._queue_items[id_queued]
+        item_queued = app._queue_manager.items[id_queued]
         item_queued.status = QueueItemStatus.QUEUED
         assert item_queued.badge_label is not None and item_queued.detail_label is not None
         item_queued.badge_label.configure(text="●", text_color=COLOR_STATUS_QUEUED)
-        item_queued.detail_label.configure(text=app._format_queue_item_meta(item_queued))
+        item_queued.detail_label.configure(text=app._queue_manager.format_item_meta(item_queued))
 
         # Update queue counter header & footer
-        app._total_count = 4
-        app._success_count = 1
-        app._failed_count = 1
-        app._update_queue_header()
+        app._queue_manager.total_count = 4
+        app._worker_coordinator.success_count = 1
+        app._worker_coordinator.failed_count = 1
+        app._queue_manager.update_header()
         app._update_footer("Idle · Ready for documents")
 
         # Select the success item to display full preview, markdown, JSON, and enabled export buttons
-        app._select_queue_item(id_success)
+        app._queue_manager.select_item(id_success)
         app.select_tab("Text Preview")
 
         # Allow layout calculations and animations to stabilize
@@ -238,7 +238,7 @@ def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Pa
     mock_engine = MagicMock()
     app = OCRApp(settings=Settings(auto_start_server=False), engine=mock_engine)
     app.geometry("1140x700+20+10")
-    app._task_queue.put = lambda item, *args, **kwargs: None
+    app._worker_coordinator.task_queue.put = lambda item, *args, **kwargs: None
 
     app.enqueue_file(f_contract)
     id_contract = str(f_contract.resolve())
@@ -276,13 +276,13 @@ def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Pa
             PageResult(page_num=2, markdown=parts[1].strip(), latency=2.6),
         ],
     )
-    item = app._queue_items[id_contract]
+    item = app._queue_manager.items[id_contract]
     item.status = QueueItemStatus.SUCCESS
     item.duration = 5.2
     item.result = res
     assert item.badge_label is not None and item.detail_label is not None
     item.badge_label.configure(text="●", text_color=COLOR_STATUS_SUCCESS)
-    item.detail_label.configure(text=app._format_queue_item_meta(item))
+    item.detail_label.configure(text=app._queue_manager.format_item_meta(item))
 
     # Configure server status as READY (Managed)
     info = ServerStatusInfo(
@@ -291,17 +291,17 @@ def capture_live_backend_preview(temp_dir: Path, out_dir: Path, artifact_dir: Pa
         message="Server is operational and responsive",
         endpoint="http://127.0.0.1:8080/v1",
     )
-    app._apply_server_status_update(info)
+    app._server_controller.apply_server_status_update(info)
 
     # Update queue counter header & footer
-    app._total_count = 1
-    app._success_count = 1
-    app._failed_count = 0
-    app._update_queue_header()
+    app._queue_manager.total_count = 1
+    app._worker_coordinator.success_count = 1
+    app._worker_coordinator.failed_count = 0
+    app._queue_manager.update_header()
     app._update_footer("Done: sample_contract.pdf (SUCCESS)")
 
     # Select the contract item and activate Raw Markdown tab
-    app._select_queue_item(id_contract)
+    app._queue_manager.select_item(id_contract)
     app.select_tab("Raw Markdown")
 
     # Allow layout to stabilize

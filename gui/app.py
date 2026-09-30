@@ -183,10 +183,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self.server_manager.on_lifecycle_change = self.engine.invalidate_backend_verification
         self._settings_window: Optional[SettingsWindow] = None
         self._server_controller: Optional[ServerUIController] = None
-        self._legacy_server_poller_thread: Optional[threading.Thread] = None
-        self._legacy_server_stop_thread: Optional[threading.Thread] = None
-        self._legacy_server_start_thread: Optional[threading.Thread] = None
-        self._legacy_last_applied_server_status: Optional[Tuple[ServerStatus, ServerOwnership]] = None
         self._highlighter = MarkdownHighlighter()
 
         # Window appearance and geometry
@@ -202,21 +198,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._result_queue_backing: queue.Queue[WorkerEvent] = queue.Queue()
         self._shutdown_event = threading.Event()
         self._is_shutting_down = False
-        self._poll_id_legacy: Optional[str] = None
 
         # State tracking
         self._queue_manager: Optional[QueueManager] = None
         self._worker_coordinator: Optional[WorkerCoordinator] = None
-        self._worker_thread_legacy: Optional[threading.Thread] = None
-        self._current_cancel_event_legacy: Optional[threading.Event] = None
-        self._pending_engine_settings_legacy: Optional[Settings] = None
-        self._success_count_legacy: int = 0
-        self._failed_count_legacy: int = 0
-        self._progress_indeterminate_legacy: bool = False
         self._image_preview: Optional[ImagePreviewController] = None
-        self._legacy_current_image_page_idx: int = 0
-        self._legacy_current_ctk_image: Optional[ctk.CTkImage] = None
-        self._is_exporting_legacy: bool = False
         self._export_controller: Optional[ExportController] = None
         self._runtime_download_thread: Optional[threading.Thread] = None
         self._ui_callback_queue: queue.Queue[Tuple[Any, tuple, dict]] = queue.Queue()
@@ -230,7 +216,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             empty_queue_label=self._empty_queue_label,
             queue_title=self._queue_title,
             queue_cleanup_hint=self._queue_cleanup_hint,
-            task_queue=self._task_queue,
+            task_queue=self._task_queue_backing,
             safe_after=self._safe_after,
             after=self.after,
             update_footer=self._update_footer,
@@ -250,9 +236,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if self._server_controller is not None:
             self._server_controller.auto_start_if_needed()
             self._server_controller.start_poller()
-        else:
-            self._start_server_poller()
-
         # Protocol handlers
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -274,362 +257,22 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             update_footer=self._update_footer,
             render_preview=self._render_preview,
             update_action_buttons=self._update_action_buttons,
-            format_queue_item_meta=self._format_queue_item_meta,
+            format_queue_item_meta=self._queue_manager.format_item_meta,
             progress_bar=self._progress_bar,
             lbl_page_counter=self._lbl_page_counter,
             lbl_progress_info=self._lbl_progress_info,
             btn_cancel=self._btn_cancel,
-            poll_callback=self._process_result_queue,
         )
-        if self._current_cancel_event_legacy is not None:
-            self._worker_coordinator.current_cancel_event = self._current_cancel_event_legacy
-        if self._pending_engine_settings_legacy is not None:
-            self._worker_coordinator.pending_engine_settings = self._pending_engine_settings_legacy
 
         # Start background worker thread and result queue processor
         self._worker_coordinator.start()
 
-    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
-    @property
-    def _current_image_page_idx(self) -> int:
-        if self._image_preview is not None:
-            return self._image_preview.current_page_idx
-        return self._legacy_current_image_page_idx
-
-    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
-    @_current_image_page_idx.setter
-    def _current_image_page_idx(self, value: int) -> None:
-        self._legacy_current_image_page_idx = value
-        if self._image_preview is not None:
-            self._image_preview.current_page_idx = value
-
-    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
-    @property
-    def _current_ctk_image(self) -> Optional[ctk.CTkImage]:
-        if self._image_preview is not None:
-            return self._image_preview.current_ctk_image
-        return self._legacy_current_ctk_image
-
-    # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
-    @_current_ctk_image.setter
-    def _current_ctk_image(self, value: Optional[ctk.CTkImage]) -> None:
-        self._legacy_current_ctk_image = value
-        if self._image_preview is not None:
-            self._image_preview.current_ctk_image = value
-
     def _on_selection_changed(self, item: Optional[QueueItem], selection_changed: bool) -> None:
         """Handle selection change notifications from QueueManager."""
         if item is not None:
-            if selection_changed:
-                self._current_image_page_idx = 0
+            if selection_changed and self._image_preview is not None:
+                self._image_preview.current_page_idx = 0
             self._render_preview(item)
-
-    # ponytail: remove in Phase 5
-    @property
-    def _queue_items(self) -> Dict[str, QueueItem]:
-        return self._queue_manager.items
-
-    # ponytail: remove in Phase 5
-    @property
-    def _selected_item_id(self) -> Optional[str]:
-        return self._queue_manager.selected_item_id
-
-    # ponytail: remove in Phase 5
-    @_selected_item_id.setter
-    def _selected_item_id(self, value: Optional[str]) -> None:
-        self._queue_manager.selected_item_id = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _total_count(self) -> int:
-        return self._queue_manager.total_count
-
-    # ponytail: remove in Phase 5
-    @_total_count.setter
-    def _total_count(self, value: int) -> None:
-        self._queue_manager.total_count = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _is_exporting(self) -> bool:
-        if self._export_controller is not None:
-            return self._export_controller.is_exporting
-        return self._is_exporting_legacy
-
-    # ponytail: remove in Phase 5
-    @_is_exporting.setter
-    def _is_exporting(self, value: bool) -> None:
-        self._is_exporting_legacy = value
-        if self._export_controller is not None:
-            self._export_controller._is_exporting = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _export_thread(self) -> Optional[threading.Thread]:
-        if self._export_controller is not None:
-            return self._export_controller.export_thread
-        return None
-
-    # ponytail: remove in Phase 5
-    @_export_thread.setter
-    def _export_thread(self, value: Optional[threading.Thread]) -> None:
-        if self._export_controller is not None:
-            self._export_controller._export_thread = value
-
-    # ponytail: remove in Phase 5
-    def _on_export_selected(self) -> None:
-        if self._export_controller is not None:
-            self._export_controller.on_export_selected()
-
-    # ponytail: remove in Phase 5
-    def _on_export_all(self, sync: bool = False) -> Optional[threading.Thread]:
-        if self._export_controller is not None:
-            return self._export_controller.on_export_all(sync=sync)
-        return None
-
-    # ponytail: remove in Phase 5
-    def _reset_export_selected_button(self) -> None:
-        if self._export_controller is not None:
-            self._export_controller.reset_export_selected_button()
-
-    # ponytail: remove in Phase 5
-    def _reset_export_all_button(self) -> None:
-        if self._export_controller is not None:
-            self._export_controller.reset_export_all_button()
-
-    # ponytail: remove in Phase 5
-    def _get_selected_export_format(self) -> OutputFormat:
-        if self._export_controller is not None:
-            return self._export_controller.get_selected_export_format()
-        return OutputFormat.BOTH
-
-    # ponytail: remove in Phase 5
-    @property
-    def _last_applied_server_status(self) -> Optional[Tuple[ServerStatus, ServerOwnership]]:
-        if getattr(self, "_server_controller", None) is not None:
-            return self._server_controller.last_applied_server_status
-        return self._legacy_last_applied_server_status
-
-    # ponytail: remove in Phase 5
-    @_last_applied_server_status.setter
-    def _last_applied_server_status(self, value: Optional[Tuple[ServerStatus, ServerOwnership]]) -> None:
-        self._legacy_last_applied_server_status = value
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.last_applied_server_status = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _server_poller_thread(self) -> Optional[threading.Thread]:
-        if getattr(self, "_server_controller", None) is not None:
-            return self._server_controller.server_poller_thread
-        return self._legacy_server_poller_thread
-
-    # ponytail: remove in Phase 5
-    @_server_poller_thread.setter
-    def _server_poller_thread(self, value: Optional[threading.Thread]) -> None:
-        self._legacy_server_poller_thread = value
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.server_poller_thread = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _server_start_thread(self) -> Optional[threading.Thread]:
-        if getattr(self, "_server_controller", None) is not None:
-            return self._server_controller.server_start_thread
-        return self._legacy_server_start_thread
-
-    # ponytail: remove in Phase 5
-    @_server_start_thread.setter
-    def _server_start_thread(self, value: Optional[threading.Thread]) -> None:
-        self._legacy_server_start_thread = value
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.server_start_thread = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _server_stop_thread(self) -> Optional[threading.Thread]:
-        if getattr(self, "_server_controller", None) is not None:
-            return self._server_controller.server_stop_thread
-        return self._legacy_server_stop_thread
-
-    # ponytail: remove in Phase 5
-    @_server_stop_thread.setter
-    def _server_stop_thread(self, value: Optional[threading.Thread]) -> None:
-        self._legacy_server_stop_thread = value
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.server_stop_thread = value
-
-    # ponytail: remove in Phase 5
-    def _apply_server_status_update(self, info: ServerStatusInfo) -> None:
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.apply_server_status_update(info)
-
-    # ponytail: remove in Phase 5
-    def _on_server_action_clicked(self) -> None:
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.on_server_action_clicked()
-
-    # ponytail: remove in Phase 5
-    def _start_server_poller(self) -> None:
-        if getattr(self, "_server_controller", None) is not None:
-            self._server_controller.start_poller()
-
-    # ponytail: remove in Phase 5
-    @property
-    def _task_queue(self) -> queue.Queue[Optional[Path]]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.task_queue
-        return self._task_queue_backing
-
-    # ponytail: remove in Phase 5
-    @_task_queue.setter
-    def _task_queue(self, value: queue.Queue[Optional[Path]]) -> None:
-        self._task_queue_backing = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.task_queue = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _result_queue(self) -> queue.Queue[WorkerEvent]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.result_queue
-        return self._result_queue_backing
-
-    # ponytail: remove in Phase 5
-    @_result_queue.setter
-    def _result_queue(self, value: queue.Queue[WorkerEvent]) -> None:
-        self._result_queue_backing = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.result_queue = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _worker_thread(self) -> Optional[threading.Thread]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.worker_thread
-        return self._worker_thread_legacy
-
-    # ponytail: remove in Phase 5
-    @_worker_thread.setter
-    def _worker_thread(self, value: Optional[threading.Thread]) -> None:
-        self._worker_thread_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.worker_thread = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _poll_id(self) -> Optional[str]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.poll_id
-        return self._poll_id_legacy
-
-    # ponytail: remove in Phase 5
-    @_poll_id.setter
-    def _poll_id(self, value: Optional[str]) -> None:
-        self._poll_id_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.poll_id = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _current_cancel_event(self) -> Optional[threading.Event]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.current_cancel_event
-        return self._current_cancel_event_legacy
-
-    # ponytail: remove in Phase 5
-    @_current_cancel_event.setter
-    def _current_cancel_event(self, value: Optional[threading.Event]) -> None:
-        self._current_cancel_event_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.current_cancel_event = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _pending_engine_settings(self) -> Optional[Settings]:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.pending_engine_settings
-        return self._pending_engine_settings_legacy
-
-    # ponytail: remove in Phase 5
-    @_pending_engine_settings.setter
-    def _pending_engine_settings(self, value: Optional[Settings]) -> None:
-        self._pending_engine_settings_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.pending_engine_settings = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _success_count(self) -> int:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.success_count
-        return self._success_count_legacy
-
-    # ponytail: remove in Phase 5
-    @_success_count.setter
-    def _success_count(self, value: int) -> None:
-        self._success_count_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.success_count = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _failed_count(self) -> int:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.failed_count
-        return self._failed_count_legacy
-
-    # ponytail: remove in Phase 5
-    @_failed_count.setter
-    def _failed_count(self, value: int) -> None:
-        self._failed_count_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.failed_count = value
-
-    # ponytail: remove in Phase 5
-    @property
-    def _progress_indeterminate(self) -> bool:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            return self._worker_coordinator.progress_indeterminate
-        return self._progress_indeterminate_legacy
-
-    # ponytail: remove in Phase 5
-    @_progress_indeterminate.setter
-    def _progress_indeterminate(self, value: bool) -> None:
-        self._progress_indeterminate_legacy = value
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.progress_indeterminate = value
-
-    # ponytail: remove in Phase 5
-    def _handle_worker_event(self, event: WorkerEvent) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.handle_worker_event(event)
-
-    # ponytail: remove in Phase 5
-    def _process_result_queue(self) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.process_result_queue()
-
-    # ponytail: remove in Phase 5
-    def _apply_pending_engine_settings(self) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.apply_pending_engine_settings()
-
-    # ponytail: remove in Phase 5
-    def _on_cancel_current(self) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.cancel_current()
-
-    # ponytail: remove in Phase 5
-    def _stop_indeterminate_progress(self) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.stop_indeterminate_progress()
-
-    # ponytail: remove in Phase 5
-    def _worker_loop(self) -> None:
-        if getattr(self, "_worker_coordinator", None) is not None:
-            self._worker_coordinator.worker_loop()
-
 
     # ==========================================================================
     # UI Layout Construction
@@ -724,7 +367,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text_color=COLOR_TEXT_PRIMARY,
             border_width=1,
             border_color=COLOR_SURFACE_BORDER,
-            command=self._on_server_action_clicked,
+            command=lambda: self._server_controller.on_server_action_clicked(),
         )
         self._btn_server_action.pack(side="left", padx=(0, 8))
 
@@ -757,8 +400,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             btn_server_action=self._btn_server_action,
             format_error=_friendly_err,
         )
-        if self._legacy_last_applied_server_status is not None:
-            self._server_controller.last_applied_server_status = self._legacy_last_applied_server_status
 
     def _build_body(self) -> None:
         """Build the 2-column main body area."""
@@ -860,7 +501,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             fg_color="transparent",
             hover_color=COLOR_INTERACTIVE_HOVER,
             text_color=COLOR_TEXT_SUBTLE,
-            command=self._on_clear_finished,
+            command=lambda: self._queue_manager.clear_finished(),
         )
         self._clear_btn.grid(row=0, column=1, sticky="e")
 
@@ -1104,7 +745,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             corner_radius=6,
             height=30,
             state="disabled",
-            command=self._on_cancel_current,
+            command=lambda: self._worker_coordinator.cancel_current(),
         )
         self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
 
@@ -1145,7 +786,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             corner_radius=6,
             height=30,
             state="disabled",
-            command=self._on_export_selected,
+            command=lambda: self._export_controller.on_export_selected(),
         )
         self._btn_export_selected.grid(row=0, column=3, sticky="e", padx=(0, 8))
 
@@ -1162,7 +803,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             corner_radius=6,
             height=30,
             state="disabled",
-            command=self._on_export_all,
+            command=lambda: self._export_controller.on_export_all(),
         )
         self._btn_export_all.grid(row=0, column=4, sticky="e", padx=0)
 
@@ -1300,18 +941,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Wait for any active background folder scan and pending UI insertion batches."""
         self._queue_manager.wait_for_ingest(timeout=timeout)
 
-    # ponytail: remove in Phase 5
-    def _format_queue_item_meta(self, item: QueueItem) -> str:
-        return self._queue_manager.format_item_meta(item)
-
-    # ponytail: remove in Phase 5
-    def _select_queue_item(self, item_id: str) -> None:
-        self._queue_manager.select_item(item_id)
-
     def _on_tab_changed(self) -> None:
         """Render the newly active tab on-demand for the currently selected item."""
-        if self._selected_item_id and self._selected_item_id in self._queue_items:
-            self._render_preview(self._queue_items[self._selected_item_id])
+        sel_id = self._queue_manager.selected_item_id
+        if sel_id and sel_id in self._queue_manager.items:
+            self._render_preview(self._queue_manager.items[sel_id])
 
     def select_tab(self, tab_name: str) -> None:
         """Select a preview tab programmatically and trigger on-demand rendering."""
@@ -1443,8 +1077,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _get_selected_queue_item(self) -> Optional[QueueItem]:
         """Return the currently selected QueueItem, if any."""
-        if self._selected_item_id and self._selected_item_id in self._queue_items:
-            return self._queue_items[self._selected_item_id]
+        if self._queue_manager is not None and self._queue_manager.selected_item_id:
+            return self._queue_manager.items.get(self._queue_manager.selected_item_id)
         return None
 
     def _load_image_page_on_demand(
@@ -1496,9 +1130,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _update_action_buttons(self) -> None:
         """Update state of Action Bar buttons based on selected and available items."""
+        selected_id = self._queue_manager.selected_item_id if self._queue_manager is not None else None
         selected_item = (
-            self._queue_items.get(self._selected_item_id)
-            if self._selected_item_id is not None
+            self._queue_manager.items.get(selected_id)
+            if selected_id is not None
             else None
         )
         has_selected = selected_item is not None
@@ -1511,18 +1146,19 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         completed_count = sum(
             1
-            for it in self._queue_items.values()
+            for it in (self._queue_manager.items.values() if self._queue_manager else [])
             if it.status == QueueItemStatus.SUCCESS and it.result is not None
         )
 
         # Cancel button state: active only when a job is actively processing and cancel not yet requested
         is_processing = any(
             it.status == QueueItemStatus.PROCESSING
-            for it in self._queue_items.values()
+            for it in (self._queue_manager.items.values() if self._queue_manager else [])
         )
-        if is_processing and self._current_cancel_event and not self._current_cancel_event.is_set():
+        cancel_ev = self._worker_coordinator.current_cancel_event if self._worker_coordinator is not None else None
+        if is_processing and cancel_ev and not cancel_ev.is_set():
             self._btn_cancel.configure(text="Cancel (after current page)", state="normal")
-        elif is_processing and self._current_cancel_event and self._current_cancel_event.is_set():
+        elif is_processing and cancel_ev and cancel_ev.is_set():
             self._btn_cancel.configure(text="Cancelling...", state="disabled")
         else:
             self._btn_cancel.configure(text="Cancel (after current page)", state="disabled")
@@ -1535,18 +1171,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 completed_count=completed_count,
             )
 
-    # ponytail: remove in Phase 5
-    def _update_queue_header(self) -> None:
-        """Update the queue header label with active total count and cleanup hint."""
-        self._queue_manager.update_header()
-
     def _update_footer(self, message: Optional[str] = None) -> None:
         """Update the footer status message and counters."""
         if message:
             self._footer_status.configure(text=message)
-        self._lbl_total_val.configure(text=str(self._total_count))
-        self._lbl_success_val.configure(text=str(self._success_count))
-        self._lbl_failed_val.configure(text=str(self._failed_count))
+        total_cnt = self._queue_manager.total_count if self._queue_manager is not None else 0
+        success_cnt = self._worker_coordinator.success_count if self._worker_coordinator is not None else 0
+        failed_cnt = self._worker_coordinator.failed_count if self._worker_coordinator is not None else 0
+        self._lbl_total_val.configure(text=str(total_cnt))
+        self._lbl_success_val.configure(text=str(success_cnt))
+        self._lbl_failed_val.configure(text=str(failed_cnt))
 
     # ==========================================================================
     # Action Bar Handlers
@@ -1554,11 +1188,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
     def _on_copy_clipboard(self) -> None:
         """Copy active markdown text of selected item to Windows clipboard."""
-        if not self._selected_item_id or self._selected_item_id not in self._queue_items:
-            return
-
-        item = self._queue_items[self._selected_item_id]
-        if not item.result:
+        item = self._get_selected_queue_item()
+        if not item or not item.result:
             return
 
         markdown_text = item.result.markdown
@@ -1573,14 +1204,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Wait for any active background export thread to complete and drain main loop callbacks."""
         if self._export_controller is not None:
             self._export_controller.wait_for_export(timeout=timeout)
-        else:
-            if self._export_thread and self._export_thread.is_alive():
-                self._export_thread.join(timeout=timeout)
-            self._drain_ui_callbacks()
-            try:
-                self.update()
-            except Exception:
-                pass
 
     def _on_queue_emptied(self) -> None:
         """Reset preview and status displays when all finished items are cleared and queue is empty."""
@@ -1601,11 +1224,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._lbl_progress_info.configure(text="")
         if self._empty_queue_label.winfo_manager() != "pack":
             self._empty_queue_label.pack(expand=True, pady=24)
-
-    # ponytail: remove in Phase 5
-    def _on_clear_finished(self) -> None:
-        """Remove completed and failed items from the queue, keeping pending/active ones."""
-        self._queue_manager.clear_finished()
 
     def _on_browse_files(self) -> None:
         """Open native Windows file picker dialog and enqueue selected files."""
@@ -1656,16 +1274,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Restore default drop zone appearance when drag leaves."""
         self._drop_zone.configure(border_color=COLOR_SURFACE_BORDER, fg_color=COLOR_SURFACE_1)
         return getattr(event, "action", None)
-
-    # ponytail: remove in Phase 5
-    def _on_queue_row_enter(self, event: Any = None, item_id: str = "") -> None:
-        """Lighten row background on mouse enter, unless already selected."""
-        self._queue_manager._on_row_enter(event, item_id)
-
-    # ponytail: remove in Phase 5
-    def _on_queue_row_leave(self, event: Any = None, item_id: str = "") -> None:
-        """Restore row background on mouse leave, unless already selected."""
-        self._queue_manager._on_row_leave(event, item_id)
 
     # ==========================================================================
     # Server Lifecycle & Preferences Management
@@ -1723,17 +1331,12 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Queue settings for safe inter-document update
         if getattr(self, "_worker_coordinator", None) is not None:
             self._worker_coordinator.queue_pending_settings(new_settings)
-        else:
-            self._pending_engine_settings = new_settings
-            if hasattr(self.engine, "invalidate_backend_verification"):
-                self.engine.invalidate_backend_verification()
-            if self._current_cancel_event is None:
-                self._apply_pending_engine_settings()
 
         # Refresh queue rows' metadata if DPI setting changed
-        for q_item in self._queue_items.values():
-            if q_item.detail_label and q_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED):
-                q_item.detail_label.configure(text=self._format_queue_item_meta(q_item))
+        if self._queue_manager is not None:
+            for q_item in self._queue_manager.items.values():
+                if q_item.detail_label and q_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED):
+                    q_item.detail_label.configure(text=self._queue_manager.format_item_meta(q_item))
 
         # Update header backend badge
         if not self.settings.is_loopback:
@@ -1756,7 +1359,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Immediate status poll to reflect any endpoint or server changes
         def _poll_now():
             info = self.server_manager.poll_status()
-            self._safe_after(0, self._apply_server_status_update, info)
+            self._safe_after(0, self._server_controller.apply_server_status_update, info)
 
         threading.Thread(target=_poll_now, daemon=True).start()
 
@@ -1776,32 +1379,10 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # 2. Worker shutdown via coordinator (cancels poll timer, drains tasks, sends sentinel, joins worker)
         if getattr(self, "_worker_coordinator", None) is not None:
             self._worker_coordinator.shutdown(timeout=1.0)
-        else:
-            if self._poll_id is not None:
-                try:
-                    self.after_cancel(self._poll_id)
-                except Exception:
-                    pass
-                self._poll_id = None
-
-            while not self._task_queue.empty():
-                try:
-                    self._task_queue.get_nowait()
-                    self._task_queue.task_done()
-                except (queue.Empty, ValueError):
-                    break
-
-            try:
-                self._task_queue.put_nowait(None)
-            except (queue.Full, ValueError):
-                pass
-
-            if self._worker_thread and self._worker_thread.is_alive():
-                self._worker_thread.join(timeout=1.0)
 
         # 4b. Join export thread if running
-        if hasattr(self, "_export_thread") and self._export_thread is not None and self._export_thread.is_alive():
-            self._export_thread.join(timeout=1.0)
+        if self._export_controller is not None and self._export_controller.export_thread is not None and self._export_controller.export_thread.is_alive():
+            self._export_controller.export_thread.join(timeout=1.0)
 
         # 4c. Join ingest threads if running
         if self._queue_manager is not None:
@@ -1816,16 +1397,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # 5. Join server poller and worker threads via ServerUIController
         if hasattr(self, "_server_controller") and self._server_controller is not None:
             self._server_controller.shutdown(timeout=1.0)
-        else:
-            if hasattr(self, "_server_poller_thread") and self._server_poller_thread is not None:
-                if self._server_poller_thread.is_alive():
-                    self._server_poller_thread.join(timeout=1.0)
-            if hasattr(self, "_server_stop_thread") and self._server_stop_thread is not None:
-                if self._server_stop_thread.is_alive():
-                    self._server_stop_thread.join(timeout=1.0)
-            if hasattr(self, "_server_start_thread") and self._server_start_thread is not None:
-                if self._server_start_thread.is_alive():
-                    self._server_start_thread.join(timeout=1.0)
 
         # 6. Stop managed server and close server manager
         try:

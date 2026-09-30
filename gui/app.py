@@ -75,6 +75,7 @@ from gui.preview_highlighter import MarkdownHighlighter
 from gui.image_preview import ImagePreviewController
 from gui.export_controller import ExportController
 from gui.server_controller import ServerUIController
+from gui.worker_coordinator import WorkerCoordinator, WorkerEvent, WorkerEventType
 from gui.queue_manager import (
     QueueItem,
     QueueItemStatus,
@@ -82,29 +83,6 @@ from gui.queue_manager import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class WorkerEventType(str, Enum):
-    """Event types posted from the background worker thread to the main UI thread."""
-    STARTED = "STARTED"
-    PAGE_PROGRESS = "PAGE_PROGRESS"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-    WORKER_CRASHED = "WORKER_CRASHED"
-
-
-@dataclass
-class WorkerEvent:
-    """Structured event emitted by the worker thread across the result queue."""
-    event_type: WorkerEventType
-    file_path: str
-    result: Optional[OCRResult] = None
-    error: Optional[str] = None
-    current_page: int = 0
-    total_pages: int = 0
-    page_result: Optional[PageResult] = None
-    processed_dpi: Optional[int] = None
 
 
 def _friendly_err(exc: Any) -> str:
@@ -220,22 +198,24 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.minsize(820, 520)
 
         # Thread synchronization queues and state
-        self._task_queue: queue.Queue[Optional[Path]] = queue.Queue()
-        self._result_queue: queue.Queue[WorkerEvent] = queue.Queue()
+        self._task_queue_backing: queue.Queue[Optional[Path]] = queue.Queue()
+        self._result_queue_backing: queue.Queue[WorkerEvent] = queue.Queue()
         self._shutdown_event = threading.Event()
         self._is_shutting_down = False
-        self._poll_id: Optional[str] = None
+        self._poll_id_legacy: Optional[str] = None
 
         # State tracking
         self._queue_manager: Optional[QueueManager] = None
-        self._success_count: int = 0
-        self._failed_count: int = 0
-        self._current_cancel_event: Optional[threading.Event] = None
-        self._pending_engine_settings: Optional[Settings] = None
+        self._worker_coordinator: Optional[WorkerCoordinator] = None
+        self._worker_thread_legacy: Optional[threading.Thread] = None
+        self._current_cancel_event_legacy: Optional[threading.Event] = None
+        self._pending_engine_settings_legacy: Optional[Settings] = None
+        self._success_count_legacy: int = 0
+        self._failed_count_legacy: int = 0
+        self._progress_indeterminate_legacy: bool = False
         self._image_preview: Optional[ImagePreviewController] = None
         self._legacy_current_image_page_idx: int = 0
         self._legacy_current_ctk_image: Optional[ctk.CTkImage] = None
-        self._progress_indeterminate: bool = False
         self._is_exporting_legacy: bool = False
         self._export_controller: Optional[ExportController] = None
         self._runtime_download_thread: Optional[threading.Thread] = None
@@ -276,16 +256,38 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Protocol handlers
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        # Background worker thread
-        self._worker_thread = threading.Thread(
-            target=self._worker_loop,
-            name="OCRWorkerThread",
-            daemon=True,
+        # Worker coordinator controller
+        self._worker_coordinator = WorkerCoordinator(
+            engine=lambda: self.engine,
+            settings=lambda: self.settings,
+            queue_manager=lambda: self._queue_manager,
+            task_queue=self._task_queue_backing,
+            result_queue=self._result_queue_backing,
+            export_controller=self._export_controller,
+            image_preview=self._image_preview,
+            safe_after=self._safe_after,
+            after=lambda *args, **kwargs: self.after(*args, **kwargs),
+            after_cancel=lambda *args, **kwargs: self.after_cancel(*args, **kwargs),
+            is_shutting_down=lambda: self._is_shutting_down,
+            shutdown_event=self._shutdown_event,
+            drain_ui_callbacks=self._drain_ui_callbacks,
+            update_footer=self._update_footer,
+            render_preview=self._render_preview,
+            update_action_buttons=self._update_action_buttons,
+            format_queue_item_meta=self._format_queue_item_meta,
+            progress_bar=self._progress_bar,
+            lbl_page_counter=self._lbl_page_counter,
+            lbl_progress_info=self._lbl_progress_info,
+            btn_cancel=self._btn_cancel,
+            poll_callback=self._process_result_queue,
         )
-        self._worker_thread.start()
+        if self._current_cancel_event_legacy is not None:
+            self._worker_coordinator.current_cancel_event = self._current_cancel_event_legacy
+        if self._pending_engine_settings_legacy is not None:
+            self._worker_coordinator.pending_engine_settings = self._pending_engine_settings_legacy
 
-        # Start periodic result queue polling
-        self._process_result_queue()
+        # Start background worker thread and result queue processor
+        self._worker_coordinator.start()
 
     # ponytail: remove in Phase 5 after test_gui.py migrated to ImagePreviewController
     @property
@@ -471,6 +473,162 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     def _start_server_poller(self) -> None:
         if getattr(self, "_server_controller", None) is not None:
             self._server_controller.start_poller()
+
+    # ponytail: remove in Phase 5
+    @property
+    def _task_queue(self) -> queue.Queue[Optional[Path]]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.task_queue
+        return self._task_queue_backing
+
+    # ponytail: remove in Phase 5
+    @_task_queue.setter
+    def _task_queue(self, value: queue.Queue[Optional[Path]]) -> None:
+        self._task_queue_backing = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.task_queue = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _result_queue(self) -> queue.Queue[WorkerEvent]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.result_queue
+        return self._result_queue_backing
+
+    # ponytail: remove in Phase 5
+    @_result_queue.setter
+    def _result_queue(self, value: queue.Queue[WorkerEvent]) -> None:
+        self._result_queue_backing = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.result_queue = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _worker_thread(self) -> Optional[threading.Thread]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.worker_thread
+        return self._worker_thread_legacy
+
+    # ponytail: remove in Phase 5
+    @_worker_thread.setter
+    def _worker_thread(self, value: Optional[threading.Thread]) -> None:
+        self._worker_thread_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.worker_thread = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _poll_id(self) -> Optional[str]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.poll_id
+        return self._poll_id_legacy
+
+    # ponytail: remove in Phase 5
+    @_poll_id.setter
+    def _poll_id(self, value: Optional[str]) -> None:
+        self._poll_id_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.poll_id = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _current_cancel_event(self) -> Optional[threading.Event]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.current_cancel_event
+        return self._current_cancel_event_legacy
+
+    # ponytail: remove in Phase 5
+    @_current_cancel_event.setter
+    def _current_cancel_event(self, value: Optional[threading.Event]) -> None:
+        self._current_cancel_event_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.current_cancel_event = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _pending_engine_settings(self) -> Optional[Settings]:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.pending_engine_settings
+        return self._pending_engine_settings_legacy
+
+    # ponytail: remove in Phase 5
+    @_pending_engine_settings.setter
+    def _pending_engine_settings(self, value: Optional[Settings]) -> None:
+        self._pending_engine_settings_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.pending_engine_settings = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _success_count(self) -> int:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.success_count
+        return self._success_count_legacy
+
+    # ponytail: remove in Phase 5
+    @_success_count.setter
+    def _success_count(self, value: int) -> None:
+        self._success_count_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.success_count = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _failed_count(self) -> int:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.failed_count
+        return self._failed_count_legacy
+
+    # ponytail: remove in Phase 5
+    @_failed_count.setter
+    def _failed_count(self, value: int) -> None:
+        self._failed_count_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.failed_count = value
+
+    # ponytail: remove in Phase 5
+    @property
+    def _progress_indeterminate(self) -> bool:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            return self._worker_coordinator.progress_indeterminate
+        return self._progress_indeterminate_legacy
+
+    # ponytail: remove in Phase 5
+    @_progress_indeterminate.setter
+    def _progress_indeterminate(self, value: bool) -> None:
+        self._progress_indeterminate_legacy = value
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.progress_indeterminate = value
+
+    # ponytail: remove in Phase 5
+    def _handle_worker_event(self, event: WorkerEvent) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.handle_worker_event(event)
+
+    # ponytail: remove in Phase 5
+    def _process_result_queue(self) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.process_result_queue()
+
+    # ponytail: remove in Phase 5
+    def _apply_pending_engine_settings(self) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.apply_pending_engine_settings()
+
+    # ponytail: remove in Phase 5
+    def _on_cancel_current(self) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.cancel_current()
+
+    # ponytail: remove in Phase 5
+    def _stop_indeterminate_progress(self) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.stop_indeterminate_progress()
+
+    # ponytail: remove in Phase 5
+    def _worker_loop(self) -> None:
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.worker_loop()
 
 
     # ==========================================================================
@@ -1394,13 +1552,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     # Action Bar Handlers
     # ==========================================================================
 
-    def _on_cancel_current(self) -> None:
-        """Signal the current in-flight job to cancel after the current page finishes."""
-        if self._current_cancel_event and not self._current_cancel_event.is_set():
-            self._current_cancel_event.set()
-            self._btn_cancel.configure(text="Cancelling...", state="disabled")
-            self._update_footer("Cancelling after current page...")
-
     def _on_copy_clipboard(self) -> None:
         """Copy active markdown text of selected item to Windows clipboard."""
         if not self._selected_item_id or self._selected_item_id not in self._queue_items:
@@ -1517,280 +1668,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._queue_manager._on_row_leave(event, item_id)
 
     # ==========================================================================
-    # Background Worker & Event Handlers
-    # ==========================================================================
-
-    def _worker_loop(self) -> None:
-        """Dedicated background worker loop processing OCR jobs from the task queue."""
-        try:
-            while not self._shutdown_event.is_set():
-                try:
-                    item = self._task_queue.get(timeout=0.2)
-                except queue.Empty:
-                    continue
-
-                if item is None or self._shutdown_event.is_set():
-                    self._task_queue.task_done()
-                    break
-
-                file_path_str = str(item)
-
-                # Setup cancel token for this document
-                cancel_event = threading.Event()
-                self._current_cancel_event = cancel_event
-
-                def _on_engine_page_progress(cur_page: int, tot_pages: int, p_res: PageResult) -> None:
-                    self._result_queue.put(
-                        WorkerEvent(
-                            event_type=WorkerEventType.PAGE_PROGRESS,
-                            file_path=file_path_str,
-                            current_page=cur_page,
-                            total_pages=tot_pages,
-                            page_result=p_res,
-                        )
-                    )
-
-                try:
-                    # Apply any pending settings updates at document boundary
-                    self._apply_pending_engine_settings()
-                    effective_settings = (
-                        self.engine.settings
-                        if hasattr(self.engine, "settings") and isinstance(self.engine.settings, Settings)
-                        else self.settings
-                    )
-                    job_cfg = JobConfig(
-                        max_pages=effective_settings.max_pages,
-                        dpi=effective_settings.dpi,
-                        max_image_dimension=effective_settings.max_image_dimension,
-                    )
-
-                    # Pre-flight startup self-test before processing first document in session
-                    if hasattr(self.engine, "verify_backend"):
-                        self.engine.verify_backend()
-
-                    # Post STARTED event with effective job dpi
-                    self._result_queue.put(
-                        WorkerEvent(
-                            event_type=WorkerEventType.STARTED,
-                            file_path=file_path_str,
-                            processed_dpi=job_cfg.dpi,
-                        )
-                    )
-
-                    result = self.engine.process_document(
-                        file_path_str,
-                        config=job_cfg,
-                        cancel_token=cancel_event,
-                        progress_callback=_on_engine_page_progress,
-                    )
-                    if result.status == JobStatus.CANCELLED or result.cancelled:
-                        event_type = WorkerEventType.CANCELLED
-                    elif result.status in (JobStatus.SUCCESS, JobStatus.PARTIAL):
-                        event_type = WorkerEventType.COMPLETED
-                    else:
-                        event_type = WorkerEventType.FAILED
-
-                    self._result_queue.put(
-                        WorkerEvent(
-                            event_type=event_type,
-                            file_path=file_path_str,
-                            result=result,
-                            error=result.error,
-                        )
-                    )
-                except Exception as exc:
-                    if not self._shutdown_event.is_set():
-                        sys.stderr.write(f"Unexpected error processing {file_path_str}: {exc}\n")
-                        traceback.print_exc(file=sys.stderr)
-                    self._result_queue.put(
-                        WorkerEvent(
-                            event_type=WorkerEventType.FAILED,
-                            file_path=file_path_str,
-                            error=str(exc),
-                        )
-                    )
-                finally:
-                    self._current_cancel_event = None
-                    self._task_queue.task_done()
-
-        except Exception as crash_exc:
-            sys.stderr.write(f"FATAL: OCRWorkerThread crashed: {crash_exc}\n")
-            traceback.print_exc(file=sys.stderr)
-            sys.stderr.flush()
-            try:
-                self._result_queue.put(
-                    WorkerEvent(
-                        event_type=WorkerEventType.WORKER_CRASHED,
-                        file_path="",
-                        error=f"Worker loop crashed: {crash_exc}",
-                    )
-                )
-            except Exception:
-                pass
-
-    def _process_result_queue(self) -> None:
-        """Periodic timer callback running on the main thread to drain worker events."""
-        self._drain_ui_callbacks()
-        while True:
-            try:
-                event = self._result_queue.get_nowait()
-            except queue.Empty:
-                break
-
-            self._handle_worker_event(event)
-
-        if not self._is_shutting_down:
-            is_active = (not self._task_queue.empty()) or (self._current_cancel_event is not None)
-            poll_interval_ms = 50 if is_active else 250
-            self._poll_id = self.after(poll_interval_ms, self._process_result_queue)
-
-
-    def _stop_indeterminate_progress(self) -> None:
-        """Stop indeterminate progress bar animation and switch back to determinate mode (F7)."""
-        if getattr(self, "_progress_indeterminate", False):
-            try:
-                self._progress_bar.stop()
-                self._progress_bar.configure(mode="determinate")
-            except Exception:
-                pass
-            self._progress_indeterminate = False
-
-    def _handle_worker_event(self, event: WorkerEvent) -> None:
-        """Process a single worker event on the main thread and update state/UI."""
-        item = self._queue_items.get(event.file_path)
-
-        if event.event_type == WorkerEventType.STARTED:
-            print(f"[GUI Worker] Started processing: {event.file_path}")
-            try:
-                self._progress_bar.configure(mode="indeterminate")
-                self._progress_bar.start()
-                self._progress_indeterminate = True
-            except Exception:
-                self._progress_bar.set(0.0)
-            self._lbl_page_counter.configure(text="0 / ...")
-            self._lbl_progress_info.configure(text=f"Processing {Path(event.file_path).name}...")
-            if item:
-                item.status = QueueItemStatus.PROCESSING
-                if event.processed_dpi is not None:
-                    item.processed_dpi = event.processed_dpi
-                if item.badge_label:
-                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_PROCESSING)
-                if item.detail_label:
-                    item.detail_label.configure(
-                        text=self._format_queue_item_meta(item),
-                        text_color=COLOR_STATUS_PROCESSING,
-                    )
-            self._update_footer(f"Processing: {Path(event.file_path).name}")
-
-        elif event.event_type == WorkerEventType.PAGE_PROGRESS:
-            self._stop_indeterminate_progress()
-            cur = event.current_page
-            tot = max(1, event.total_pages)
-            fraction = min(1.0, max(0.0, cur / tot))
-            self._progress_bar.set(fraction)
-            self._lbl_page_counter.configure(text=f"Page {cur} of {tot}")
-            self._lbl_progress_info.configure(text=f"Processing {Path(event.file_path).name} ({int(fraction * 100)}%)")
-            self._update_footer(f"Processing: {Path(event.file_path).name} (Page {cur}/{tot})")
-
-            if item:
-                item.status = QueueItemStatus.PROCESSING
-                if item.result is None:
-                    # Accumulator for live per-page preview during processing; overwritten by
-                    # the authoritative OCRResult from the COMPLETED event. status=SUCCESS
-                    # default is intentionally stale (resolve_status() never called here)
-                    # since COMPLETED replaces item.result entirely.
-                    item.result = OCRResult(file_path=item.file_path, status=JobStatus.SUCCESS)
-                if event.page_result:
-                    if not any(p.page_num == event.page_result.page_num for p in item.result.pages):
-                        item.result.pages.append(event.page_result)
-
-                if self._selected_item_id == item.item_id:
-                    self._render_preview(item)
-            return
-
-        elif event.event_type == WorkerEventType.COMPLETED:
-            self._stop_indeterminate_progress()
-            duration = event.result.total_duration if event.result else 0.0
-            status_val = event.result.status.value if event.result else "SUCCESS"
-            total_pages = len(event.result.pages) if event.result and event.result.pages else 1
-            print(f"[GUI Worker] Completed processing: {event.file_path} ({duration:.1f}s)")
-            self._success_count += 1
-            self._progress_bar.set(1.0)
-            self._lbl_page_counter.configure(text=f"{total_pages}/{total_pages} done")
-            self._lbl_progress_info.configure(text=f"Completed {Path(event.file_path).name}")
-            if item:
-                item.status = QueueItemStatus.SUCCESS
-                item.result = event.result
-                item.duration = duration
-                if item.badge_label:
-                    badge_color = COLOR_STATUS_SUCCESS if status_val == "SUCCESS" else COLOR_STATUS_PARTIAL
-                    item.badge_label.configure(text="●", text_color=badge_color)
-                if item.detail_label:
-                    item.detail_label.configure(
-                        text=self._format_queue_item_meta(item),
-                        text_color=COLOR_TEXT_MUTED,
-                    )
-            self._update_footer(f"Done: {Path(event.file_path).name} ({status_val})")
-
-        elif event.event_type == WorkerEventType.FAILED:
-            self._stop_indeterminate_progress()
-            err_msg = event.error or "Error"
-            print(f"[GUI Worker] Failed processing: {event.file_path} ({err_msg})")
-            self._failed_count += 1
-            self._progress_bar.set(0.0)
-            self._lbl_page_counter.configure(text="Failed")
-            self._lbl_progress_info.configure(text=f"Failed: {Path(event.file_path).name}")
-            if item:
-                item.status = QueueItemStatus.FAILED
-                item.result = event.result
-                item.error = err_msg
-                if item.badge_label:
-                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_FAILED)
-                if item.detail_label:
-                    item.detail_label.configure(
-                        text=self._format_queue_item_meta(item),
-                        text_color=COLOR_STATUS_FAILED,
-                    )
-            self._update_footer(f"Failed: {Path(event.file_path).name} - {err_msg}")
-
-        elif event.event_type == WorkerEventType.CANCELLED:
-            self._stop_indeterminate_progress()
-            err_msg = event.error or "Cancelled"
-            print(f"[GUI Worker] Cancelled processing: {event.file_path} ({err_msg})")
-            self._progress_bar.set(0.0)
-            self._lbl_page_counter.configure(text="Cancelled")
-            self._lbl_progress_info.configure(text=f"Cancelled: {Path(event.file_path).name}")
-            if item:
-                item.status = QueueItemStatus.CANCELLED
-                item.result = event.result
-                item.error = err_msg
-                duration = event.result.total_duration if event.result else 0.0
-                item.duration = duration
-                if item.badge_label:
-                    item.badge_label.configure(text="●", text_color=COLOR_STATUS_CANCELLED)
-                if item.detail_label:
-                    item.detail_label.configure(
-                        text=self._format_queue_item_meta(item),
-                        text_color=COLOR_STATUS_CANCELLED,
-                    )
-            self._update_footer(f"Cancelled: {Path(event.file_path).name}")
-
-        elif event.event_type == WorkerEventType.WORKER_CRASHED:
-            self._stop_indeterminate_progress()
-            print(f"[GUI Worker] FATAL: Worker thread crashed: {event.error}", file=sys.stderr)
-            sys.stderr.flush()
-            self._progress_bar.set(0.0)
-            self._lbl_page_counter.configure(text="Error")
-            self._update_footer(f"Fatal Worker Error: {event.error}")
-
-        # RACE-FREE SELECTION HANDLING:
-        # Only refresh the preview pane if the finished item is still the active selection
-        if item and self._selected_item_id == item.item_id:
-            self._render_preview(item)
-        else:
-            self._update_action_buttons()
-
-    # ==========================================================================
     # Server Lifecycle & Preferences Management
     # ==========================================================================
 
@@ -1838,30 +1715,20 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         )
         self._settings_window = win
 
-    def _apply_pending_engine_settings(self) -> None:
-        """Apply pending settings updates to engine and vision client at safe document boundary."""
-        pending_s = getattr(self, "_pending_engine_settings", None)
-        if pending_s is not None:
-            self._pending_engine_settings = None
-            if hasattr(self.engine, "client") and self.engine.client is not None:
-                from core.client import resolve_chat_endpoint
-                self.engine.client.endpoint = resolve_chat_endpoint(pending_s.local_endpoint)
-                self.engine.client.settings = pending_s
-            if hasattr(self.engine, "settings"):
-                self.engine.settings = pending_s
-            self.settings = pending_s
-
     def _on_settings_saved(self, new_settings: Settings) -> None:
         """Callback invoked when preferences are updated and saved in SettingsWindow."""
         self.settings = new_settings
         self.server_manager.settings = new_settings
 
         # Queue settings for safe inter-document update
-        self._pending_engine_settings = new_settings
-        if hasattr(self.engine, "invalidate_backend_verification"):
-            self.engine.invalidate_backend_verification()
-        if self._current_cancel_event is None:
-            self._apply_pending_engine_settings()
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.queue_pending_settings(new_settings)
+        else:
+            self._pending_engine_settings = new_settings
+            if hasattr(self.engine, "invalidate_backend_verification"):
+                self.engine.invalidate_backend_verification()
+            if self._current_cancel_event is None:
+                self._apply_pending_engine_settings()
 
         # Refresh queue rows' metadata if DPI setting changed
         for q_item in self._queue_items.values():
@@ -1903,33 +1770,34 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             return
         self._is_shutting_down = True
 
-        # 1. Cancel active after() polling timer
-        if self._poll_id is not None:
-            try:
-                self.after_cancel(self._poll_id)
-            except Exception:
-                pass
-            self._poll_id = None
-
-        # 2. Signal worker thread and server poller to stop
+        # 1. Signal worker thread and server poller to stop
         self._shutdown_event.set()
 
-        # 3. Drain unstarted tasks from queue and enqueue termination sentinel
-        while not self._task_queue.empty():
+        # 2. Worker shutdown via coordinator (cancels poll timer, drains tasks, sends sentinel, joins worker)
+        if getattr(self, "_worker_coordinator", None) is not None:
+            self._worker_coordinator.shutdown(timeout=1.0)
+        else:
+            if self._poll_id is not None:
+                try:
+                    self.after_cancel(self._poll_id)
+                except Exception:
+                    pass
+                self._poll_id = None
+
+            while not self._task_queue.empty():
+                try:
+                    self._task_queue.get_nowait()
+                    self._task_queue.task_done()
+                except (queue.Empty, ValueError):
+                    break
+
             try:
-                self._task_queue.get_nowait()
-                self._task_queue.task_done()
-            except (queue.Empty, ValueError):
-                break
+                self._task_queue.put_nowait(None)
+            except (queue.Full, ValueError):
+                pass
 
-        try:
-            self._task_queue.put_nowait(None)
-        except (queue.Full, ValueError):
-            pass
-
-        # 4. Join worker thread to exit cleanly
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=1.0)
+            if self._worker_thread and self._worker_thread.is_alive():
+                self._worker_thread.join(timeout=1.0)
 
         # 4b. Join export thread if running
         if hasattr(self, "_export_thread") and self._export_thread is not None and self._export_thread.is_alive():

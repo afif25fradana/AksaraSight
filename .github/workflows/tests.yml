@@ -70,5 +70,5 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run test suite with Xvfb
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" python -m pytest --ignore=tests/test_gui.py
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" python -m pytest
 

@@ -269,6 +269,48 @@ def test_server_manager_start_auto_detects_adjacent_mmproj(tmp_path):
         mgr.shutdown()
 
 
+def test_server_manager_start_prioritizes_matching_quant_mmproj(tmp_path, caplog):
+    """Verify start() prioritizes mmproj matching the model quantization tag when multiple exist."""
+    import logging
+
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
+    fake_model.write_text("weights", encoding="utf-8")
+    fake_mmproj_f16 = tmp_path / "mmproj-GLM-OCR-f16.gguf"
+    fake_mmproj_f16.write_text("vision-projector-f16", encoding="utf-8")
+    fake_mmproj_q8 = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_mmproj_q8.write_text("vision-projector-q8", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo=str(fake_model),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    with caplog.at_level(logging.INFO):
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+                with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                    mgr.start()
+                    cmd_args = mock_popen.call_args[0][0]
+                    assert "-m" in cmd_args
+                    assert str(fake_model) in cmd_args
+                    assert "--mmproj" in cmd_args
+                    mmproj_idx = cmd_args.index("--mmproj")
+                    assert cmd_args[mmproj_idx + 1] == str(fake_mmproj_q8)
+                    assert cmd_args[mmproj_idx + 1] != str(fake_mmproj_f16)
+                    assert "Found 2 mmproj candidates for 'GLM-OCR-Q8_0.gguf'" in caplog.text
+        finally:
+            mgr.shutdown()
+
+
 def test_server_manager_start_warns_when_local_gguf_missing_mmproj(tmp_path, caplog):
     """Verify start() emits a helpful warning when local GGUF lacks an adjacent mmproj."""
     import logging

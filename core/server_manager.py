@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import logging
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -417,7 +418,29 @@ class ServerManager:
                                 mmproj_candidates.append(p)
 
                     if mmproj_candidates:
-                        chosen_mmproj = sorted(mmproj_candidates)[0]
+                        if len(mmproj_candidates) == 1:
+                            chosen_mmproj = mmproj_candidates[0]
+                        else:
+                            sorted_candidates = sorted(mmproj_candidates)
+                            logger.info(
+                                "Found %d mmproj candidates for '%s': %s",
+                                len(mmproj_candidates),
+                                model_path.name,
+                                [c.name for c in sorted_candidates],
+                            )
+                            quant_match = re.search(
+                                r"(q[0-9]+[a-z0-9_]*|f16|f32|bf16)",
+                                model_path.stem,
+                                re.IGNORECASE,
+                            )
+                            chosen_mmproj = sorted_candidates[0]
+                            if quant_match:
+                                quant_tag = quant_match.group(1).lower()
+                                for c in sorted_candidates:
+                                    if quant_tag in c.name.lower():
+                                        chosen_mmproj = c
+                                        break
+
                         cmd.extend(["--mmproj", str(chosen_mmproj)])
                         logger.info("Auto-detected adjacent multimodal projector for local model: %s", chosen_mmproj.name)
                     else:

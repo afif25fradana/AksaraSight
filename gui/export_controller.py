@@ -313,5 +313,5 @@ class ExportController:
         if self.update_ui is not None:
             try:
                 self.update_ui()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to update UI after export wait: %s", exc)

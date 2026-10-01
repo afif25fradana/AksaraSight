@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import customtkinter as ctk
@@ -17,6 +18,8 @@ from gui.theme import (
     COLOR_TEXT_PRIMARY,
     apply_window_icon,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityConfirmationDialog(ctk.CTkToplevel):
@@ -38,8 +41,8 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
         try:
             self.transient(parent)
             self.grab_set()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to set modal transient/grab on security dialog: %s", exc)
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.bind("<Escape>", lambda e: self._on_cancel())
@@ -51,13 +54,13 @@ class SecurityConfirmationDialog(ctk.CTkToplevel):
             px = parent.winfo_rootx() + (parent.winfo_width() - 520) // 2
             py = parent.winfo_rooty() + (parent.winfo_height() - 330) // 2
             self.geometry(f"+{max(0, px)}+{max(0, py)}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to center security dialog: %s", exc)
 
         try:
             self.focus_force()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to force focus on security dialog: %s", exc)
 
     def _build_ui(self) -> None:
         card = ctk.CTkFrame(

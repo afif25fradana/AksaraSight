@@ -1,7 +1,10 @@
 """GUI package for AksaraSight desktop application."""
 
+import logging
 import threading
 import tkinter.font as _tkfont
+
+logger = logging.getLogger(__name__)
 
 _original_font_del = _tkfont.Font.__del__
 
@@ -17,8 +20,8 @@ def _thread_safe_font_del(self: _tkfont.Font) -> None:
         return
     try:
         _original_font_del(self)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to delete Tk font: %s", exc)
 
 
 if not getattr(_tkfont.Font.__del__, "_aksara_guarded", False):

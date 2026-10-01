@@ -124,8 +124,8 @@ class ServerUIController:
         """Start background daemon thread periodically querying server health."""
         try:
             self.apply_server_status_update(self.server_manager.get_status_info())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to apply initial server status: %s", exc)
 
         def _poller_worker() -> None:
             while self.shutdown_event is not None and not self.shutdown_event.is_set():

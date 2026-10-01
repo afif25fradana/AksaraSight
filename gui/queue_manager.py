@@ -170,7 +170,8 @@ class QueueManager:
         # Compute formatted file size once at creation time (P10)
         try:
             file_size_str = _format_file_size(path.stat().st_size)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to determine file size for %s: %s", path, exc)
             file_size_str = "0 B"
 
         item = QueueItem(
@@ -284,14 +285,14 @@ class QueueManager:
             self._drain_ui_callbacks()
             try:
                 self._update_ui()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to update UI during wait_for_ingest: %s", exc)
             time.sleep(0.01)
         self._drain_ui_callbacks()
         try:
             self._update_ui()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to update UI after wait_for_ingest: %s", exc)
 
     def format_item_meta(self, item: QueueItem) -> str:
         """Format 2nd line metadata string for queue rows based on file info and processing status.
@@ -309,7 +310,8 @@ class QueueManager:
             # Fallback/caching if QueueItem was instantiated without file_size_str
             try:
                 size_str = _format_file_size(item.file_path.stat().st_size)
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to determine file size for %s: %s", item.file_path, exc)
                 size_str = "0 B"
             item.file_size_str = size_str
 

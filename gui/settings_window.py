@@ -104,8 +104,8 @@ class SettingsWindow(ctk.CTkToplevel):
         try:
             self.transient(parent)
             self.grab_set()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to set modal transient/grab on settings window: %s", exc)
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.bind("<Escape>", lambda e: self._on_cancel())
@@ -798,8 +798,8 @@ class SettingsWindow(ctk.CTkToplevel):
             return
         try:
             self.after(0, fn)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to dispatch UI callback: %s", exc)
 
     def wait_for_download(self, timeout: float = 5.0) -> None:
         """Wait for active background download thread to complete and flush UI callbacks."""
@@ -808,8 +808,8 @@ class SettingsWindow(ctk.CTkToplevel):
         try:
             self.update_idletasks()
             self.update()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to update window during wait_for_download: %s", exc)
 
     def _on_download_runtime(self) -> None:
         """Download and verify the selected llama.cpp runtime binary asynchronously."""
@@ -852,8 +852,8 @@ class SettingsWindow(ctk.CTkToplevel):
                                 self._lbl_download_status.configure(text=msg, text_color=COLOR_TEXT_MUTED)
                             if hasattr(self, "_progress_download") and total > 0:
                                 self._progress_download.set(frac)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to update download progress UI: %s", exc)
 
                     self._safe_ui_dispatch(_update_ui)
 
@@ -876,8 +876,8 @@ class SettingsWindow(ctk.CTkToplevel):
                                 text_color=COLOR_STATUS_SUCCESS,
                             )
                         self._update_managed_status(target_backend)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Failed to update download success UI: %s", exc)
 
                 self._safe_ui_dispatch(_success_ui)
 
@@ -894,8 +894,8 @@ class SettingsWindow(ctk.CTkToplevel):
                                 text_color=COLOR_STATUS_ERROR,
                             )
                         self._update_managed_status(target_backend)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Failed to update download failure UI: %s", exc)
 
                 self._safe_ui_dispatch(_fail_ui)
             finally:
@@ -999,8 +999,8 @@ class SettingsWindow(ctk.CTkToplevel):
         try:
             if not self._lbl_restart_banner.winfo_ismapped():
                 self._banner_frame.pack_forget()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to check or hide restart banner frame: %s", exc)
 
         backend = self._seg_backend.get().strip()
         endpoint = self._ent_endpoint.get().strip()

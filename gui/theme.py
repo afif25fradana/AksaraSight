@@ -6,8 +6,11 @@ Decoupled into a dedicated constants module to prevent circular imports
 between GUI windows and main application shell.
 """
 
+import logging
 from pathlib import Path
 import sys
+
+logger = logging.getLogger(__name__)
 
 # Base Surface & Canvas Tokens
 COLOR_CANVAS_BG = "#121417"
@@ -92,6 +95,6 @@ def apply_window_icon(window: object) -> None:
                 if callable(iconbitmap):
                     iconbitmap(str(candidate))
                 break
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to set window icon from %s: %s", candidate, exc)
 

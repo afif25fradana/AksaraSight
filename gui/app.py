@@ -181,10 +181,10 @@ def _init_tkinterdnd(tkroot: Any) -> str:
                 ver = tkroot.tk.call("package", "require", "tkdnd")
                 tdnd.TkdndVersion = ver
                 return str(ver)
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as exc:
+                logger.debug("Failed to require tkdnd package: %s", exc)
+    except Exception as exc:
+        logger.debug("Failed to resolve custom tkdnd path: %s", exc)
     return tdnd._require(tkroot)
 
 
@@ -211,8 +211,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.TkdndVersion = _init_tkinterdnd(self)
         try:
             self.tk.call("proc", "bgerror", "msg", "")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to suppress Tk bgerror dialogs: %s", exc)
 
         engine_settings = getattr(engine, "settings", None)
         if not isinstance(engine_settings, Settings):
@@ -1289,6 +1289,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         try:
             file_paths = self.tk.splitlist(raw_data)
         except Exception as exc:
+            logger.debug("Failed to parse dropped files data: %s", exc)
             sys.stderr.write(f"Failed to parse dropped files data: {exc}\n")
             return
 
@@ -1338,8 +1339,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         if threading.current_thread() is threading.main_thread():
             try:
                 self.after(ms, func, *args)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to schedule callback with self.after: %s", exc)
         else:
             self._ui_callback_queue.put((func, args, kwargs))
 
@@ -1352,8 +1353,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 if self._settings_window.winfo_exists():
                     self._settings_window.focus()
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to check or focus existing settings window: %s", exc)
 
         win = SettingsWindow(
             self,
@@ -1447,6 +1448,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if hasattr(self, "server_manager") and self.server_manager is not None:
                 self.server_manager.shutdown()
         except Exception as sm_exc:
+            logger.debug("Failed to shut down server manager during closing: %s", sm_exc)
             sys.stderr.write(f"Warning: error shutting down server manager: {sm_exc}\n")
 
         # 7. Explicitly close VisionClient / network sessions
@@ -1454,20 +1456,21 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if hasattr(self.engine, "close"):
                 self.engine.close()
         except Exception as close_exc:
+            logger.debug("Failed to close engine client during closing: %s", close_exc)
             sys.stderr.write(f"Warning: error closing engine client: {close_exc}\n")
 
         # 8. Destroy modal settings window if open
         if hasattr(self, "_settings_window") and self._settings_window is not None:
             try:
                 self._settings_window.destroy()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to destroy settings window during closing: %s", exc)
 
         # 9. Flush pending idle tasks and destroy window
         try:
             self.update_idletasks()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to flush idle tasks during closing: %s", exc)
         self.destroy()
 
 
@@ -1507,7 +1510,8 @@ def _setup_frozen_logging() -> Optional[Path]:
         sys.excepthook = _handle_unhandled_exception
         logging.getLogger("app").info("Frozen application started (v%s)", __version__)
         return log_file
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to set up frozen logging: %s", exc)
         return None
 
 
@@ -1522,8 +1526,8 @@ def main() -> None:
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aksarasight.localstudio.gui.1.0")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to set Windows AppUserModelID: %s", exc)
     app = OCRApp()
     try:
         app.mainloop()

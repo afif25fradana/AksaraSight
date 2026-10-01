@@ -341,8 +341,8 @@ class WorkerCoordinator:
                         error=f"Worker loop crashed: {crash_exc}",
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to enqueue WORKER_CRASHED event: %s", exc)
 
     def process_result_queue(self) -> None:
         """Periodic timer callback running on the main thread to drain worker events."""
@@ -371,8 +371,8 @@ class WorkerCoordinator:
                 try:
                     self.progress_bar.stop()
                     self.progress_bar.configure(mode="determinate")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to stop indeterminate progress bar: %s", exc)
             self._progress_indeterminate = False
 
     def handle_worker_event(self, event: WorkerEvent) -> None:
@@ -395,7 +395,8 @@ class WorkerCoordinator:
                     self.progress_bar.configure(mode="indeterminate")
                     self.progress_bar.start()
                     self._progress_indeterminate = True
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to start indeterminate progress bar: %s", exc)
                     self.progress_bar.set(0.0)
             else:
                 self._progress_indeterminate = True
@@ -585,8 +586,8 @@ class WorkerCoordinator:
         if self._poll_id is not None and self.after_cancel is not None:
             try:
                 self.after_cancel(self._poll_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to cancel worker coordinator poll timer: %s", exc)
             self._poll_id = None
 
         while not self._task_queue.empty():
@@ -598,8 +599,8 @@ class WorkerCoordinator:
 
         try:
             self._task_queue.put_nowait(None)
-        except (queue.Full, ValueError):
-            pass
+        except (queue.Full, ValueError) as exc:
+            logger.debug("Failed to enqueue shutdown sentinel into task queue: %s", exc)
 
         if self._worker_thread is not None and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=timeout)

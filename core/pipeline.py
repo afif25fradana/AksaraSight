@@ -288,10 +288,8 @@ def _process_pdf(
       run outside the lock to allow concurrent vision inference across threads.
 
     Args:
-        source: PDF file path or byte buffer.
+        source: PDF file path (str or Path).
         dpi: Target rasterization resolution (default: 100).
-        image_format: Target format for base64 output ('JPEG' or 'PNG').
-        jpeg_quality: Quality for JPEG encoding.
         max_image_dimension: Longest edge cap forwarded to image fallback if applicable.
 
     Yields:

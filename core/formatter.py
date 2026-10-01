@@ -219,7 +219,7 @@ def format_output(
 ) -> FormattedOutput:
     """Format an OCRResult into output strings or bytes according to the requested format.
 
-    Reuses OCRResult.to_markdown(), OCRResult.to_json(), and export_to_docx_bytes()
+    Reuses OCRResult.markdown, OCRResult.to_json(), and export_to_docx_bytes()
     without duplicating formatting or joining logic.
 
     Args:

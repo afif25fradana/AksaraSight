@@ -1236,6 +1236,42 @@ def test_cli_batch_continues_on_document_crash(
     assert "02_good.png -> SUCCESS" in captured.out
 
 
+@patch("cli.main.OCREngine")
+@patch("cli.main.get_cached_hardware_profile")
+@patch("cli.main.start_hardware_prewarm")
+def test_cli_vram_warning_on_cold_start(
+    mock_prewarm: MagicMock,
+    mock_get_hw: MagicMock,
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify CLI warns on stderr when low-VRAM GPU is detected on cold start."""
+    from core.hardware import HardwareProfile
+
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    low_vram_profile = HardwareProfile(
+        gpu_name="NVIDIA GeForce GTX 1050",
+        vram_mb=2048,
+        cuda_available=True,
+    )
+    mock_get_hw.return_value = low_vram_profile
+
+    exit_code = main([str(dummy_png)])
+
+    assert exit_code == 0
+    mock_prewarm.assert_called_once()
+    mock_get_hw.assert_called_once_with(blocking=True)
+    captured = capsys.readouterr()
+    assert "WARNING: Detected 2048 MB VRAM on 'NVIDIA GeForce GTX 1050'" in captured.err
+    assert "below recommended ~2.2 GB" in captured.err
+
+
+
 
 
 

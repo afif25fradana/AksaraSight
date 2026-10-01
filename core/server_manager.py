@@ -25,7 +25,7 @@ from config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-from core.hardware import get_cached_hardware_profile
+from core.hardware import HardwareProfile, get_cached_hardware_profile
 from core.job_object import (
     _assign_process_to_job,
     _close_job_handle,
@@ -200,6 +200,22 @@ def probe_server_health(
         return ServerStatus.ERROR, f"Unexpected error during health check: {exc}"
 
 
+def _warn_if_low_vram(profile: Optional[HardwareProfile]) -> None:
+    """Log a warning if detected CUDA hardware has insufficient VRAM (< 2.2 GB)."""
+    if (
+        profile is not None
+        and profile.cuda_available
+        and profile.vram_mb is not None
+        and profile.vram_mb < 2200
+    ):
+        logger.warning(
+            "Detected %d MB VRAM on '%s', below recommended ~2.2 GB for GLM-OCR (-c 8192). "
+            "Server may encounter CUDA out-of-memory errors.",
+            profile.vram_mb,
+            profile.gpu_name or "CUDA device",
+        )
+
+
 class ServerManager:
     """Manages the lifecycle, health polling, and diagnostic logging for local inference servers.
 
@@ -241,6 +257,7 @@ class ServerManager:
         self._stopping: bool = False
         self._log_buffer: deque[str] = deque(maxlen=200)
         self._reader_thread: Optional[threading.Thread] = None
+        self._vram_check_thread: Optional[threading.Thread] = None
         # _lock guards state only and is held briefly. It is never held across
         # terminate()/wait()/kill() or process spawns, so the stdout reader can
         # keep draining while a lifecycle operation is in flight.
@@ -511,18 +528,22 @@ class ServerManager:
                 # B6: Warn-only pre-flight check for low-VRAM GPUs (non-blocking)
                 try:
                     profile = get_cached_hardware_profile(blocking=False)
-                    if (
-                        profile is not None
-                        and profile.cuda_available
-                        and profile.vram_mb is not None
-                        and profile.vram_mb < 2200
-                    ):
-                        logger.warning(
-                            "Detected %d MB VRAM on '%s', below recommended ~2.2 GB for GLM-OCR (-c 8192). "
-                            "Server may encounter CUDA out-of-memory errors.",
-                            profile.vram_mb,
-                            profile.gpu_name or "CUDA device",
+                    if profile is not None:
+                        _warn_if_low_vram(profile)
+                    else:
+                        def _async_vram_preflight() -> None:
+                            try:
+                                prof = get_cached_hardware_profile(blocking=True)
+                                _warn_if_low_vram(prof)
+                            except Exception as async_hw_exc:
+                                logger.debug("Async VRAM pre-flight check failed: %s", async_hw_exc)
+
+                        self._vram_check_thread = threading.Thread(
+                            target=_async_vram_preflight,
+                            name="VRAMPreflightWorker",
+                            daemon=True,
                         )
+                        self._vram_check_thread.start()
                 except Exception as hw_exc:
                     logger.debug("VRAM pre-flight check skipped: %s", hw_exc)
 
@@ -721,9 +742,11 @@ class ServerManager:
         # re-enters ServerManager (poll_status/get_status_info/start/stop) cannot deadlock.
         self._notify_lifecycle_change(callback)
 
-    def shutdown(self) -> None:
+    def shutdown(self, timeout: Optional[float] = 2.0) -> None:
         """Tear down all resources and terminate managed processes on application exit."""
         self.stop()
+        if self._vram_check_thread is not None and self._vram_check_thread.is_alive():
+            self._vram_check_thread.join(timeout=timeout)
         if self._owns_session and self._session is not None:
             self._session.close()
 

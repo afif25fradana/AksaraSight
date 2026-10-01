@@ -204,3 +204,41 @@ def test_probe_nvidia_smi_prioritizes_system_paths_over_shutil_which() -> None:
         mock_which.assert_called_once_with("nvidia-smi")
         called_binary = mock_run.call_args[0][0][0]
         assert called_binary == "C:\\custom\\nvidia-smi.exe"
+
+
+def test_start_hardware_prewarm() -> None:
+    """Verify start_hardware_prewarm launches worker thread and populates cache."""
+    from core.hardware import (
+        clear_hardware_cache,
+        get_cached_hardware_profile,
+        start_hardware_prewarm,
+    )
+
+    clear_hardware_cache()
+    try:
+        dummy_profile = HardwareProfile(
+            gpu_name="Test GPU",
+            vram_mb=4096,
+            cuda_available=True,
+            cpu_name="Test CPU",
+            recommended_backend="cuda",
+        )
+        with patch("core.hardware.detect_hardware", return_value=dummy_profile) as mock_detect:
+            # Cold-start non-blocking query should return None and trigger prewarm
+            res = get_cached_hardware_profile(blocking=False)
+            assert res is None
+
+            # Calling prewarm again when worker is running is a safe no-op
+            start_hardware_prewarm()
+
+            # Wait for cached profile to be populated
+            profile = get_cached_hardware_profile(blocking=True)
+            assert profile == dummy_profile
+            mock_detect.assert_called_once()
+
+            # Subsequent start_hardware_prewarm when cache is full is a no-op
+            start_hardware_prewarm()
+            mock_detect.assert_called_once()
+    finally:
+        clear_hardware_cache()
+

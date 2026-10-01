@@ -24,6 +24,7 @@ from .hardware import (
     clear_hardware_cache,
     detect_hardware,
     get_cached_hardware_profile,
+    start_hardware_prewarm,
 )
 from .models import (
     FormattedOutput,
@@ -118,6 +119,7 @@ __all__ = [
     "resolve_unique_stem",
     "sanitize_filename_stem",
     "save_artifacts",
+    "start_hardware_prewarm",
     "__version__",
 ]
 

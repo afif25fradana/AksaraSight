@@ -13,6 +13,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -382,6 +383,32 @@ def detect_hardware() -> HardwareProfile:
 
 
 _CACHED_HARDWARE_PROFILE: Optional[HardwareProfile] = None
+_PREWARM_LOCK = threading.Lock()
+_PREWARM_THREAD: Optional[threading.Thread] = None
+
+
+def start_hardware_prewarm() -> None:
+    """Pre-warm hardware detection in a background daemon thread if not already cached.
+
+    Ensures subsequent blocking or non-blocking queries return quickly without
+    delaying application startup or UI initialization.
+    """
+    global _PREWARM_THREAD
+    if _CACHED_HARDWARE_PROFILE is not None:
+        return
+    with _PREWARM_LOCK:
+        if _CACHED_HARDWARE_PROFILE is not None:
+            return
+        if _PREWARM_THREAD is not None and _PREWARM_THREAD.is_alive():
+            return
+        t = threading.Thread(
+            target=get_cached_hardware_profile,
+            kwargs={"blocking": True},
+            name="HardwarePrewarmWorker",
+            daemon=True,
+        )
+        _PREWARM_THREAD = t
+        t.start()
 
 
 def get_cached_hardware_profile(
@@ -409,13 +436,18 @@ def get_cached_hardware_profile(
         _CACHED_HARDWARE_PROFILE = detect_hardware()
     elif _CACHED_HARDWARE_PROFILE is None:
         if not blocking:
+            start_hardware_prewarm()
             return None
-        _CACHED_HARDWARE_PROFILE = detect_hardware()
+        with _PREWARM_LOCK:
+            if _CACHED_HARDWARE_PROFILE is None:
+                _CACHED_HARDWARE_PROFILE = detect_hardware()
     return _CACHED_HARDWARE_PROFILE
 
 
 def clear_hardware_cache() -> None:
     """Reset the cached HardwareProfile snapshot (primarily for testing)."""
-    global _CACHED_HARDWARE_PROFILE
-    _CACHED_HARDWARE_PROFILE = None
+    global _CACHED_HARDWARE_PROFILE, _PREWARM_THREAD
+    with _PREWARM_LOCK:
+        _CACHED_HARDWARE_PROFILE = None
+        _PREWARM_THREAD = None
 

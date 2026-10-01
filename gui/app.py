@@ -25,6 +25,7 @@ from core.formatter import (
     save_artifacts,
 )
 from core.pipeline import PipelineError, rasterize_page
+from core.hardware import start_hardware_prewarm
 from core.server_manager import ServerManager
 # Color tokens (WCAG 2.1 AA verified)
 # Re-exported from gui.theme for backward compatibility
@@ -209,6 +210,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
     ) -> None:
         """Initialize the GUI application window, layout, and worker thread."""
         super().__init__()
+        start_hardware_prewarm()
         self.TkdndVersion = _init_tkinterdnd(self)
         try:
             self.tk.call("proc", "bgerror", "msg", "")

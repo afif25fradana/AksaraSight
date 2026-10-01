@@ -11,7 +11,13 @@ from core.client import ClientError, ServerOfflineError
 from core.engine import OCREngine
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.formatter import format_output, save_artifacts
-from core.hardware import MIN_RECOMMENDED_VRAM_MB, PINNED_LLAMA_BUILD, detect_hardware
+from core.hardware import (
+    MIN_RECOMMENDED_VRAM_MB,
+    PINNED_LLAMA_BUILD,
+    detect_hardware,
+    get_cached_hardware_profile,
+    start_hardware_prewarm,
+)
 from core.models import JobConfig, JobStatus, OutputFormat
 from core.runtime_manager import (
     get_installed_runtime_path,
@@ -359,6 +365,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     input_path: Path = args.input
+    start_hardware_prewarm()
 
     # 1. Validate input existence (Fatal error -> Exit Code 1)
     if not input_path.exists():
@@ -430,6 +437,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except Exception as probe_exc:
         sys.stderr.write(f"Error: {probe_exc}\n")
         return 1
+
+    if settings.is_loopback:
+        profile = get_cached_hardware_profile(blocking=True)
+        if (
+            profile is not None
+            and profile.cuda_available
+            and profile.vram_mb is not None
+            and profile.vram_mb < 2200
+        ):
+            sys.stderr.write(
+                f"WARNING: Detected {profile.vram_mb} MB VRAM on '{profile.gpu_name or 'CUDA device'}', "
+                f"below recommended ~2.2 GB for GLM-OCR (-c 8192). Server may encounter CUDA out-of-memory errors.\n"
+            )
 
     has_aborted = False
     all_success = True

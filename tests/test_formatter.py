@@ -186,6 +186,40 @@ def test_resolve_unique_stem_with_existing_disk_files(tmp_path: Path) -> None:
     assert stem == "report_3"
 
 
+def test_resolve_unique_stem_with_scoped_extensions(tmp_path: Path) -> None:
+    """Verify resolve_unique_stem checks collisions only against scoped extensions."""
+    # Pre-create report.md
+    (tmp_path / "report.md").write_text("existing md", encoding="utf-8")
+
+    # Scoped to docx: report.md should NOT cause a collision bump
+    stem_docx = resolve_unique_stem("report", output_dir=tmp_path, extensions=[".docx"])
+    assert stem_docx == "report"
+
+    # Scoped without leading dot: should normalize and also not collide
+    stem_docx_nodot = resolve_unique_stem("report", output_dir=tmp_path, extensions=["docx"])
+    assert stem_docx_nodot == "report"
+
+    # Single string extension without dot
+    stem_str = resolve_unique_stem("report", output_dir=tmp_path, extensions="docx")
+    assert stem_str == "report"
+
+    # Now create report.docx
+    (tmp_path / "report.docx").write_bytes(b"existing docx")
+
+    # Scoped to docx: now it should collide and bump to report_2
+    stem_docx_colliding = resolve_unique_stem("report", output_dir=tmp_path, extensions=[".docx"])
+    assert stem_docx_colliding == "report_2"
+
+    # Scoped to json only: neither report.md nor report.docx collides
+    stem_json = resolve_unique_stem("report", output_dir=tmp_path, extensions=[".json"])
+    assert stem_json == "report"
+
+    # Default extensions (None) checks .md, .json, .docx -> collides with both report.md and report.docx
+    (tmp_path / "report_2.json").write_text("{}", encoding="utf-8")
+    stem_default = resolve_unique_stem("report", output_dir=tmp_path)
+    assert stem_default == "report_3"
+
+
 def test_resolve_unique_stem_with_batch_used_stems(tmp_path: Path) -> None:
     used_stems = set()
     stem1 = resolve_unique_stem("invoice", output_dir=tmp_path, used_stems=used_stems)
@@ -404,6 +438,27 @@ def test_save_artifacts_docx_only(
     doc = Document(str(expected_docx))
     assert any("Financial Report 2026" in p.text for p in doc.paragraphs)
     assert any("Expenses Breakdown" in p.text for p in doc.paragraphs)
+
+
+def test_save_artifacts_docx_ignores_existing_markdown_collision(
+    sample_ocr_result: OCRResult,
+    tmp_path: Path,
+) -> None:
+    """Verify save_artifacts does not bump DOCX stem counter when unrelated .md file exists."""
+    # Pre-create financial_audit.md in output_dir
+    existing_md = tmp_path / "financial_audit.md"
+    existing_md.write_text("pre-existing markdown content", encoding="utf-8")
+
+    config = JobConfig(output_format=OutputFormat.DOCX)
+    saved = save_artifacts(sample_ocr_result, config, output_dir=tmp_path)
+
+    expected_docx = tmp_path / "financial_audit.docx"
+    assert saved["docx"] == expected_docx.resolve()
+    assert expected_docx.exists()
+    assert not (tmp_path / "financial_audit_2.docx").exists()
+
+    # Pre-existing markdown file must remain intact
+    assert existing_md.read_text(encoding="utf-8") == "pre-existing markdown content"
 
 
 def test_save_artifacts_docx_atomic_write_and_tmp_cleanup_on_error(

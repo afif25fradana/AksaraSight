@@ -4,7 +4,7 @@ import dataclasses
 import json
 from pathlib import Path
 import re
-from typing import Dict, Optional, Set, Union
+from typing import Dict, Optional, Sequence, Set, Union
 
 from core.docx_export import export_to_docx_bytes
 from core.models import FormattedOutput, JobConfig, OCRResult, OutputFormat
@@ -47,17 +47,26 @@ def resolve_unique_stem(
     base_stem: str,
     output_dir: Union[str, Path],
     used_stems: Optional[Set[str]] = None,
+    extensions: Optional[Union[str, Sequence[str], Set[str]]] = None,
 ) -> str:
     """Resolve a collision-free, cross-platform sanitized file stem.
 
-    Guarantees no collisions with:
-    1. Pre-existing files in output_dir (*.md and *.json).
-    2. Other files exported in the current batch (via used_stems tracking set).
+    Checks collisions against:
+    1. Pre-existing files in output_dir matching the target extensions.
+    2. Other stems claimed in the current process/batch (via used_stems tracking set).
+
+    Note on atomicity:
+        This check relies on filesystem existence checks and in-memory tracking. It does
+        not acquire filesystem-level locks or guarantee atomic reservation against
+        concurrent external processes writing to the same directory simultaneously.
 
     Args:
         base_stem: Proposed filename stem.
         output_dir: Target destination folder.
         used_stems: Optional set of stems already claimed in this batch. Updated in-place.
+        extensions: Optional extension or collection of extensions to check for collisions
+            (e.g. (".docx",) or [".md", ".json"]). Defaults to (".md", ".json", ".docx")
+            for backward compatibility. Extensions are normalized with a leading dot.
 
     Returns:
         str: A safe, unique file stem.
@@ -69,11 +78,22 @@ def resolve_unique_stem(
 
     tracked_stems = used_stems if used_stems is not None else set()
 
+    if extensions is None:
+        target_exts: tuple[str, ...] = (".md", ".json", ".docx")
+    elif isinstance(extensions, str):
+        cleaned_ext = extensions.strip()
+        target_exts = (cleaned_ext if cleaned_ext.startswith(".") else f".{cleaned_ext}",)
+    else:
+        target_exts = tuple(
+            dict.fromkeys(
+                ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+                for ext in extensions
+            )
+        )
+
     while (
         stem in tracked_stems
-        or (out_dir / f"{stem}.md").exists()
-        or (out_dir / f"{stem}.json").exists()
-        or (out_dir / f"{stem}.docx").exists()
+        or any((out_dir / f"{stem}{ext}").exists() for ext in target_exts)
     ):
         counter += 1
         stem = f"{safe_base}_{counter}"
@@ -303,7 +323,23 @@ def save_artifacts(
         else:
             candidate_stem = "ocr_result"
 
-    safe_stem = resolve_unique_stem(candidate_stem, output_dir=out_dir, used_stems=used_stems)
+    format_extensions: Dict[OutputFormat, Sequence[str]] = {
+        OutputFormat.MARKDOWN: (".md",),
+        OutputFormat.JSON: (".json",),
+        OutputFormat.BOTH: (".md", ".json"),
+        OutputFormat.DOCX: (".docx",),
+    }
+    try:
+        active_exts = format_extensions.get(OutputFormat(config.output_format), (".md", ".json", ".docx"))
+    except (ValueError, TypeError):
+        active_exts = (".md", ".json", ".docx")
+
+    safe_stem = resolve_unique_stem(
+        candidate_stem,
+        output_dir=out_dir,
+        used_stems=used_stems,
+        extensions=active_exts,
+    )
 
     formatted = format_output(
         result,

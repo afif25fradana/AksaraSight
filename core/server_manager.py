@@ -25,6 +25,7 @@ from config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+from core.hardware import get_cached_hardware_profile
 from core.job_object import (
     _assign_process_to_job,
     _close_job_handle,
@@ -506,6 +507,24 @@ class ServerManager:
 
                 # Determine model flag: -m for local GGUF file, -hf for Hugging Face repo
                 model_flag = "-m" if (Path(repo).is_file() or repo.lower().endswith(".gguf")) else "-hf"
+
+                # B6: Warn-only pre-flight check for low-VRAM GPUs (non-blocking)
+                try:
+                    profile = get_cached_hardware_profile(blocking=False)
+                    if (
+                        profile is not None
+                        and profile.cuda_available
+                        and profile.vram_mb is not None
+                        and profile.vram_mb < 2200
+                    ):
+                        logger.warning(
+                            "Detected %d MB VRAM on '%s', below recommended ~2.2 GB for GLM-OCR (-c 8192). "
+                            "Server may encounter CUDA out-of-memory errors.",
+                            profile.vram_mb,
+                            profile.gpu_name or "CUDA device",
+                        )
+                except Exception as hw_exc:
+                    logger.debug("VRAM pre-flight check skipped: %s", hw_exc)
 
                 # Verified optimal hardware arguments
                 cmd = [

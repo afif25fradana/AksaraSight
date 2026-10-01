@@ -1386,3 +1386,41 @@ def test_poll_status_releases_lock_during_health_probe():
     finally:
         mgr.shutdown()
 
+
+def test_server_manager_start_vram_warning(tmp_path, caplog):
+    """B6: start() logs a warning if detected VRAM is below recommended 2.2 GB."""
+    from core.hardware import HardwareProfile
+
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    low_vram_profile = HardwareProfile(
+        gpu_name="NVIDIA GeForce GTX 1050",
+        vram_mb=2048,
+        cuda_available=True,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+                 patch("core.server_manager.get_cached_hardware_profile", return_value=low_vram_profile) as mock_hw, \
+                 patch("subprocess.Popen", return_value=mock_proc):
+                mgr.start()
+                mock_hw.assert_called_once_with(blocking=False)
+                assert "Detected 2048 MB VRAM on 'NVIDIA GeForce GTX 1050'" in caplog.text
+                assert "below recommended ~2.2 GB" in caplog.text
+        finally:
+            mgr.shutdown()
+
+

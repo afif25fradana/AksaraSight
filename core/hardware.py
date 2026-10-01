@@ -384,7 +384,10 @@ def detect_hardware() -> HardwareProfile:
 _CACHED_HARDWARE_PROFILE: Optional[HardwareProfile] = None
 
 
-def get_cached_hardware_profile(force_refresh: bool = False) -> HardwareProfile:
+def get_cached_hardware_profile(
+    force_refresh: bool = False,
+    blocking: bool = True,
+) -> Optional[HardwareProfile]:
     """Retrieve cached HardwareProfile snapshot, computing once and caching in-process.
 
     Avoids repeated subprocess queries (nvidia-smi) and ctypes device enumerations
@@ -392,12 +395,21 @@ def get_cached_hardware_profile(force_refresh: bool = False) -> HardwareProfile:
 
     Args:
         force_refresh: If True, bypasses cache and forces fresh hardware detection.
+        blocking: If False, returns None immediately if the cache is empty without
+            invoking blocking subprocess queries under state locks.
 
     Returns:
-        HardwareProfile: Cached or newly evaluated system hardware snapshot.
+        HardwareProfile: Cached or newly evaluated system hardware snapshot,
+        or None if non-blocking and cache is empty.
     """
     global _CACHED_HARDWARE_PROFILE
-    if force_refresh or _CACHED_HARDWARE_PROFILE is None:
+    if force_refresh:
+        if not blocking:
+            return None
+        _CACHED_HARDWARE_PROFILE = detect_hardware()
+    elif _CACHED_HARDWARE_PROFILE is None:
+        if not blocking:
+            return None
         _CACHED_HARDWARE_PROFILE = detect_hardware()
     return _CACHED_HARDWARE_PROFILE
 

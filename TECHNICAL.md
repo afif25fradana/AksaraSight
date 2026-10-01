@@ -51,7 +51,7 @@ AksaraSight/
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
-└── tests/                 # Automated test suite (553 unit, integration, and UI tests across 17 files)
+└── tests/                 # Automated test suite (unit, integration, and UI tests)
 ```
 
 ### Architectural Guarantees & Concurrency
@@ -210,17 +210,17 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 ## Testing, Build Verification & Portable Packaging
 
 ### Running the Test Suite
-The test suite consists of 553 automated tests across 17 test files, configured via `pytest.ini`:
+The test suite is configured via `pytest.ini`:
 1. **Core & CLI Suite**: Headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, controllers, and runtime supervision. Runs on both Linux and Windows.
 2. **Desktop GUI Suite**: Tkinter and CustomTkinter desktop interface tests, run on Windows.
 
 Run tests from the repository root:
 
 ```powershell
-# Fast subset (headless, excludes GUI and queue manager tests; verified green on Linux CI; ~5s)
-python -m pytest --ignore=tests/test_gui.py --ignore=tests/test_queue_manager.py
+# Core & CLI test suite (headless, verified green on Linux CI)
+python -m pytest --ignore=tests/test_gui.py
 
-# Complete test suite (553 tests; verified green on Windows CI; ~90s)
+# Complete test suite (verified green on Windows CI)
 python -m pytest
 ```
 

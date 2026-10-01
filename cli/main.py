@@ -365,7 +365,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     input_path: Path = args.input
-    start_hardware_prewarm()
 
     # 1. Validate input existence (Fatal error -> Exit Code 1)
     if not input_path.exists():
@@ -427,6 +426,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stderr.write("Error: Cannot write binary DOCX output to a terminal. Specify -o/--output or redirect stdout.\n")
             return 1
         file_list = [input_path.resolve()]
+
+    # Pre-warm hardware detection only when proceeding with document processing against loopback backend
+    if settings.is_loopback:
+        start_hardware_prewarm()
 
     # 5. Initialize Engine and process documents (streaming mode to prevent unbounded memory growth)
     engine = OCREngine(settings=settings)

@@ -1271,6 +1271,45 @@ def test_cli_vram_warning_on_cold_start(
     assert "below recommended ~2.2 GB" in captured.err
 
 
+@patch("cli.main.start_hardware_prewarm")
+def test_cli_prewarm_skipped_on_nonexistent_input(mock_prewarm: MagicMock, tmp_path: Path) -> None:
+    """Verify CLI does not trigger hardware pre-warm if input path does not exist."""
+    nonexistent = tmp_path / "does_not_exist.pdf"
+    exit_code = main([str(nonexistent)])
+    assert exit_code == 1
+    mock_prewarm.assert_not_called()
+
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.start_hardware_prewarm")
+def test_cli_prewarm_skipped_for_remote_endpoint(
+    mock_prewarm: MagicMock,
+    mock_engine_cls: MagicMock,
+    dummy_png: Path,
+    mock_success_result: OCRResult,
+) -> None:
+    """Verify CLI does not trigger hardware pre-warm when targeting a remote non-loopback server."""
+    mock_engine = MagicMock()
+    mock_engine.process_document.return_value = mock_success_result
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main([str(dummy_png), "--allow-remote", "--endpoint", "http://192.168.1.50:8080/v1"])
+    assert exit_code == 0
+    mock_prewarm.assert_not_called()
+
+
+@patch("cli.main.start_hardware_prewarm")
+def test_cli_prewarm_skipped_for_diagnostics(mock_prewarm: MagicMock) -> None:
+    """Verify CLI does not trigger hardware pre-warm for diagnostic flags."""
+    with patch("cli.main.detect_hardware") as mock_dh:
+        from core.hardware import HardwareProfile
+        mock_dh.return_value = HardwareProfile(cpu_name="Test CPU", recommended_backend="cpu")
+        exit_code = main(["--detect-hardware"])
+        assert exit_code == 0
+        mock_prewarm.assert_not_called()
+
+
+
 
 
 

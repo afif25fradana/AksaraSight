@@ -6,6 +6,17 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
+### [Unreleased]
+*Focus: Runtime diagnostics, dependency hardening, hardware pre-warming, export collision isolation, and configuration persistence safeguards.*
+- **Dependency Hardening**: Updated build and testing dependencies (`python-dotenv` ~=1.2.3, `pytest` ~=9.1.1, `pyinstaller` ~=6.22.3, and `pyinstaller-hooks-contrib` ~=2026.8) while retaining strict pins on core runtime dependencies (`pypdfium2`, `customtkinter`, `tkinterdnd2`, `python-docx`, `markdown-it-py`).
+- **Hardware Pre-Flight & Cold-Start VRAM Pre-Warming**: Added non-blocking asynchronous hardware pre-warming (`start_hardware_prewarm()`) across CLI and GUI startup. Evaluates GPU memory capacity on cold start and emits an advisory warning if detected VRAM is below the ~2.2 GB required for GLM-OCR under 8k context (`-c 8192`) without holding server lifecycle locks or delaying UI launch.
+- **Application File Logging & Rotation Architecture**: Configured desktop file logging to `%LOCALAPPDATA%\AksaraSight\logs\app.log` using a `RotatingFileHandler` with a 5 MB limit and 3 backup archives. Routed `DEBUG` logs specifically to application modules (`gui`, `core`) while keeping root logging at `INFO` to eliminate third-party library noise.
+- **Format-Scoped Export Stem Collision Isolation**: Scoped export file stem uniqueness checks in `core/formatter.py` and `gui/export_controller.py` to active export formats, preventing existing files from unrelated formats from causing unnecessary filename collision increments.
+- **External Server Model Family Normalization**: Normalized model family detection in `core/server_manager.py` when probing external endpoints, preventing false-positive server adoption across distinct model variants while matching projector weights to active model quantizations.
+- **Atomic Configuration Persistence with Apostrophe Quoting**: Hardened `.env` file persistence in `config/settings.py` by generating temporary files as `.env.tmp` prior to atomic replacement, and escaping values containing apostrophes and special characters to ensure reliable round-tripping through `python-dotenv`.
+
+---
+
 ### v1.2.0 — GUI Modularization, Architecture Consolidation & Test Expansion (October 1, 2026)
 *Focus: Desktop GUI modularization into dedicated controllers, test suite expansion, server manager lifecycle lock hardening, and documentation sanitization. (Architectural consolidation; no breaking changes).*
 - **Modular GUI Controllers (`gui/`)**: Extracted 7 dedicated, testable controller modules from `gui/app.py`:

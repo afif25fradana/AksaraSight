@@ -13,7 +13,8 @@ This document provides in-depth technical specifications, architecture notes, co
 5. [Security, Network Policy & Process Lifecycles](#security-network-policy--process-lifecycles)
 6. [Output Formats & Data Payloads](#output-formats--data-payloads)
 7. [Performance, Latency & Known Model Quirks](#performance-latency--known-model-quirks)
-8. [Testing, Build Verification & Portable Packaging](#testing-build-verification--portable-packaging)
+8. [Logging Architecture & Runtime Diagnostics](#logging-architecture--runtime-diagnostics)
+9. [Testing, Build Verification & Portable Packaging](#testing-build-verification--portable-packaging)
 
 ---
 
@@ -204,6 +205,22 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 - **Currency Symbol Delimiter Anomaly (`$DIGIT`)**:
   When currency figures lack whitespace (e.g., `$100.00` or `$1,250.00`), GLM-OCR's tokenizer misinterprets `$` before digits as an unclosed inline LaTeX math delimiter, and post-processing filters strip the symbol (yielding `.00` or `,250.00`). Figures formatted with whitespace (`$ 100.00`) or standard ISO currency codes (`USD 100.00`) transcribe accurately. Financial workflows should verify unspaced dollar amounts.
 - **Page-Boundary Cancellation**: Active HTTP vision requests cannot be safely terminated mid-transfer without destroying the underlying HTTP connection pool. Cancelling multi-page jobs completes the current in-flight page before gracefully halting.
+
+---
+
+## Logging Architecture & Runtime Diagnostics
+
+### Application File Logging
+When running as a packaged desktop application, runtime logs are written directly to disk:
+- **Destination**: `%LOCALAPPDATA%\AksaraSight\logs\app.log`
+- **Log Level Routing**: The root logger is initialized at `INFO` to record operational lifecycle events. To capture diagnostic troubleshooting details without polluting logs with high-volume third-party library noise (such as `urllib3`, `PIL`, or `customtkinter`), `DEBUG` logging is specifically enabled for internal application namespaces (`gui` and `core`). Unhandled crashes are intercepted via `sys.excepthook` and recorded with full tracebacks.
+- **Log Rotation Policy**: Log file growth is bounded using a `RotatingFileHandler` configured with a 5 MB maximum file size (`maxBytes=5242880`) and up to 3 backup archives (`backupCount=3`, preserving `app.log.1`, `app.log.2`, and `app.log.3`).
+- **Multi-Instance Concurrency on Windows**: Windows enforces mandatory file locks on open file handles. When two application instances run concurrently and share the same log file, log rotation cannot rename active log files (`PermissionError`). Python's logging handler catches this condition internally, deferring rotation until the secondary process releases its handle. Standard single-instance execution rotates logs cleanly without interruption.
+
+### Hardware Pre-Flight & Cold-Start Diagnostics
+GLM-OCR inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 2.2 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
+- **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Desktop GUI (`gui/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
+- **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without freezing process supervision.
 
 ---
 

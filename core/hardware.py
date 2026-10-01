@@ -439,7 +439,8 @@ def get_cached_hardware_profile(
     if force_refresh:
         if not blocking:
             return None
-        _CACHED_HARDWARE_PROFILE = detect_hardware()
+        with _PREWARM_LOCK:
+            _CACHED_HARDWARE_PROFILE = detect_hardware()
     elif _CACHED_HARDWARE_PROFILE is None:
         if not blocking:
             start_hardware_prewarm()

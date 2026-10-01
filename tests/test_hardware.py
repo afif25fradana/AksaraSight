@@ -274,3 +274,59 @@ def test_start_hardware_prewarm_non_blocking_when_lock_held() -> None:
         clear_hardware_cache()
 
 
+def test_hardware_detection_single_flight_under_concurrent_queries() -> None:
+    """Verify concurrent prewarm and blocking queries result in a single hardware detection flight."""
+    import threading
+    import time
+    import core.hardware
+    from core.hardware import (
+        clear_hardware_cache,
+        get_cached_hardware_profile,
+        start_hardware_prewarm,
+    )
+
+    clear_hardware_cache()
+    try:
+        dummy_profile = HardwareProfile(
+            gpu_name="Test GPU",
+            vram_mb=4096,
+            cuda_available=True,
+            cpu_name="Test CPU",
+            recommended_backend="cuda",
+        )
+
+        def slow_detect() -> HardwareProfile:
+            time.sleep(0.05)
+            return dummy_profile
+
+        with patch("core.hardware.detect_hardware", side_effect=slow_detect) as mock_detect:
+            results: list = [None, None]
+
+            def run_prewarm() -> None:
+                start_hardware_prewarm()
+
+            def run_get_profile(idx: int) -> None:
+                results[idx] = get_cached_hardware_profile(blocking=True)
+
+            threads = [
+                threading.Thread(target=run_prewarm),
+                threading.Thread(target=run_get_profile, args=(0,)),
+                threading.Thread(target=run_get_profile, args=(1,)),
+            ]
+
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            if core.hardware._PREWARM_THREAD is not None:
+                core.hardware._PREWARM_THREAD.join(timeout=2.0)
+
+            assert mock_detect.call_count == 1
+            assert results[0] == dummy_profile
+            assert results[1] == dummy_profile
+    finally:
+        clear_hardware_cache()
+
+
+

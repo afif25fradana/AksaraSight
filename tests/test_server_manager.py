@@ -176,6 +176,20 @@ def test_model_matches_helper():
     assert _model_matches("GLM-OCR-GGUF", "C:/models/GLM-OCR-GGUF.gguf")
     assert _model_matches("/models/glm-ocr.gguf", "glm-ocr")
 
+    # Filename-style IDs vs repo-style expected
+    assert _model_matches("GLM-OCR-Q8_0.gguf", "unsloth/GLM-OCR-GGUF")
+    assert _model_matches("GLM-OCR.Q4_K_M.gguf", "zai-org/GLM-OCR")
+    assert _model_matches("models/GLM-OCR-Q8_0.gguf", "unsloth/GLM-OCR-GGUF")
+
+    # Repo-style IDs vs filename-style expected
+    assert _model_matches("unsloth/GLM-OCR-GGUF", "GLM-OCR-Q8_0.gguf")
+    assert _model_matches("zai-org/GLM-OCR", "models/GLM-OCR-Q4_K_M.gguf")
+
+    # Genuinely different models
+    assert not _model_matches("llama-3-8b-instruct.Q4_K_M.gguf", "unsloth/GLM-OCR-GGUF")
+    assert not _model_matches("mistral-7b.gguf", "GLM-OCR")
+    assert not _model_matches("qwen2.5-vl-7b-instruct.gguf", "unsloth/GLM-OCR-GGUF")
+
     # Mismatches
     assert not _model_matches("unrelated-model", "ggml-org/GLM-OCR-GGUF")
     assert not _model_matches("llama-3-8b", "GLM-OCR-GGUF")

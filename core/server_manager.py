@@ -73,10 +73,40 @@ def resolve_base_url(endpoint: str) -> str:
     return f"{scheme}://{netloc}"
 
 
+def _normalize_model_family(raw: str) -> str:
+    """Extract a canonical model family name from a model ID, repo, or file path.
+
+    Strips directory paths, repo prefixes, file extensions (.gguf, .bin),
+    quantization tags (e.g. -Q8_0, .Q4_K_M), and GGUF format suffixes.
+
+    Args:
+        raw: Model ID, repo name, or file path.
+
+    Returns:
+        str: Normalized lowercase model family name.
+    """
+    if not raw or not isinstance(raw, str):
+        return ""
+    name = raw.replace("\\", "/").rstrip("/").split("/")[-1].strip().lower()
+    name = re.sub(r"\.(gguf|bin)$", "", name, flags=re.IGNORECASE)
+    while True:
+        cleaned = re.sub(
+            r"[-._](q[0-9]+[a-z0-9_]*|f16|f32|bf16|gguf)$",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        )
+        if cleaned and cleaned != name:
+            name = cleaned
+        else:
+            break
+    return name
+
+
 def _model_matches(primary: str, expected: str) -> bool:
     """Check if primary model ID matches expected model repo or path.
 
-    Performs case-insensitive substring and stem matching.
+    Performs case-insensitive substring, stem, and model family matching.
 
     Args:
         primary: Model ID reported by the running server.
@@ -99,6 +129,13 @@ def _model_matches(primary: str, expected: str) -> bool:
         return True
     if p_stem in e_stem or e_stem in p_stem:
         return True
+    p_fam = _normalize_model_family(primary)
+    e_fam = _normalize_model_family(expected)
+    if p_fam and e_fam:
+        if p_fam == e_fam:
+            return True
+        if p_fam in e_fam or e_fam in p_fam:
+            return True
     return False
 
 

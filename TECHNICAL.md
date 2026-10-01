@@ -148,10 +148,10 @@ GLM-OCR is a vision-language model requiring both text weights and multimodal pr
 
 ```powershell
 # Option A: Automatic Hugging Face resolution (llama.cpp b10930+ auto-downloads matching mmproj)
-llama-server -hf ggml-org/GLM-OCR-GGUF --port 8080 -ngl 99 -c 8192 --parallel 1
+llama-server -hf ggml-org/GLM-OCR-GGUF --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 
-# Option B: Local GGUF files (explicit --mmproj is REQUIRED; --flash-attn off recommended for stability)
-llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --port 8080 -ngl 99 -c 8192 --parallel 1 --flash-attn off
+# Option B: Local GGUF files (explicit --mmproj is REQUIRED)
+llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 ```
 
 > **VRAM Configuration Tip**: While raw GGUF weights are ~1.36 GB (~1.8 GB VRAM), `llama-server` defaults to `n_slots=4` and `n_ctx_slot=40192`, which pre-allocates an extra ~2.0 GB of unified KV cache and balloons VRAM to >4.2 GB. Launching with `-c 8192 --parallel 1` caps context to 8k tokens and single-slot concurrency, holding VRAM to ~2.18 GB.

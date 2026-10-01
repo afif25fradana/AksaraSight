@@ -387,7 +387,7 @@ def test_save_to_env_preserves_path_with_single_quotes(tmp_path):
     s1.save_to_env(env_file)
 
     content = env_file.read_text(encoding="utf-8")
-    assert r"OCR_LLAMA_SERVER_PATH='C:\Users\D\'Angelo\llama-server.exe'" in content
+    assert 'OCR_LLAMA_SERVER_PATH="C:\\\\Users\\\\D\'Angelo\\\\llama-server.exe"' in content
 
     # Reload from env in a fresh load
     s2 = Settings.from_env(env_file)
@@ -676,5 +676,50 @@ def test_save_to_env_cleans_up_tmp_on_write_failure(tmp_path):
     assert not tmp_file.exists()
 
 
+def test_save_to_env_temp_file_naming(tmp_path):
+    """Verify save_to_env creates a temp file named <target.name>.tmp during the write cycle."""
+    env_file = tmp_path / ".env"
+    custom_env_file = tmp_path / "custom.env"
+    s = Settings()
 
+    observed_temp_files: list[tuple[str, bool]] = []
+    original_replace = Path.replace
+
+    def spy_replace(self, target):
+        observed_temp_files.append((self.name, self.exists()))
+        return original_replace(self, target)
+
+    with patch.object(Path, "replace", side_effect=spy_replace, autospec=True):
+        s.save_to_env(env_file)
+        s.save_to_env(custom_env_file)
+
+    assert observed_temp_files == [(".env.tmp", True), ("custom.env.tmp", True)]
+    assert env_file.is_file()
+    assert custom_env_file.is_file()
+    assert not (tmp_path / ".env.tmp").exists()
+    assert not (tmp_path / "custom.env.tmp").exists()
+
+
+def test_save_to_env_apostrophe_quote_handling(tmp_path, monkeypatch):
+    """Verify values containing apostrophes and Windows backslashes round-trip cleanly."""
+    for k in ["OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH", "OCR_MODEL_REPO", "MODEL_REPO"]:
+        monkeypatch.delenv(k, raising=False)
+
+    env_file = tmp_path / ".env"
+    test_path = r"C:\Users\O'Brien\server.exe"
+    test_repo = "user's/custom-model"
+    s = Settings(llama_server_path=test_path, model_repo=test_repo)
+    s.save_to_env(env_file)
+
+    content = env_file.read_text(encoding="utf-8")
+    assert 'OCR_LLAMA_SERVER_PATH="C:\\\\Users\\\\O\'Brien\\\\server.exe"' in content
+    assert 'OCR_MODEL_REPO="user\'s/custom-model"' in content
+
+    # Clear os.environ sync side-effects so from_env is forced to read and parse from disk
+    for k in ["OCR_LLAMA_SERVER_PATH", "LLAMA_SERVER_PATH", "OCR_MODEL_REPO", "MODEL_REPO"]:
+        monkeypatch.delenv(k, raising=False)
+
+    loaded = Settings.from_env(env_file)
+    assert loaded.llama_server_path == test_path
+    assert loaded.model_repo == test_repo
 

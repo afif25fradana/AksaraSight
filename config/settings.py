@@ -363,10 +363,14 @@ class Settings:
         aliases: dict[str, str] = {k.removeprefix("OCR_"): k for k in managed} | {"LOCAL_ENDPOINT": "OCR_ENDPOINT"}
 
         def _quote_val(v: str) -> str:
+            # If value contains single quotes/apostrophes, use double quotes with escaped backslashes
+            # and double quotes so python-dotenv round-trips correctly without leaving backslash escapes.
+            if "'" in v:
+                escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+                return f'"{escaped}"'
             # Single-quote strings to preserve whitespace, '#' symbols, and special characters
             # without triggering backslash escape expansion on Windows paths.
-            escaped = v.replace("'", "\\'")
-            return f"'{escaped}'"
+            return f"'{v}'"
 
         written_keys: Set[str] = set()
         new_lines: list[str] = []
@@ -399,7 +403,7 @@ class Settings:
                 new_lines.append(f"{k}={_quote_val(managed[k])}")
 
         # Atomic write
-        temp_file = target.with_suffix(".env.tmp")
+        temp_file = target.with_name(f"{target.name}.tmp")
         try:
             temp_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             temp_file.replace(target)

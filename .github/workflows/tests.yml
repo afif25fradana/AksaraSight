@@ -59,10 +59,16 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
+      - name: Install system dependencies (Tkinter & Xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb python3-tk
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run test suite (excluding GUI)
-        run: python -m pytest --ignore=tests/test_gui.py --ignore=tests/test_queue_manager.py
+      - name: Run test suite with Xvfb
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" python -m pytest --ignore=tests/test_gui.py
+

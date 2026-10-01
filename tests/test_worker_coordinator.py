@@ -12,7 +12,7 @@ import queue
 import threading
 import time
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, NonCallableMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -197,28 +197,25 @@ def test_coordinator_custom_queues_and_accessors() -> None:
 
 def test_coordinator_dynamic_property_resolution() -> None:
     """Dynamic resolution resolves static objects, callables, and protects NonCallableMock."""
-    # Static
+    # Direct objects (MagicMock is callable but should never be invoked as factory)
     s1 = Settings(dpi=150)
-    coord = WorkerCoordinator(engine="engine1", settings=s1, queue_manager="qm1")
-    assert coord.engine == "engine1"
+    mock_engine = MagicMock()
+    mock_qm = MagicMock()
+    coord = WorkerCoordinator(engine=mock_engine, settings=s1, queue_manager=mock_qm)
+    assert coord.engine is mock_engine
     assert coord.settings == s1
-    assert coord.queue_manager == "qm1"
+    assert coord.queue_manager is mock_qm
 
-    # Callable / lambda
+    # Direct setters
     s2 = Settings(dpi=300)
-    coord2 = WorkerCoordinator(
-        engine=lambda: "resolved_engine",
-        settings=lambda: s2,
-        queue_manager=lambda: "resolved_qm",
-    )
-    assert coord2.engine == "resolved_engine"
-    assert coord2.settings == s2
-    assert coord2.queue_manager == "resolved_qm"
-
-    # NonCallableMock (treat as direct object, do not attempt to invoke as factory)
-    mock_engine = NonCallableMock()
-    coord3 = WorkerCoordinator(engine=mock_engine, settings=s1, queue_manager=None)
-    assert coord3.engine is mock_engine
+    mock_engine2 = MagicMock()
+    mock_qm2 = MagicMock()
+    coord.engine = mock_engine2
+    coord.settings = s2
+    coord.queue_manager = mock_qm2
+    assert coord.engine is mock_engine2
+    assert coord.settings == s2
+    assert coord.queue_manager is mock_qm2
 
 
 def test_coordinator_start_lifecycle() -> None:

@@ -241,9 +241,9 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Worker coordinator controller
         self._worker_coordinator = WorkerCoordinator(
-            engine=lambda: self.engine,
-            settings=lambda: self.settings,
-            queue_manager=lambda: self._queue_manager,
+            engine=self.engine,
+            settings=self.settings,
+            queue_manager=self._queue_manager,
             task_queue=self._task_queue_backing,
             result_queue=self._result_queue_backing,
             export_controller=self._export_controller,
@@ -389,8 +389,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
 
         # Server UI Controller
         self._server_controller = ServerUIController(
-            server_manager=lambda: self.server_manager,
-            settings=lambda: self.settings,
+            server_manager=self.server_manager,
+            settings=self.settings,
             engine=self.engine,
             safe_after=self._safe_after,
             is_shutting_down=lambda: self._is_shutting_down,
@@ -1331,6 +1331,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         # Queue settings for safe inter-document update
         if getattr(self, "_worker_coordinator", None) is not None:
             self._worker_coordinator.queue_pending_settings(new_settings)
+        if getattr(self, "_server_controller", None) is not None:
+            self._server_controller.settings = new_settings
 
         # Refresh queue rows' metadata if DPI setting changed
         if self._queue_manager is not None:

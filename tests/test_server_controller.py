@@ -127,16 +127,16 @@ def controller_harness():
 
 
 def test_controller_initialization_and_properties():
-    """Verify property getters, setters, and callable resolution."""
+    """Verify property getters and setters on ServerUIController."""
     mock_sm1 = MagicMock()
     mock_sm2 = MagicMock()
     settings1 = StubSettings(auto_start_server=False)
     settings2 = StubSettings(auto_start_server=True)
 
-    # Callable server_manager and settings
+    # Direct server_manager and settings
     ctrl = ServerUIController(
-        server_manager=lambda: mock_sm1,
-        settings=lambda: settings1,
+        server_manager=mock_sm1,
+        settings=settings1,
     )
     assert ctrl.server_manager is mock_sm1
     assert ctrl.settings is settings1

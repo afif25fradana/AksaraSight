@@ -34,14 +34,6 @@ from gui.theme import (
 logger = logging.getLogger(__name__)
 
 
-def _is_callable_factory(obj: Any) -> bool:
-    """Return True if obj is a callable factory function and not a test mock."""
-    if not callable(obj):
-        return False
-    cls_module = getattr(getattr(obj, "__class__", None), "__module__", "")
-    return "unittest.mock" not in cls_module
-
-
 class WorkerEventType(str, Enum):
     """Event types posted from the background worker thread to the main UI thread."""
     STARTED = "STARTED"
@@ -126,9 +118,7 @@ class WorkerCoordinator:
 
     @property
     def engine(self) -> Any:
-        """Return resolved engine instance or callable result."""
-        if _is_callable_factory(self._engine):
-            return self._engine()
+        """Return engine instance."""
         return self._engine
 
     @engine.setter
@@ -137,9 +127,7 @@ class WorkerCoordinator:
 
     @property
     def settings(self) -> Any:
-        """Return resolved settings instance or callable result."""
-        if _is_callable_factory(self._settings):
-            return self._settings()
+        """Return application settings."""
         return self._settings
 
     @settings.setter
@@ -148,9 +136,7 @@ class WorkerCoordinator:
 
     @property
     def queue_manager(self) -> Any:
-        """Return resolved queue manager instance or callable result."""
-        if _is_callable_factory(self._queue_manager):
-            return self._queue_manager()
+        """Return queue manager instance."""
         return self._queue_manager
 
     @queue_manager.setter

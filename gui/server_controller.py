@@ -22,14 +22,6 @@ from gui.theme import (
 logger = logging.getLogger(__name__)
 
 
-def _is_callable_factory(obj: Any) -> bool:
-    """Return True if obj is a callable factory function and not a test mock."""
-    if not callable(obj):
-        return False
-    cls_module = getattr(getattr(obj, "__class__", None), "__module__", "")
-    return "unittest.mock" not in cls_module
-
-
 class ServerUIController:
     """Manages server health polling cadence, status pill visuals, and lifecycle actions."""
 
@@ -64,9 +56,7 @@ class ServerUIController:
 
     @property
     def server_manager(self) -> Any:
-        """Return the resolved server manager instance or callable result."""
-        if _is_callable_factory(self._server_manager):
-            return self._server_manager()
+        """Return the server manager instance."""
         return self._server_manager
 
     @server_manager.setter
@@ -75,9 +65,7 @@ class ServerUIController:
 
     @property
     def settings(self) -> Any:
-        """Return the resolved settings instance or callable result."""
-        if _is_callable_factory(self._settings):
-            return self._settings()
+        """Return the application settings."""
         return self._settings
 
     @settings.setter

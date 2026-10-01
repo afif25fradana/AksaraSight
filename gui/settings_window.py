@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-import sys
 import threading
 from tkinter import filedialog
 from typing import Any, Callable, Optional, Tuple
@@ -858,7 +857,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
                     self._safe_ui_dispatch(_update_ui)
 
-                installed_path = ensure_runtime(
+                ensure_runtime(
                     backend=target_backend,
                     tag=PINNED_LLAMA_BUILD,
                     progress_callback=_progress_cb,

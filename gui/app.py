@@ -1,20 +1,15 @@
 """GUI Application for AksaraSight desktop studio."""
 
-from dataclasses import dataclass
-from enum import Enum
 import io
 import json
 import logging
 import os
 from pathlib import Path
 import queue
-import re
 import sys
 import threading
-import time
 from tkinter import filedialog
-import traceback
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import customtkinter as ctk
 from PIL import Image
@@ -22,15 +17,14 @@ import tkinterdnd2 as tkdnd
 import tkinterdnd2.TkinterDnD as tdnd
 
 from config.settings import Settings
-from core.constants import SUPPORTED_EXTENSIONS, __version__
+from core.constants import __version__
 from core.engine import OCREngine
 from core.formatter import (
     resolve_unique_stem,
     save_artifacts,
 )
-from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 from core.pipeline import PipelineError, rasterize_page
-from core.server_manager import ServerManager, ServerOwnership, ServerStatus, ServerStatusInfo
+from core.server_manager import ServerManager
 # Color tokens (WCAG 2.1 AA verified)
 # Re-exported from gui.theme for backward compatibility
 from gui.theme import (
@@ -81,6 +75,53 @@ from gui.queue_manager import (
     QueueItemStatus,
     QueueManager,
 )
+
+__all__ = [
+    "OCRApp",
+    "QueueItem",
+    "QueueItemStatus",
+    "QueueManager",
+    "WorkerCoordinator",
+    "WorkerEvent",
+    "WorkerEventType",
+    "ExportController",
+    "ImagePreviewController",
+    "MarkdownHighlighter",
+    "ServerUIController",
+    "SettingsWindow",
+    "COLOR_ACCENT_DISABLED",
+    "COLOR_ACCENT_DISABLED_TEXT",
+    "COLOR_ACCENT_HOVER",
+    "COLOR_ACCENT_PRIMARY",
+    "COLOR_ACCENT_TEXT",
+    "COLOR_CANVAS_BG",
+    "COLOR_CHIP_IMG_BG",
+    "COLOR_CHIP_IMG_TEXT",
+    "COLOR_CHIP_PDF_BG",
+    "COLOR_CHIP_PDF_TEXT",
+    "COLOR_DRAGOVER_BG",
+    "COLOR_INTERACTIVE_HOVER",
+    "COLOR_INTERACTIVE_NEUTRAL",
+    "COLOR_ROW_SELECTED_BG",
+    "COLOR_SCROLLBAR_THUMB",
+    "COLOR_SCROLLBAR_THUMB_HOVER",
+    "COLOR_STATUS_CANCELLED",
+    "COLOR_STATUS_ERROR",
+    "COLOR_STATUS_FAILED",
+    "COLOR_STATUS_PARTIAL",
+    "COLOR_STATUS_PROCESSING",
+    "COLOR_STATUS_QUEUED",
+    "COLOR_STATUS_SUCCESS",
+    "COLOR_STATUS_WARNING",
+    "COLOR_SURFACE_1",
+    "COLOR_SURFACE_2",
+    "COLOR_SURFACE_BORDER",
+    "COLOR_SURFACE_BORDER_HOVER",
+    "COLOR_TEXT_MUTED",
+    "COLOR_TEXT_PRIMARY",
+    "COLOR_TEXT_SECONDARY",
+    "COLOR_TEXT_SUBTLE",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -1136,7 +1177,6 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             if selected_id is not None
             else None
         )
-        has_selected = selected_item is not None
         selected_completed = (
             selected_item is not None
             and selected_item.status in (QueueItemStatus.SUCCESS, QueueItemStatus.CANCELLED)

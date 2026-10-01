@@ -10,18 +10,16 @@ bugs already fixed, so it tests the safety net's shape rather than duplicating
 existing per-bug regression coverage.
 """
 
-import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PIL import Image
 import pypdfium2 as pdfium
 import pytest
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient
 from core.engine import OCREngine
-from core.models import JobConfig, JobStatus, OCRResult, PageResult
+from core.models import JobStatus, OCRResult, PageResult
 from core.pipeline import ExtractedPage, PipelineError
 from tests.fixture_helpers import load_real_glm_ocr_response
 

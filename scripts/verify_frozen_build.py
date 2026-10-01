@@ -130,10 +130,10 @@ def test_gui_window_rendering_and_logging() -> bool:
         proc.kill()
         return False
 
-    print(f"  [PASS] Main window verified on-screen:")
+    print("  [PASS] Main window verified on-screen:")
     print(f"         HWND:  {hex(verified_hwnd)}")
     print(f"         Title: '{window_title}'")
-    print(f"         State: IsWindowVisible = True")
+    print("         State: IsWindowVisible = True")
 
     # Capture visual proof screenshot of real running window
     try:

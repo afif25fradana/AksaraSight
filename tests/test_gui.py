@@ -1,4 +1,3 @@
-import gc
 import inspect
 from pathlib import Path
 import subprocess
@@ -1260,7 +1259,6 @@ def test_page_progress_worker_event_wiring(tmp_path: Path) -> None:
         test_file.write_bytes(b"%PDF-1.4 multipage dummy")
         app.enqueue_file(test_file)
         item_id = str(test_file.resolve())
-        item = app._queue_manager.items[item_id]
 
         # 1. Simulate STARTED event
         app._worker_coordinator.result_queue.put(
@@ -1932,7 +1930,6 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
         app.enqueue_file(p_failed)
         app.enqueue_file(p_cancelled)
 
-        id_queued = str(p_queued.resolve())
         id_proc = str(p_proc.resolve())
         id_success = str(p_success.resolve())
         id_failed = str(p_failed.resolve())
@@ -1990,7 +1987,6 @@ def test_batch2_lazy_tab_rendering_lifecycle(tmp_path):
     try:
         app.enqueue_file(p)
         item_id = str(p.resolve())
-        item = app._queue_manager.items[item_id]
         app._queue_manager.select_item(item_id)
 
         # Tabview defaults to "Raw Markdown"
@@ -2054,7 +2050,6 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
     try:
         app.enqueue_file(pdf_path)
         item_id = str(pdf_path.resolve())
-        item = app._queue_manager.items[item_id]
         app._queue_manager.select_item(item_id)
 
         # Complete with 2 pages and NO base64 images

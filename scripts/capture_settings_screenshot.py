@@ -7,7 +7,6 @@ import time
 # Ensure repository root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PIL import Image
 import customtkinter as ctk
 
 from config.settings import Settings

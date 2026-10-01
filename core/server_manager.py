@@ -25,10 +25,8 @@ from config.settings import Settings
 logger = logging.getLogger(__name__)
 
 from core.job_object import (
-    Win32JobObject,
     _assign_process_to_job,
     _close_job_handle,
-    _create_job_object,
     _create_kill_on_close_job,
 )
 

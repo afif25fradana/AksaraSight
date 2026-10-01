@@ -503,7 +503,7 @@ def rasterize_page(
                         page.close()
                 finally:
                     doc.close()
-        except pdfium.PdfiumError as pdf_err:
+        except pdfium.PdfiumError:
             # Fallback for mislabeled extension (e.g. JPEG renamed to .pdf)
             try:
                 with Image.open(file_path) as img:

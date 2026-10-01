@@ -10,12 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
 from core.engine import JobStatus, OCRResult, PageResult
-from core.models import JobConfig, OutputFormat
+from core.models import OutputFormat
 from gui.export_controller import ExportController
 from gui.queue_manager import QueueItem, QueueItemStatus
 from gui.theme import (

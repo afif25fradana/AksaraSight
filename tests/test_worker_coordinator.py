@@ -10,20 +10,16 @@ from __future__ import annotations
 from pathlib import Path
 import queue
 import threading
-import time
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from config.settings import Settings
 from core.engine import JobStatus, OCRResult, PageResult
-from core.models import JobConfig
 from gui.queue_manager import QueueItem, QueueItemStatus
 from gui.theme import (
     COLOR_STATUS_CANCELLED,
     COLOR_STATUS_FAILED,
-    COLOR_STATUS_PARTIAL,
     COLOR_STATUS_PROCESSING,
     COLOR_STATUS_SUCCESS,
     COLOR_TEXT_MUTED,

@@ -779,7 +779,6 @@ def test_server_manager_start_failure_after_popen_kills_orphan_and_sets_error(tm
 
 def test_server_manager_registers_atexit():
     """Verify ServerManager registers an atexit shutdown hook."""
-    import atexit
     mgr = ServerManager()
     try:
         assert hasattr(mgr, "_atexit_hook")

@@ -112,6 +112,7 @@ __all__ = [
     "ingest",
     "is_pdf",
     "is_runtime_installed",
+    "rasterize_page",
     "probe_server_health",
     "resolve_chat_endpoint",
     "resolve_unique_stem",

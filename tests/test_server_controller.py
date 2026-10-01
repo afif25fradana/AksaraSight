@@ -9,7 +9,6 @@ Runs 100% headless without requiring ctk.CTk or a display server.
 from __future__ import annotations
 
 import threading
-import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from unittest.mock import MagicMock
 
@@ -18,11 +17,7 @@ import pytest
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from gui.server_controller import ServerUIController
 from gui.theme import (
-    COLOR_INTERACTIVE_HOVER,
-    COLOR_INTERACTIVE_NEUTRAL,
-    COLOR_SURFACE_BORDER,
     COLOR_TEXT_MUTED,
-    COLOR_TEXT_PRIMARY,
 )
 
 

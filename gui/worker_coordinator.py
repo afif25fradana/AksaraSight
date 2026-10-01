@@ -15,7 +15,7 @@ import queue
 import sys
 import threading
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional
 
 from config.settings import Settings
 from core.client import resolve_chat_endpoint

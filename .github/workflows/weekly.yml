@@ -1,10 +1,9 @@
-name: Tests
+name: Weekly Maintenance
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,15 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint & Code Style
+  security-audit:
+    name: Dependency Vulnerability Audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Run Ruff
-        uses: astral-sh/ruff-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install pip-audit
+        run: pip install --upgrade pip pip-audit
+
+      - name: Audit requirements
+        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements-build.txt
 
   test-windows:
     name: Windows Python ${{ matrix.python-version }} (Full Test Suite)

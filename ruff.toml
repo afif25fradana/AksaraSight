@@ -1,0 +1,7 @@
+# Ruff configuration for AksaraSight
+target-version = "py310"
+line-length = 120
+
+[lint]
+# F = Pyflakes (enforces import hygiene, no undefined/unused variables)
+select = ["F"]

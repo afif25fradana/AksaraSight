@@ -145,7 +145,7 @@ def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) ->
         # Critical: Windows CUDA builds require both primary runtime and companion cudart DLLs
         return [
             f"llama-{clean_tag}-bin-win-cuda-12.4-x64.zip",
-            f"cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "cudart-llama-bin-win-cuda-12.4-x64.zip",
         ]
     elif clean_backend == "vulkan":
         return [f"llama-{clean_tag}-bin-win-vulkan-x64.zip"]

@@ -478,7 +478,7 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
         zip_digest = hashlib.sha256(zip_bytes).hexdigest()
 
         mock_meta = {
-            f"llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
                 name="llama-b10930-bin-win-cpu-x64.zip",
                 download_url="https://mock/cpu.zip",
                 size=len(zip_bytes),
@@ -578,7 +578,7 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
         zip_digest = hashlib.sha256(zip_bytes).hexdigest()
 
         mock_meta = {
-            f"llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
                 name="llama-b10930-bin-win-cpu-x64.zip",
                 download_url="https://mock/cpu.zip",
                 size=len(zip_bytes),

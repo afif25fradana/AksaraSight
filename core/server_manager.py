@@ -73,6 +73,35 @@ def resolve_base_url(endpoint: str) -> str:
     return f"{scheme}://{netloc}"
 
 
+def _model_matches(primary: str, expected: str) -> bool:
+    """Check if primary model ID matches expected model repo or path.
+
+    Performs case-insensitive substring and stem matching.
+
+    Args:
+        primary: Model ID reported by the running server.
+        expected: Model repo or local file path expected in settings.
+
+    Returns:
+        bool: True if primary matches expected, False otherwise.
+    """
+    if not primary or not expected:
+        return False
+    p_clean = primary.strip().lower()
+    e_clean = expected.strip().lower()
+    if p_clean == e_clean:
+        return True
+    if p_clean in e_clean or e_clean in p_clean:
+        return True
+    p_stem = Path(primary).stem.strip().lower()
+    e_stem = Path(expected).stem.strip().lower()
+    if p_stem == e_stem:
+        return True
+    if p_stem in e_stem or e_stem in p_stem:
+        return True
+    return False
+
+
 def probe_server_health(
     endpoint: str,
     timeout: float = 1.5,
@@ -352,12 +381,56 @@ class ServerManager:
             active_ep = endpoint or self.settings.local_endpoint
             cur_status, cur_msg = probe_server_health(active_ep, timeout=1.5, session=self._session)
             if cur_status in (ServerStatus.READY, ServerStatus.STARTING):
+                expected = model_repo or self.settings.model_repo
+                model_detail = cur_msg
+                base_url = resolve_base_url(active_ep)
+                try:
+                    resp = self._session.get(f"{base_url}/v1/models", timeout=1.5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models_data = (
+                            data.get("data") or data.get("models")
+                            if isinstance(data, dict)
+                            else data
+                        )
+                        model_ids: List[str] = []
+                        if isinstance(models_data, list):
+                            for item in models_data:
+                                if isinstance(item, dict):
+                                    mid = item.get("id") or item.get("name")
+                                    if mid:
+                                        model_ids.append(str(mid))
+                                elif isinstance(item, str) and item.strip():
+                                    model_ids.append(item.strip())
+                        if model_ids:
+                            primary_model = model_ids[0]
+                            if _model_matches(primary_model, expected):
+                                model_detail = primary_model
+                                logger.info(
+                                    "Adopted external server at %s serving expected model: %s",
+                                    active_ep,
+                                    primary_model,
+                                )
+                            else:
+                                model_detail = f"serving '{primary_model}', expected '{expected}'"
+                                logger.warning(
+                                    "Adopted external server at %s is serving model '%s', but settings expect '%s'",
+                                    active_ep,
+                                    primary_model,
+                                    expected,
+                                )
+                        else:
+                            logger.info("Server already running on %s; adopting as external", active_ep)
+                    else:
+                        logger.info("Server already running on %s; adopting as external", active_ep)
+                except Exception:
+                    logger.info("Server already running on %s; adopting as external", active_ep)
+
                 with self._lock:
                     self._ownership = ServerOwnership.EXTERNAL
                     self._status = cur_status
-                    self._last_message = f"Connected to existing server ({cur_msg})"
+                    self._last_message = f"Connected to existing server ({model_detail})"
                     callback = self.on_lifecycle_change
-                logger.info("Server already running on %s; adopting as external", active_ep)
             else:
                 with self._lock:
                     existing_proc = self._process

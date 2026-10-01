@@ -1,6 +1,7 @@
 """Unit tests for core/server_manager.py."""
 
 import atexit
+import logging
 import subprocess
 import sys
 import threading
@@ -15,6 +16,7 @@ from core.server_manager import (
     ServerManager,
     ServerOwnership,
     ServerStatus,
+    _model_matches,
     probe_server_health,
     resolve_base_url,
 )
@@ -156,6 +158,131 @@ def test_server_manager_start_adopts_existing_external_server():
                 assert mgr.is_managed is False
     finally:
         mgr.shutdown()
+
+
+def test_model_matches_helper():
+    """Verify _model_matches performs case-insensitive substring and stem matching."""
+    # Exact and case-insensitive
+    assert _model_matches("ggml-org/GLM-OCR-GGUF", "ggml-org/GLM-OCR-GGUF")
+    assert _model_matches("GLM-OCR-GGUF", "glm-ocr-gguf")
+
+    # Substring matching
+    assert _model_matches("GLM-OCR-GGUF", "ggml-org/GLM-OCR-GGUF")
+    assert _model_matches("glm-ocr", "ggml-org/GLM-OCR-GGUF")
+    assert _model_matches("ggml-org/GLM-OCR-GGUF", "glm-ocr")
+
+    # Stem matching with paths and extensions
+    assert _model_matches("C:/models/GLM-OCR-GGUF.gguf", "ggml-org/GLM-OCR-GGUF")
+    assert _model_matches("GLM-OCR-GGUF", "C:/models/GLM-OCR-GGUF.gguf")
+    assert _model_matches("/models/glm-ocr.gguf", "glm-ocr")
+
+    # Mismatches
+    assert not _model_matches("unrelated-model", "ggml-org/GLM-OCR-GGUF")
+    assert not _model_matches("llama-3-8b", "GLM-OCR-GGUF")
+
+    # Empty values
+    assert not _model_matches("", "ggml-org/GLM-OCR-GGUF")
+    assert not _model_matches("GLM-OCR-GGUF", "")
+
+
+def test_server_manager_start_adopts_matching_model(caplog):
+    """Verify start() adopts external server and records matched model ID."""
+    settings = Settings(model_repo="ggml-org/GLM-OCR-GGUF")
+    mock_session = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": [{"id": "GLM-OCR-GGUF"}]}
+    mock_session.get.return_value = mock_resp
+
+    mgr = ServerManager(settings=settings, session=mock_session)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+            with patch("subprocess.Popen") as mock_popen:
+                with caplog.at_level(logging.INFO):
+                    mgr.start()
+                mock_popen.assert_not_called()
+                assert mgr.status == ServerStatus.READY
+                assert mgr.ownership == ServerOwnership.EXTERNAL
+                assert mgr.is_managed is False
+                assert mgr.get_status_info().message == "Connected to existing server (GLM-OCR-GGUF)"
+                assert "Adopted external server at" in caplog.text
+                assert "serving expected model: GLM-OCR-GGUF" in caplog.text
+                mock_session.get.assert_called_once_with("http://localhost:8080/v1/models", timeout=1.5)
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_adopts_mismatched_model(caplog):
+    """Verify start() logs a warning and notes mismatch when external server serves a different model."""
+    settings = Settings(model_repo="ggml-org/GLM-OCR-GGUF")
+    mock_session = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": [{"id": "unrelated-llama-3"}]}
+    mock_session.get.return_value = mock_resp
+
+    mgr = ServerManager(settings=settings, session=mock_session)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+            with patch("subprocess.Popen") as mock_popen:
+                with caplog.at_level(logging.WARNING):
+                    mgr.start()
+                mock_popen.assert_not_called()
+                assert mgr.status == ServerStatus.READY
+                assert mgr.ownership == ServerOwnership.EXTERNAL
+                assert mgr.is_managed is False
+                expected_msg = (
+                    "Connected to existing server (serving 'unrelated-llama-3', expected 'ggml-org/GLM-OCR-GGUF')"
+                )
+                assert mgr.get_status_info().message == expected_msg
+                assert "Adopted external server at" in caplog.text
+                assert "serving model 'unrelated-llama-3', but settings expect 'ggml-org/GLM-OCR-GGUF'" in caplog.text
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_adopts_fallback_on_models_failure():
+    """Verify start() gracefully falls back when /v1/models returns non-200, empty, or raises."""
+    settings = Settings(model_repo="ggml-org/GLM-OCR-GGUF")
+
+    # Non-200 HTTP status (e.g. 404 or 500)
+    mock_session_404 = MagicMock()
+    mock_session_404.get.return_value = MagicMock(status_code=404)
+    mgr_404 = ServerManager(settings=settings, session=mock_session_404)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+            mgr_404.start()
+            assert mgr_404.status == ServerStatus.READY
+            assert mgr_404.ownership == ServerOwnership.EXTERNAL
+            assert mgr_404.get_status_info().message == "Connected to existing server (Online)"
+    finally:
+        mgr_404.shutdown()
+
+    # Network exception / timeout
+    mock_session_err = MagicMock()
+    mock_session_err.get.side_effect = requests.exceptions.Timeout("Connection timed out")
+    mgr_err = ServerManager(settings=settings, session=mock_session_err)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+            mgr_err.start()
+            assert mgr_err.status == ServerStatus.READY
+            assert mgr_err.ownership == ServerOwnership.EXTERNAL
+            assert mgr_err.get_status_info().message == "Connected to existing server (Online)"
+    finally:
+        mgr_err.shutdown()
+
+    # 200 with empty model list
+    mock_session_empty = MagicMock()
+    mock_session_empty.get.return_value = MagicMock(status_code=200, json=lambda: {"data": []})
+    mgr_empty = ServerManager(settings=settings, session=mock_session_empty)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.READY, "Online")):
+            mgr_empty.start()
+            assert mgr_empty.status == ServerStatus.READY
+            assert mgr_empty.ownership == ServerOwnership.EXTERNAL
+            assert mgr_empty.get_status_info().message == "Connected to existing server (Online)"
+    finally:
+        mgr_empty.shutdown()
 
 
 def test_server_manager_start_spawns_managed_process(tmp_path):

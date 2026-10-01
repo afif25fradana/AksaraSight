@@ -396,7 +396,11 @@ def start_hardware_prewarm() -> None:
     global _PREWARM_THREAD
     if _CACHED_HARDWARE_PROFILE is not None:
         return
-    with _PREWARM_LOCK:
+    if _PREWARM_THREAD is not None and _PREWARM_THREAD.is_alive():
+        return
+    if not _PREWARM_LOCK.acquire(blocking=False):
+        return
+    try:
         if _CACHED_HARDWARE_PROFILE is not None:
             return
         if _PREWARM_THREAD is not None and _PREWARM_THREAD.is_alive():
@@ -409,6 +413,8 @@ def start_hardware_prewarm() -> None:
         )
         _PREWARM_THREAD = t
         t.start()
+    finally:
+        _PREWARM_LOCK.release()
 
 
 def get_cached_hardware_profile(

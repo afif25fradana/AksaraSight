@@ -242,3 +242,35 @@ def test_start_hardware_prewarm() -> None:
     finally:
         clear_hardware_cache()
 
+
+def test_start_hardware_prewarm_non_blocking_when_lock_held() -> None:
+    """Verify start_hardware_prewarm and get_cached_hardware_profile(blocking=False) do not block when lock is held."""
+    import time
+    from core.hardware import (
+        _PREWARM_LOCK,
+        clear_hardware_cache,
+        get_cached_hardware_profile,
+        start_hardware_prewarm,
+    )
+
+    clear_hardware_cache()
+    try:
+        acquired = _PREWARM_LOCK.acquire(blocking=False)
+        assert acquired, "Failed to acquire _PREWARM_LOCK for test setup"
+        try:
+            start_t = time.perf_counter()
+            start_hardware_prewarm()
+            elapsed_prewarm = time.perf_counter() - start_t
+            assert elapsed_prewarm < 0.05, f"start_hardware_prewarm took too long: {elapsed_prewarm}s"
+
+            start_t = time.perf_counter()
+            res = get_cached_hardware_profile(blocking=False)
+            elapsed_query = time.perf_counter() - start_t
+            assert res is None
+            assert elapsed_query < 0.05, f"get_cached_hardware_profile(blocking=False) took too long: {elapsed_query}s"
+        finally:
+            _PREWARM_LOCK.release()
+    finally:
+        clear_hardware_cache()
+
+

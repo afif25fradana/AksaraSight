@@ -746,7 +746,8 @@ class ServerManager:
         """Tear down all resources and terminate managed processes on application exit."""
         self.stop()
         if self._vram_check_thread is not None and self._vram_check_thread.is_alive():
-            self._vram_check_thread.join(timeout=timeout)
+            join_timeout = 2.0 if timeout is None else max(0.1, timeout)
+            self._vram_check_thread.join(timeout=join_timeout)
         if self._owns_session and self._session is not None:
             self._session.close()
 

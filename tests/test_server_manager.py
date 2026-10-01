@@ -1468,4 +1468,25 @@ def test_server_manager_start_vram_warning_cold_start(tmp_path, caplog):
             mgr.shutdown()
 
 
+def test_shutdown_vram_check_thread_bounded_timeout() -> None:
+    """B6: shutdown(timeout=None) bounds _vram_check_thread.join timeout to 2.0s."""
+    settings = Settings(
+        llama_server_path="dummy_server.exe",
+        runtime_mode="custom",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+    try:
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+        mgr._vram_check_thread = mock_thread
+
+        mgr.shutdown(timeout=None)
+
+        mock_thread.join.assert_called_once_with(timeout=2.0)
+    finally:
+        atexit.unregister(mgr._atexit_hook)
+
+
+
 

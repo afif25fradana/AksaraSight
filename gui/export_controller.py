@@ -24,6 +24,13 @@ from gui.theme import (
 
 logger = logging.getLogger(__name__)
 
+_FORMAT_EXTENSIONS = {
+    OutputFormat.MARKDOWN: (".md",),
+    OutputFormat.JSON: (".json",),
+    OutputFormat.BOTH: (".md", ".json"),
+    OutputFormat.DOCX: (".docx",),
+}
+
 
 class ExportController:
     """Manages document export workflows, format resolution, and export button state."""
@@ -157,9 +164,16 @@ class ExportController:
 
         out_path = Path(out_dir)
         try:
+            selected_fmt = self.get_selected_export_format()
+            active_exts = _FORMAT_EXTENSIONS.get(selected_fmt, (".md", ".json", ".docx"))
             stem_resolver = self.resolve_unique_stem or resolve_unique_stem
-            unique_stem = stem_resolver(item.file_path.stem, output_dir=out_path, used_stems=set())
-            config = JobConfig(output_format=self.get_selected_export_format())
+            unique_stem = stem_resolver(
+                item.file_path.stem,
+                output_dir=out_path,
+                used_stems=set(),
+                extensions=active_exts,
+            )
+            config = JobConfig(output_format=selected_fmt)
             do_save = self.save_artifacts or save_artifacts
             saved = do_save(item.result, config=config, output_dir=out_path, base_name=unique_stem)
             self.update_footer(f"Exported {len(saved)} files to {out_path.name}")
@@ -224,6 +238,7 @@ class ExportController:
         failed_docs = 0
         last_err = None
         try:
+            active_exts = _FORMAT_EXTENSIONS.get(config.output_format, (".md", ".json", ".docx"))
             for idx, it in enumerate(completed_items, start=1):
                 if self.is_shutting_down() or self.shutdown_event.is_set():
                     return
@@ -231,7 +246,12 @@ class ExportController:
                     raise RuntimeError(f"Queue item {it.file_path.name} marked completed but missing OCRResult")
                 try:
                     stem_resolver = self.resolve_unique_stem or resolve_unique_stem
-                    unique_stem = stem_resolver(it.file_path.stem, output_dir=out_path, used_stems=used_stems)
+                    unique_stem = stem_resolver(
+                        it.file_path.stem,
+                        output_dir=out_path,
+                        used_stems=used_stems,
+                        extensions=active_exts,
+                    )
                     do_save = self.save_artifacts or save_artifacts
                     saved = do_save(it.result, config=config, output_dir=out_path, base_name=unique_stem)
                     total_saved += len(saved)

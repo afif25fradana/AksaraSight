@@ -460,3 +460,71 @@ def test_reset_buttons_guarded_by_shutdown(export_harness):
     # Now reset
     assert btn_sel.cget("text") == "Export Selected"
     assert btn_all.cget("text") == "Export All"
+
+
+def test_export_stem_resolution_is_format_scoped(export_harness, tmp_path: Path):
+    """Verify pre-existing files with different extensions do not cause stem collision bumps."""
+    h = export_harness
+    ctrl: ExportController = h["ctrl"]
+    qm: StubQueueManager = h["qm"]
+    opt_fmt: FakeOptionMenu = h["opt_fmt"]
+
+    # Pre-existing markdown file in output directory
+    out_dir = tmp_path / "format_scoped_out"
+    out_dir.mkdir()
+    (out_dir / "scan.md").write_text("# Existing Markdown", encoding="utf-8")
+
+    # Set export format to DOCX
+    opt_fmt.set("Word Document (.docx)")
+    ctrl.ask_directory = lambda **kw: str(out_dir)
+
+    # 1. Verify on_export_selected does not collide with scan.md
+    f_sel = tmp_path / "scan.pdf"
+    f_sel.write_bytes(b"%PDF")
+    res_sel = OCRResult(
+        file_path=str(f_sel),
+        status=JobStatus.SUCCESS,
+        pages=[PageResult(page_num=1, markdown="# Scan")],
+    )
+    item_sel = QueueItem(item_id="item_sel", file_path=f_sel, status=QueueItemStatus.SUCCESS, result=res_sel)
+    qm.items["item_sel"] = item_sel
+    qm.selected_item_id = "item_sel"
+
+    selected_stems: List[str] = []
+
+    def mock_save_selected(result, config=None, output_dir=None, base_name=None, **kwargs):
+        selected_stems.append(base_name)
+        assert config.output_format == OutputFormat.DOCX
+        return [Path(output_dir) / f"{base_name}.docx"]
+
+    ctrl.save_artifacts = mock_save_selected
+    ctrl.on_export_selected()
+
+    assert selected_stems == ["scan"]
+
+    # 2. Verify on_export_all does not collide with scan.md
+    all_stems: List[str] = []
+
+    def mock_save_all(result, config=None, output_dir=None, base_name=None, **kwargs):
+        all_stems.append(base_name)
+        assert config.output_format == OutputFormat.DOCX
+        return [Path(output_dir) / f"{base_name}.docx"]
+
+    ctrl.save_artifacts = mock_save_all
+    ctrl.on_export_all(sync=True)
+    h["drain_all"]()
+
+    assert all_stems == ["scan"]
+
+    # 3. Verify actual collision with pre-existing .docx bumps to scan_2
+    (out_dir / "scan.docx").write_bytes(b"existing docx")
+    colliding_stems: List[str] = []
+
+    def mock_save_colliding(result, config=None, output_dir=None, base_name=None, **kwargs):
+        colliding_stems.append(base_name)
+        return [Path(output_dir) / f"{base_name}.docx"]
+
+    ctrl.save_artifacts = mock_save_colliding
+    ctrl.on_export_selected()
+    assert colliding_stems == ["scan_2"]
+

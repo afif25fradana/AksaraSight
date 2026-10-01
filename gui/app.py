@@ -1333,6 +1333,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             self._worker_coordinator.queue_pending_settings(new_settings)
         if getattr(self, "_server_controller", None) is not None:
             self._server_controller.settings = new_settings
+        if getattr(self, "_image_preview", None) is not None:
+            self._image_preview.settings = new_settings
 
         # Refresh queue rows' metadata if DPI setting changed
         if self._queue_manager is not None:

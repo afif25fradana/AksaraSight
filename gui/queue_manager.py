@@ -33,6 +33,10 @@ from gui.theme import (
     COLOR_STATUS_SUCCESS,
     COLOR_TEXT_MUTED,
     COLOR_TEXT_PRIMARY,
+    FONT_BODY,
+    FONT_CAPTION,
+    FONT_CHIP,
+    FONT_STATUS_DOT,
 )
 
 logger = logging.getLogger(__name__)
@@ -380,7 +384,7 @@ class QueueManager:
         chip = ctk.CTkLabel(
             row,
             text=chip_text,
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            font=FONT_CHIP,
             fg_color=chip_fg,
             text_color=chip_text_col,
             corner_radius=4,
@@ -393,7 +397,7 @@ class QueueManager:
         name = ctk.CTkLabel(
             row,
             text=item.file_path.name,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=FONT_BODY,
             text_color=COLOR_TEXT_PRIMARY,
             height=18,
             anchor="w",
@@ -404,7 +408,7 @@ class QueueManager:
         detail = ctk.CTkLabel(
             row,
             text=self.format_item_meta(item),
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=FONT_CAPTION,
             text_color=COLOR_TEXT_MUTED,
             height=16,
             anchor="w",
@@ -415,7 +419,7 @@ class QueueManager:
         badge = ctk.CTkLabel(
             row,
             text="●",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=FONT_STATUS_DOT,
             text_color=COLOR_STATUS_QUEUED,
             width=24,
             height=18,

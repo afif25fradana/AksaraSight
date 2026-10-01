@@ -1889,6 +1889,25 @@ def test_settings_dialog_opening_and_runtime_sync():
         app._on_closing()
 
 
+def test_on_settings_saved_updates_image_preview_settings():
+    """Verify that _on_settings_saved propagates new Settings to _image_preview."""
+    mock_engine = MagicMock()
+    initial_settings = Settings(dpi=100)
+    app = OCRApp(engine=mock_engine, settings=initial_settings)
+    app.withdraw()
+    try:
+        assert app._image_preview is not None
+        assert app._image_preview.settings.dpi == 100
+
+        updated_settings = Settings(dpi=200)
+        app._on_settings_saved(updated_settings)
+
+        assert app._image_preview.settings == updated_settings
+        assert app._image_preview.settings.dpi == 200
+    finally:
+        app._on_closing()
+
+
 def test_queue_item_badges_use_dots_never_brackets(tmp_path):
     """Regression test asserting queue items use colored dots (●) and NEVER bracket badges ([✓], [>], [✗], [ ])."""
     p_queued = tmp_path / "queued_doc.pdf"
@@ -2865,9 +2884,6 @@ def test_gui_worker_forwards_settings_to_job_config(tmp_path):
     )
     app = OCRApp(engine=mock_engine, settings=custom_settings)
     app.withdraw()
-
-    # Finalize orphaned Font objects before the worker can trigger GC
-    gc.collect()
 
     try:
         app.enqueue_file(test_file)

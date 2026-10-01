@@ -66,3 +66,73 @@ def test_no_is_callable_factory_hack_in_gui() -> None:
             f"Found _is_callable_factory in {py_file.name}. "
             "Use clean constructor dependency injection instead of mock introspection."
         )
+
+
+def test_no_ctkfont_instantiations_in_queue_manager() -> None:
+    """Verify gui/queue_manager.py does not instantiate ctk.CTkFont.
+
+    Instantiating CTkFont per queue row creates orphaned Tcl font objects on
+    row destruction. When Python GC collects these objects on background worker
+    threads, cross-thread Tcl calls can cause deadlocks on Windows.
+    Queue rows must use immutable font tuples from gui.theme instead.
+    """
+    target = REPO_ROOT / "gui" / "queue_manager.py"
+    content = target.read_text(encoding="utf-8")
+    tree = ast.parse(content, filename=str(target))
+
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "CTkFont":
+                violations.append(f"Line {node.lineno}: CTkFont(...) call")
+            elif isinstance(func, ast.Attribute) and func.attr == "CTkFont":
+                violations.append(f"Line {node.lineno}: CTkFont call")
+
+    assert not violations, (
+        f"Found CTkFont instantiations in {target.relative_to(REPO_ROOT)}:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_font_del_guard_thread_safety() -> None:
+    """Verify that tkinter.font.Font.__del__ is guarded against non-main thread invocation."""
+    import gui  # noqa: F401 - triggers gui/__init__.py patch
+    import threading
+    import tkinter.font as tkfont
+
+    assert getattr(tkfont.Font.__del__, "_aksara_guarded", False) is True, (
+        "tkinter.font.Font.__del__ is not protected by the thread-safety guard."
+    )
+
+    class DummyFont:
+        def __init__(self, name: str):
+            self.name = name
+            self.delete_font = True
+            self.calls: list[tuple] = []
+
+        def _call(self, *args):
+            self.calls.append(args)
+
+    # 1. Calling from a background thread must NOT invoke Tcl _call
+    worker_font = DummyFont("worker_font")
+    worker_exc = None
+
+    def _worker():
+        nonlocal worker_exc
+        try:
+            tkfont.Font.__del__(worker_font)
+        except Exception as exc:
+            worker_exc = exc
+
+    t = threading.Thread(target=_worker)
+    t.start()
+    t.join()
+
+    assert worker_exc is None
+    assert worker_font.calls == [], "Font.__del__ called Tcl from background thread!"
+
+    # 2. Calling from the main thread DOES invoke Tcl _call
+    main_font = DummyFont("main_font")
+    tkfont.Font.__del__(main_font)
+    assert main_font.calls == [("font", "delete", "main_font")], "Font.__del__ failed to call Tcl on main thread."

@@ -36,6 +36,12 @@ COLOR_TEXT_SECONDARY = "#9ca3af"
 COLOR_TEXT_MUTED = "#94a3b8"
 COLOR_TEXT_SUBTLE = "#94a3b8"
 
+# Typography Font Tokens (used by queue rows)
+FONT_CHIP = ("Segoe UI", 9, "bold")
+FONT_BODY = ("Segoe UI", 12)
+FONT_CAPTION = ("Segoe UI", 11)
+FONT_STATUS_DOT = ("Segoe UI", 12)
+
 # Status Dot Tokens
 COLOR_STATUS_QUEUED = "#94a3b8"
 COLOR_STATUS_PROCESSING = "#38bdf8"

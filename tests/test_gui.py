@@ -1813,7 +1813,6 @@ def test_server_manager_cleanup_on_closing():
 
     app._on_closing()
 
-    assert mock_sm.stop.call_count == 1
     assert mock_sm.shutdown.call_count == 1
 
 

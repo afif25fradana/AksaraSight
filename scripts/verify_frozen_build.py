@@ -180,10 +180,11 @@ def test_gui_window_rendering_and_logging() -> bool:
             gdi32.DeleteDC(hdc_mem)
             user32.ReleaseDC(verified_hwnd, hdc_win)
 
-            screenshot_path = REPO_ROOT / "docs" / "images" / "frozen_gui_preview.png"
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            import tempfile
+
+            screenshot_path = Path(tempfile.gettempdir()) / "frozen_gui_preview.png"
             img.save(str(screenshot_path))
-            print(f"         Screenshot: {screenshot_path.name} ({w}x{h} px)")
+            print(f"         Screenshot: {screenshot_path.name} ({w}x{h} px) [saved to temp]")
     except Exception as cap_err:
         print(f"         [WARN] Window screenshot capture skipped: {cap_err}")
 

@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import queue
@@ -1490,13 +1491,22 @@ def _setup_frozen_logging() -> Optional[Path]:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "app.log"
 
-        handler = logging.FileHandler(str(log_file), encoding="utf-8", mode="a")
+        handler = RotatingFileHandler(
+            str(log_file),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+            mode="a",
+        )
+        handler.setLevel(logging.DEBUG)
         formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s")
         handler.setFormatter(formatter)
 
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(handler)
+        logging.getLogger("gui").setLevel(logging.DEBUG)
+        logging.getLogger("core").setLevel(logging.DEBUG)
 
         def _handle_unhandled_exception(exc_type, exc_value, exc_traceback):
             if issubclass(exc_type, KeyboardInterrupt):

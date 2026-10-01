@@ -3266,6 +3266,8 @@ def test_indeterminate_progress_mode_lifecycle(tmp_path):
 
 def test_frozen_logging_setup(tmp_path, monkeypatch):
     """Verify _setup_frozen_logging configures file handler when frozen, no-ops when unfrozen."""
+    import logging
+    from logging.handlers import RotatingFileHandler
     from gui.app import _setup_frozen_logging
 
     # 1. Unfrozen: returns None, touches nothing
@@ -3277,12 +3279,38 @@ def test_frozen_logging_setup(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(fake_localapp))
     monkeypatch.setattr(sys, "frozen", True, raising=False)
 
-    log_file = _setup_frozen_logging()
-    assert log_file is not None
-    assert log_file.is_file()
-    assert "app.log" in log_file.name
-    content = log_file.read_text(encoding="utf-8")
-    assert "Frozen application started" in content
+    added_handler = None
+    try:
+        log_file = _setup_frozen_logging()
+        assert log_file is not None
+        assert log_file.is_file()
+        assert "app.log" in log_file.name
+
+        root_logger = logging.getLogger()
+        for h in root_logger.handlers:
+            if isinstance(h, RotatingFileHandler) and Path(getattr(h, "baseFilename", "")).resolve() == log_file.resolve():
+                added_handler = h
+                break
+
+        assert added_handler is not None
+        assert added_handler.maxBytes == 5 * 1024 * 1024
+        assert added_handler.backupCount == 3
+
+        logging.getLogger("gui.test_swallowed").debug("Swallowed clipboard exception: test detail")
+        logging.getLogger("urllib3.connectionpool").debug("Third-party debug noisy trace")
+
+        added_handler.flush()
+
+        content = log_file.read_text(encoding="utf-8")
+        assert "Frozen application started" in content
+        assert "Swallowed clipboard exception: test detail" in content
+        assert "Third-party debug noisy trace" not in content
+    finally:
+        if added_handler is not None:
+            added_handler.close()
+            root_logger = logging.getLogger()
+            if added_handler in root_logger.handlers:
+                root_logger.removeHandler(added_handler)
 
 
 def test_gui_wires_server_manager_lifecycle_to_engine():

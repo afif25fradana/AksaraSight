@@ -1,4 +1,5 @@
 requests~=2.34.0
+urllib3~=2.8.0
 pillow~=12.3.0
 pypdfium2==5.13.0
 python-dotenv~=1.2.3

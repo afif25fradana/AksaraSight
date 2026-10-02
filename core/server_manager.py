@@ -525,7 +525,7 @@ class ServerManager:
                 # Determine model flag: -m for local GGUF file, -hf for Hugging Face repo
                 model_flag = "-m" if (Path(repo).is_file() or repo.lower().endswith(".gguf")) else "-hf"
 
-                # B6: Warn-only pre-flight check for low-VRAM GPUs (non-blocking)
+                # Warn-only pre-flight check for low-VRAM GPUs (non-blocking)
                 try:
                     profile = get_cached_hardware_profile(blocking=False)
                     if profile is not None:

@@ -353,8 +353,6 @@ def _process_pdf(
         raise CorruptDocumentError(f"Failed to load PDF document (PDFium error code: {err_code})")
 
     try:
-        total_pages = len(doc)
-
         for i in range(total_pages):
             page_num = i + 1
             render_error: Optional[str] = None

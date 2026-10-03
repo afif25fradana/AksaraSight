@@ -2519,12 +2519,29 @@ def test_settings_window_runtime_source_switching():
         parent.destroy()
 
 
+def _equip_mock_parent_queue(parent: Any) -> Any:
+    """Equip a test parent window with a thread-safe UI callback queue and dispatcher."""
+    import queue
+    cb_queue: queue.Queue[Any] = queue.Queue()
+    parent._ui_callback_queue = cb_queue
+    parent._safe_after = lambda ms, fn, *args, **kwargs: cb_queue.put((fn, args, kwargs))
+
+    def drain() -> None:
+        while not cb_queue.empty():
+            fn, args, kwargs = cb_queue.get_nowait()
+            fn(*args, **kwargs)
+
+    parent._drain_ui_callbacks = drain
+    return parent
+
+
 def test_settings_window_download_concurrency_guard(tmp_path):
     """Verify runtime download concurrency guard rejects concurrent clicks and disables download button."""
     from gui.settings_window import SettingsWindow
 
     parent = ctk.CTk()
     parent.withdraw()
+    _equip_mock_parent_queue(parent)
 
     managed_settings = Settings(
         runtime_mode="managed",
@@ -2580,6 +2597,7 @@ def test_settings_window_closure_during_download(tmp_path):
 
     parent = ctk.CTk()
     parent.withdraw()
+    _equip_mock_parent_queue(parent)
 
     managed_settings = Settings(
         runtime_mode="managed",
@@ -2665,6 +2683,7 @@ def test_settings_window_reinstall_passes_force_flag(tmp_path):
 
     parent = ctk.CTk()
     parent.withdraw()
+    _equip_mock_parent_queue(parent)
 
     managed_settings = Settings(
         runtime_mode="managed",
@@ -2695,6 +2714,53 @@ def test_settings_window_reinstall_passes_force_flag(tmp_path):
 
             assert len(called_force_kwargs) == 1
             assert called_force_kwargs[0] is True
+    finally:
+        win.destroy()
+        parent.destroy()
+
+
+def test_settings_window_download_worker_dispatches_via_parent_queue():
+    """Verify worker-thread UI updates dispatch through parent._safe_after into parent._ui_callback_queue without calling window.after."""
+    import queue
+    from gui.settings_window import SettingsWindow
+
+    parent = ctk.CTk()
+    parent.withdraw()
+    callback_queue: queue.Queue[Any] = queue.Queue()
+    parent._ui_callback_queue = callback_queue
+
+    safe_after_mock = MagicMock(side_effect=lambda ms, fn, *args, **kwargs: callback_queue.put((fn, args, kwargs)))
+    parent._safe_after = safe_after_mock
+
+    def _drain():
+        while not callback_queue.empty():
+            fn, args, kwargs = callback_queue.get_nowait()
+            fn(*args, **kwargs)
+
+    parent._drain_ui_callbacks = MagicMock(side_effect=_drain)
+
+    win = SettingsWindow(parent, settings=Settings())
+    win_after_spy = MagicMock(wraps=win.after)
+    win.after = win_after_spy
+
+    executed = []
+
+    def sample_callback():
+        executed.append("dispatched")
+
+    try:
+        win._safe_ui_dispatch(sample_callback)
+
+        safe_after_mock.assert_called_once_with(0, sample_callback)
+        assert callback_queue.qsize() == 1
+        assert executed == []
+
+        assert win_after_spy.call_count == 0
+
+        win.wait_for_download(timeout=0.1)
+        parent._drain_ui_callbacks.assert_called_once()
+        assert executed == ["dispatched"]
+        assert callback_queue.empty()
     finally:
         win.destroy()
         parent.destroy()

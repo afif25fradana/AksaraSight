@@ -793,11 +793,11 @@ class SettingsWindow(ctk.CTkToplevel):
                 self._btn_download.configure(text="Download Runtime", state="normal")
 
     def _safe_ui_dispatch(self, fn: Callable[[], Any]) -> None:
-        """Schedule a UI update callback on the Tk event loop only if this window is still open."""
+        """Schedule a UI update callback on the parent thread-safe queue only if this window is still open."""
         if getattr(self, "_is_closed", False):
             return
         try:
-            self.after(0, fn)
+            self.parent._safe_after(0, fn)
         except Exception as exc:
             logger.debug("Failed to dispatch UI callback: %s", exc)
 
@@ -805,6 +805,12 @@ class SettingsWindow(ctk.CTkToplevel):
         """Wait for active background download thread to complete and flush UI callbacks."""
         if self._download_thread and self._download_thread.is_alive():
             self._download_thread.join(timeout=timeout)
+        drain_fn = getattr(self.parent, "_drain_ui_callbacks", None)
+        if callable(drain_fn):
+            try:
+                drain_fn()
+            except Exception as exc:
+                logger.debug("Failed to drain parent UI callbacks during wait_for_download: %s", exc)
         try:
             self.update_idletasks()
             self.update()

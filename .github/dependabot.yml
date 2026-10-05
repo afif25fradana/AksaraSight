@@ -15,6 +15,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # Pinned for version coupling and packaging stability; bumped manually
+      - dependency-name: "customtkinter"
+      - dependency-name: "tkinterdnd2"
+      - dependency-name: "pypdfium2"
+      - dependency-name: "python-docx"
+      - dependency-name: "markdown-it-py"
     groups:
       python-dependencies:
         patterns:

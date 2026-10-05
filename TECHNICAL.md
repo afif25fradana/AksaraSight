@@ -241,11 +241,8 @@ python -m pytest --ignore=tests/test_gui.py
 python -m pytest
 ```
 
-### Static Type Checking
-AksaraSight enforces 0 type errors via Pyrefly:
-```powershell
-pyrefly check
-```
+### Code Style & Linting
+CI lints the codebase with Ruff (`ruff check .`). No static type checker is configured or run.
 
 ### Build Verification Scripts
 For standalone binary distributions created with `scripts/build_portable.py`:

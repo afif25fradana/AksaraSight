@@ -4,6 +4,13 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
+
+---
+
 ## Milestones
 
 ### v1.2.1 — Diagnostics & Maintenance Update (October 5, 2026)

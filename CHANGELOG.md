@@ -6,7 +6,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
-### v1.2.1 — Diagnostics & Maintenance Update (October 2, 2026)
+### v1.2.1 — Diagnostics & Maintenance Update (October 5, 2026)
 *Focus: Runtime diagnostics, logging architecture, hardware pre-flight warnings, export collision isolation, and configuration persistence.*
 - **Added**: A startup warning when a CUDA graphics card reports less than ~2.2 GB of total video memory, so likely out-of-memory problems are easier to spot. It doesn't slow down app launch.
 - **Added**: When connecting to an already-running local server, AksaraSight now warns if that server is serving a different model than the one configured.
@@ -14,7 +14,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **Improved**: When starting its own local server, AksaraSight now prefers the vision projector file that matches the model's quantization.
 - **Fixed**: Export file names are only checked against existing files of the same format, so other file types in the folder no longer cause unexpected numbered suffixes.
 - **Fixed**: Saving settings now correctly handles values containing apostrophes.
-- **Fixed**: Window minimum size and action bar layout now prevent buttons and banners from clipping when snapped or resized to compact widths.
+- **Fixed**: Window minimum size and action bar layout now prevent buttons and banners from clipping when the window is resized to its minimum width.
 
 ---
 

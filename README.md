@@ -30,7 +30,7 @@ The easiest way to run AksaraSight on Windows:
 
 If you prefer running from source or want to inspect the code:
 
-Requirements: Windows 10/11 and Python 3.12+ (Python 3.14 recommended).
+Requirements: Windows 10/11 and Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended).
 
 ```powershell
 git clone https://github.com/afif25fradana/AksaraSight

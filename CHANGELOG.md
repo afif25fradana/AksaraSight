@@ -8,6 +8,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Changed
 - **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
+- **Dependencies**: Updated `requests` to `~=2.34.2` and `python-dotenv` to `~=1.2.4`.
 
 ---
 

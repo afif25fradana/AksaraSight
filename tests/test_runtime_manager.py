@@ -46,21 +46,21 @@ def _create_test_zip(files: dict[str, bytes]) -> bytes:
 def test_resolve_required_asset_names() -> None:
     """Verify correct archive mapping per backend."""
     # CUDA requires companion cudart
-    cuda_assets = resolve_required_asset_names("cuda", "b10930")
+    cuda_assets = resolve_required_asset_names("cuda", "b11361")
     assert len(cuda_assets) == 2
-    assert "llama-b10930-bin-win-cuda-12.4-x64.zip" in cuda_assets
+    assert "llama-b11361-bin-win-cuda-12.4-x64.zip" in cuda_assets
     assert "cudart-llama-bin-win-cuda-12.4-x64.zip" in cuda_assets
 
     # Vulkan is self-contained
-    vulkan_assets = resolve_required_asset_names("vulkan", "b10930")
-    assert vulkan_assets == ["llama-b10930-bin-win-vulkan-x64.zip"]
+    vulkan_assets = resolve_required_asset_names("vulkan", "b11361")
+    assert vulkan_assets == ["llama-b11361-bin-win-vulkan-x64.zip"]
 
     # CPU is self-contained
-    cpu_assets = resolve_required_asset_names("cpu", "b10930")
-    assert cpu_assets == ["llama-b10930-bin-win-cpu-x64.zip"]
+    cpu_assets = resolve_required_asset_names("cpu", "b11361")
+    assert cpu_assets == ["llama-b11361-bin-win-cpu-x64.zip"]
 
     with pytest.raises(ValueError, match="Unsupported runtime backend"):
-        resolve_required_asset_names("metal", "b10930")
+        resolve_required_asset_names("metal", "b11361")
 
 
 # ==============================================================================
@@ -70,16 +70,16 @@ def test_resolve_required_asset_names() -> None:
 def test_fetch_release_assets_metadata_success() -> None:
     """Verify release metadata parsing and digest resolution."""
     mock_payload = {
-        "tag_name": "b10930",
+        "tag_name": "b11361",
         "assets": [
             {
-                "name": "llama-b10930-bin-win-vulkan-x64.zip",
+                "name": "llama-b11361-bin-win-vulkan-x64.zip",
                 "browser_download_url": "https://github.com/mock/download/vulkan.zip",
                 "size": 31675441,
-                "digest": "sha256:ee489d90101575366ec3fcb86f7597ff9b646d09b88c0d83275d5c6ff81374dd",
+                "digest": "sha256:5a0825d7d8f0e27aaf9b1afb0712dc41c384876f36a45b81dc222c90b1b41994",
             },
             {
-                "name": "llama-b10930-bin-win-cpu-x64.zip",
+                "name": "llama-b11361-bin-win-cpu-x64.zip",
                 "browser_download_url": "https://github.com/mock/download/cpu.zip",
                 "size": 18429489,
                 # Intentionally missing digest to test fallback to KNOWN_PINNED_HASHES
@@ -94,16 +94,16 @@ def test_fetch_release_assets_metadata_success() -> None:
     mock_session = MagicMock(spec=requests.Session)
     mock_session.get.return_value = mock_resp
 
-    assets = fetch_release_assets_metadata(tag="b10930", session=mock_session)
+    assets = fetch_release_assets_metadata(tag="b11361", session=mock_session)
     assert len(assets) == 2
 
-    vulkan_asset = assets["llama-b10930-bin-win-vulkan-x64.zip"]
+    vulkan_asset = assets["llama-b11361-bin-win-vulkan-x64.zip"]
     assert vulkan_asset.size == 31675441
-    assert "ee489d90" in (vulkan_asset.digest or "")
+    assert "5a0825d7" in (vulkan_asset.digest or "")
 
-    cpu_asset = assets["llama-b10930-bin-win-cpu-x64.zip"]
+    cpu_asset = assets["llama-b11361-bin-win-cpu-x64.zip"]
     # Fallback to known hash
-    assert "a0c1bf04" in (cpu_asset.digest or "")
+    assert "0e0a61a1" in (cpu_asset.digest or "")
 
 
 def test_fetch_release_assets_metadata_errors() -> None:
@@ -122,7 +122,7 @@ def test_fetch_release_assets_metadata_errors() -> None:
     resp_403.status_code = 403
     mock_session.get.return_value = resp_403
     with pytest.raises(RuntimeDownloadError, match="rate limit"):
-        fetch_release_assets_metadata("b10930", session=mock_session)
+        fetch_release_assets_metadata("b11361", session=mock_session)
 
 
 # ==============================================================================
@@ -204,7 +204,7 @@ def test_download_and_verify_asset_github_digest_missing_hardcoded_present(tmp_p
     digest = hashlib.sha256(content).hexdigest()
 
     asset = ReleaseAssetInfo(
-        name="llama-b10930-bin-win-test-x64.zip",
+        name="llama-b11361-bin-win-test-x64.zip",
         download_url="https://example.com/asset.zip",
         size=len(content),
         digest=None,  # GitHub API did not provide a digest!
@@ -293,7 +293,7 @@ def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None
     # Scenario: GitHub API is compromised or spoofed to return tampered_digest matching content,
     # but KNOWN_PINNED_HASHES contains legit_pinned_hash.
     asset = ReleaseAssetInfo(
-        name="llama-b10930-bin-win-test-x64.zip",
+        name="llama-b11361-bin-win-test-x64.zip",
         download_url="https://example.com/asset.zip",
         size=len(content),
         digest=f"sha256:{tampered_digest}",
@@ -315,7 +315,7 @@ def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None
 
         # Even if GitHub API omitted digest entirely, verification MUST match pinned hash, not tampered content
         asset_no_gh_digest = ReleaseAssetInfo(
-            name="llama-b10930-bin-win-test-x64.zip",
+            name="llama-b11361-bin-win-test-x64.zip",
             download_url="https://example.com/asset.zip",
             size=len(content),
             digest=None,
@@ -447,7 +447,7 @@ def test_validate_runtime_binary_restores_error_mode(tmp_path: Path) -> None:
 def test_is_runtime_installed_and_path(tmp_path: Path) -> None:
     """Verify detection of cached installed runtimes."""
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
-        target_dir = tmp_path / "b10930-cuda"
+        target_dir = tmp_path / "b11361-cuda"
         target_dir.mkdir(parents=True)
 
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
@@ -455,15 +455,15 @@ def test_is_runtime_installed_and_path(tmp_path: Path) -> None:
         exe.write_bytes(b"bin")
 
         manifest = target_dir / "manifest.json"
-        manifest.write_text(json.dumps({"tag": "b10930", "backend": "cuda"}), encoding="utf-8")
+        manifest.write_text(json.dumps({"tag": "b11361", "backend": "cuda"}), encoding="utf-8")
 
-        assert is_runtime_installed("b10930", "cuda") is True
-        installed_path = get_installed_runtime_path("b10930", "cuda")
+        assert is_runtime_installed("b11361", "cuda") is True
+        installed_path = get_installed_runtime_path("b11361", "cuda")
         assert installed_path == exe
 
         # Different backend or missing manifest returns False
-        assert is_runtime_installed("b10930", "vulkan") is False
-        assert get_installed_runtime_path("b10930", "vulkan") is None
+        assert is_runtime_installed("b11361", "vulkan") is False
+        assert get_installed_runtime_path("b11361", "vulkan") is None
 
 
 # ==============================================================================
@@ -478,8 +478,8 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
         zip_digest = hashlib.sha256(zip_bytes).hexdigest()
 
         mock_meta = {
-            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
-                name="llama-b10930-bin-win-cpu-x64.zip",
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
                 download_url="https://mock/cpu.zip",
                 size=len(zip_bytes),
                 digest=f"sha256:{zip_digest}",
@@ -498,26 +498,26 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
         with (
             patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
             patch("core.runtime_manager.validate_runtime_binary", return_value=True),
-            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b11361-bin-win-cpu-x64.zip": zip_digest}),
         ):
-            final_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
+            final_exe = ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
 
             assert final_exe.is_file()
             assert final_exe.name == exe_name
-            runtime_dir = get_runtime_dir("b10930", "cpu")
+            runtime_dir = get_runtime_dir("b11361", "cpu")
             assert (runtime_dir / "manifest.json").is_file()
             # Verify downloaded archive was cleaned up from downloads folder (Priority 3 hygiene)
-            assert not (tmp_path / "downloads" / "llama-b10930-bin-win-cpu-x64.zip").exists()
+            assert not (tmp_path / "downloads" / "llama-b11361-bin-win-cpu-x64.zip").exists()
 
             # Calling a second time without force must hit cache and do zero network calls
             mock_session.get.reset_mock()
-            cached_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
+            cached_exe = ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
             assert cached_exe == final_exe
             mock_session.get.assert_not_called()
 
             # Calling a third time with force=True MUST bypass cache and re-download
             mock_session.get.reset_mock()
-            forced_exe = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=True)
+            forced_exe = ensure_runtime(backend="cpu", tag="b11361", session=mock_session, force=True)
             assert forced_exe == final_exe
             mock_session.get.assert_called_once()
 
@@ -530,14 +530,14 @@ def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
         zip_digest = hashlib.sha256(zip_bytes).hexdigest()
 
         # Seed an existing installation
-        runtime_dir = get_runtime_dir("b10930", "cpu")
+        runtime_dir = get_runtime_dir("b11361", "cpu")
         runtime_dir.mkdir(parents=True, exist_ok=True)
         (runtime_dir / exe_name).write_bytes(b"binary v1")
-        (runtime_dir / "manifest.json").write_text(json.dumps({"tag": "b10930", "backend": "cpu"}), encoding="utf-8")
+        (runtime_dir / "manifest.json").write_text(json.dumps({"tag": "b11361", "backend": "cpu"}), encoding="utf-8")
 
         mock_meta = {
-            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
-                name="llama-b10930-bin-win-cpu-x64.zip",
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
                 download_url="https://mock/cpu.zip",
                 size=len(zip_bytes),
                 digest=f"sha256:{zip_digest}",
@@ -556,15 +556,15 @@ def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
         with (
             patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
             patch("core.runtime_manager.validate_runtime_binary", return_value=True),
-            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b11361-bin-win-cpu-x64.zip": zip_digest}),
         ):
             # force=False returns existing without network calls
-            p_cached = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=False)
+            p_cached = ensure_runtime(backend="cpu", tag="b11361", session=mock_session, force=False)
             assert p_cached.read_bytes() == b"binary v1"
             mock_session.get.assert_not_called()
 
             # force=True re-downloads and updates binary to v2
-            p_forced = ensure_runtime(backend="cpu", tag="b10930", session=mock_session, force=True)
+            p_forced = ensure_runtime(backend="cpu", tag="b11361", session=mock_session, force=True)
             assert p_forced.read_bytes() == b"binary v2"
             mock_session.get.assert_called_once()
             assert (runtime_dir / "version.txt").read_bytes() == b"2.0"
@@ -578,8 +578,8 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
         zip_digest = hashlib.sha256(zip_bytes).hexdigest()
 
         mock_meta = {
-            "llama-b10930-bin-win-cpu-x64.zip": ReleaseAssetInfo(
-                name="llama-b10930-bin-win-cpu-x64.zip",
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
                 download_url="https://mock/cpu.zip",
                 size=len(zip_bytes),
                 digest=f"sha256:{zip_digest}",
@@ -598,13 +598,13 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
         with (
             patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
             patch("core.runtime_manager.validate_runtime_binary", return_value=False),  # Validation fails!
-            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b10930-bin-win-cpu-x64.zip": zip_digest}),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b11361-bin-win-cpu-x64.zip": zip_digest}),
         ):
             with pytest.raises(RuntimeValidationError, match="failed to execute"):
-                ensure_runtime(backend="cpu", tag="b10930", session=mock_session)
+                ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
 
             # Invariant: final runtime directory must NOT have been created
-            assert not get_runtime_dir("b10930", "cpu").exists()
+            assert not get_runtime_dir("b11361", "cpu").exists()
             # Staging directories must be wiped
             staging_dirs = list(tmp_path.glob("staging_*"))
             assert len(staging_dirs) == 0
@@ -619,7 +619,7 @@ def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> 
         primary_zip = _create_test_zip({exe_name: b"primary binary"})
         primary_digest = hashlib.sha256(primary_zip).hexdigest()
 
-        primary_name = "llama-b10930-bin-win-cuda-12.4-x64.zip"
+        primary_name = "llama-b11361-bin-win-cuda-12.4-x64.zip"
         cudart_name = "cudart-llama-bin-win-cuda-12.4-x64.zip"
 
         mock_meta = {
@@ -654,12 +654,12 @@ def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> 
             patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {primary_name: primary_digest}),
         ):
             with pytest.raises(RuntimeDownloadError, match="CUDART download interrupted"):
-                ensure_runtime(backend="cuda", tag="b10930", session=mock_session)
+                ensure_runtime(backend="cuda", tag="b11361", session=mock_session)
 
             # Invariant: final runtime directory must NOT exist
-            assert not get_runtime_dir("b10930", "cuda").exists()
-            assert is_runtime_installed("b10930", "cuda") is False
-            assert get_installed_runtime_path("b10930", "cuda") is None
+            assert not get_runtime_dir("b11361", "cuda").exists()
+            assert is_runtime_installed("b11361", "cuda") is False
+            assert get_installed_runtime_path("b11361", "cuda") is None
 
             # Invariant: manifest.json was never written
             manifest_files = list(tmp_path.glob("**/manifest.json"))
@@ -673,7 +673,7 @@ def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> 
 def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> None:
     """Verify that if staging_dir.rename(runtime_dir) fails, the backup is restored atomically."""
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
-        tag = "b10930"
+        tag = "b11361"
         backend = "cpu"
         runtime_dir = get_runtime_dir(tag, backend)
         runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -685,7 +685,7 @@ def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> Non
 
         new_zip = _create_test_zip({exe_name: b"new v2 binary"})
         new_digest = hashlib.sha256(new_zip).hexdigest()
-        asset_name = "llama-b10930-bin-win-cpu-x64.zip"
+        asset_name = "llama-b11361-bin-win-cpu-x64.zip"
 
         mock_meta = {
             asset_name: ReleaseAssetInfo(

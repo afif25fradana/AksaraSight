@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Pinned llama.cpp build known to work with GLM-OCR-GGUF
-PINNED_LLAMA_BUILD = "b10930"
+PINNED_LLAMA_BUILD = "b11361"
 
 # CUDA 12.4 driver thresholds on Windows:
 # - Minimum display driver version: 550.54

@@ -148,7 +148,7 @@ If you maintain an independent `llama.cpp`, Ollama, or vLLM deployment, you can 
 GLM-OCR is a vision-language model requiring both text weights and multimodal projector weights (`mmproj`):
 
 ```powershell
-# Option A: Automatic Hugging Face resolution (llama.cpp b10930+ auto-downloads matching mmproj)
+# Option A: Automatic Hugging Face resolution (llama.cpp b11361+ auto-downloads matching mmproj)
 llama-server -hf ggml-org/GLM-OCR-GGUF --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 
 # Option B: Local GGUF files (explicit --mmproj is REQUIRED)

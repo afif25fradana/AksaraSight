@@ -7,6 +7,7 @@ A chronological overview of the development, architecture, security hardening, a
 ## [Unreleased]
 
 ### Changed
+- **Managed Runtime**: Bumped pinned llama.cpp runtime from `b10930` to `b11361` for Windows (CUDA 12.4, CPU, Vulkan). Users relying on managed runtime mode will need to click "Install Runtime" once in Settings. Existing `b10930-cuda` runtime folders in `%LOCALAPPDATA%\AksaraSight\runtimes\` are not automatically deleted and can be safely removed manually to reclaim disk space.
 - **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
 - **Dependencies**: Updated `requests` to `~=2.34.2` and `python-dotenv` to `~=1.2.4`.
 

@@ -30,12 +30,12 @@ GITHUB_REPO_OWNER = "ggerganov"
 GITHUB_REPO_NAME = "llama.cpp"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}"
 
-# Defense-in-depth: Authoritative known-good SHA-256 digests for PINNED_LLAMA_BUILD (b10930)
+# Defense-in-depth: Authoritative known-good SHA-256 digests for PINNED_LLAMA_BUILD (b11361)
 KNOWN_PINNED_HASHES: Dict[str, str] = {
     "cudart-llama-bin-win-cuda-12.4-x64.zip": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
-    "llama-b10930-bin-win-cuda-12.4-x64.zip": "7d07deb817f7f380d1da119c76967d7ead0a4dbb02456c0edfda82a99122fed6",
-    "llama-b10930-bin-win-vulkan-x64.zip": "ee489d90101575366ec3fcb86f7597ff9b646d09b88c0d83275d5c6ff81374dd",
-    "llama-b10930-bin-win-cpu-x64.zip": "a0c1bf04e7b7b4b6c7f280b6bef08ecaa170f2ba611830b2332bce9ddf352dab",
+    "llama-b11361-bin-win-cuda-12.4-x64.zip": "e9b6a0eb9506dcabcc3dbe9b561c50e85ff06517753ab56a3fe4104c7631787f",
+    "llama-b11361-bin-win-vulkan-x64.zip": "5a0825d7d8f0e27aaf9b1afb0712dc41c384876f36a45b81dc222c90b1b41994",
+    "llama-b11361-bin-win-cpu-x64.zip": "0e0a61a1da9832724a292ce371361ba53bfea03c19fa72ddcfd22a4d846fc596",
 }
 
 _EXE_NAME: str = "llama-server.exe" if sys.platform == "win32" else "llama-server"
@@ -130,7 +130,7 @@ def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) ->
 
     Args:
         backend: Runtime backend ('cuda', 'vulkan', 'cpu').
-        tag: Pinned GitHub release tag (e.g. 'b10930').
+        tag: Pinned GitHub release tag (e.g. 'b11361').
 
     Returns:
         List[str]: Ordered list of target asset archive names.

@@ -682,7 +682,7 @@ def test_cli_doctor_all_pass(
     assert "2. Hardware Detection" in captured.out
     assert "[PASS] Primary GPU:         NVIDIA RTX 4070 (8192 MB)" in captured.out
     assert "3. Runtime Installation (Managed Mode)" in captured.out
-    assert "[PASS] Managed Runtime:     b10930-cuda (INSTALLED)" in captured.out
+    assert "[PASS] Managed Runtime:     b11361-cuda (INSTALLED)" in captured.out
     assert "4. Server Reachability" in captured.out
     assert "[PASS] Endpoint Health:     READY (http://localhost:8080/health)" in captured.out
     assert "5. Multimodal Vision Probe" in captured.out
@@ -804,9 +804,9 @@ def test_cli_doctor_runtime_not_installed(
 
     assert exit_code == 1
     captured = capsys.readouterr()
-    assert "[FAIL] Managed Runtime:     b10930-cpu (NOT INSTALLED)" in captured.out
+    assert "[FAIL] Managed Runtime:     b11361-cpu (NOT INSTALLED)" in captured.out
     assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
-    assert "Install the managed runtime 'b10930-cpu' via GUI Settings" in captured.out
+    assert "Install the managed runtime 'b11361-cpu' via GUI Settings" in captured.out
 
 
 @patch("cli.main.OCREngine")

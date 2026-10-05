@@ -1,4 +1,4 @@
-requests~=2.34.0
+requests~=2.34.2
 urllib3~=2.8.0
 pillow~=12.3.0
 pypdfium2==5.13.0

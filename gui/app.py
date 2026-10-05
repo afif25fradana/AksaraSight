@@ -235,7 +235,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self.title("AksaraSight Local Studio")
         apply_window_icon(self)
         self.geometry("1020x680")
-        self.minsize(820, 520)
+        self.minsize(960, 540)
 
         # Thread synchronization queues and state
         self._task_queue_backing: queue.Queue[Optional[Path]] = queue.Queue()
@@ -449,8 +449,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         """Build the 2-column main body area."""
         body_frame = ctk.CTkFrame(self, fg_color="transparent")
         body_frame.grid(row=1, column=0, sticky="nsew", padx=16, pady=(8, 4))
-        body_frame.grid_columnconfigure(0, weight=38, minsize=320)
-        body_frame.grid_columnconfigure(1, weight=62, minsize=460)
+        body_frame.grid_columnconfigure(0, weight=30, minsize=280)
+        body_frame.grid_columnconfigure(1, weight=70, minsize=520)
         body_frame.grid_rowconfigure(0, weight=1)
 
         self._build_left_panel(body_frame)
@@ -764,10 +764,11 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
         self._btn_copy = ctk.CTkButton(
             action_bar,
             text="Copy to Clipboard",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             hover_color=COLOR_INTERACTIVE_HOVER,
             text_color=COLOR_TEXT_PRIMARY,
+            width=100,
             border_width=1,
             border_color=COLOR_SURFACE_BORDER,
             corner_radius=6,
@@ -775,15 +776,16 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=self._on_copy_clipboard,
         )
-        self._btn_copy.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self._btn_copy.grid(row=0, column=0, sticky="w", padx=(0, 6))
 
         self._btn_cancel = ctk.CTkButton(
             action_bar,
             text="Cancel (after current page)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             hover_color=COLOR_INTERACTIVE_HOVER,
             text_color=COLOR_TEXT_SUBTLE,
+            width=135,
             border_width=1,
             border_color=COLOR_SURFACE_BORDER,
             corner_radius=6,
@@ -791,7 +793,7 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=lambda: self._worker_coordinator.cancel_current(),
         )
-        self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self._btn_cancel.grid(row=0, column=1, sticky="w", padx=(0, 6))
 
         # Format Selector: Exactly 2 options: BOTH (default) vs DOCX
         self._opt_export_format = ctk.CTkOptionMenu(
@@ -800,8 +802,8 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
                 "Markdown & JSON (.md + .json)",
                 "Word Document (.docx)",
             ],
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            dropdown_font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            dropdown_font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             button_color=COLOR_SURFACE_BORDER,
             button_hover_color=COLOR_INTERACTIVE_HOVER,
@@ -811,20 +813,21 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             text_color=COLOR_TEXT_PRIMARY,
             corner_radius=6,
             height=30,
-            width=210,
+            width=185,
             dynamic_resizing=False,
         )
         self._opt_export_format.set("Markdown & JSON (.md + .json)")
-        self._opt_export_format.grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self._opt_export_format.grid(row=0, column=2, sticky="e", padx=(0, 6))
 
         # Primary Button: Slate blue accent fill (starts disabled with neutral dark surface and border)
         self._btn_export_selected = ctk.CTkButton(
             action_bar,
             text="Export Selected",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             hover_color=COLOR_ACCENT_HOVER,
             text_color=COLOR_TEXT_SUBTLE,
+            width=95,
             border_width=1,
             border_color=COLOR_SURFACE_BORDER,
             corner_radius=6,
@@ -832,16 +835,17 @@ class OCRApp(ctk.CTk, tdnd.DnDWrapper):
             state="disabled",
             command=lambda: self._export_controller.on_export_selected(),
         )
-        self._btn_export_selected.grid(row=0, column=3, sticky="e", padx=(0, 8))
+        self._btn_export_selected.grid(row=0, column=3, sticky="e", padx=(0, 6))
 
         # Secondary Button: Neutral dark surface with border
         self._btn_export_all = ctk.CTkButton(
             action_bar,
             text="Export All",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color=COLOR_INTERACTIVE_NEUTRAL,
             hover_color=COLOR_INTERACTIVE_HOVER,
             text_color=COLOR_TEXT_PRIMARY,
+            width=85,
             border_width=1,
             border_color=COLOR_SURFACE_BORDER,
             corner_radius=6,

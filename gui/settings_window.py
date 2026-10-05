@@ -191,6 +191,8 @@ class SettingsWindow(ctk.CTkToplevel):
             corner_radius=4,
             padx=10,
             pady=4,
+            wraplength=480,
+            justify="left",
         )
 
         self._lbl_error_banner = ctk.CTkLabel(
@@ -202,7 +204,7 @@ class SettingsWindow(ctk.CTkToplevel):
             corner_radius=4,
             padx=10,
             pady=4,
-            wraplength=580,
+            wraplength=480,
             justify="left",
         )
 

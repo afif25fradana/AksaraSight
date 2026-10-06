@@ -231,7 +231,7 @@ class VisionClient:
 
         # Defensive invariant check: loop body returns, continues, or raises on every path
         raise AssertionError(
-            "unreachable: retry loop exited without returning or raising — "
+            "unreachable: retry loop exited without returning or raising; "
             "a new branch was likely added inside the loop that doesn't "
             "return/raise on every path. This is a code invariant violation, "
             "not a runtime condition users can trigger."

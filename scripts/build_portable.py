@@ -26,7 +26,7 @@ from core.constants import __version__
 def check_environment() -> None:
     """Validate that required build dependencies are installed."""
     print("=" * 60)
-    print(f"AksaraSight Portable Distribution Builder — v{__version__}")
+    print(f"AksaraSight Portable Distribution Builder: v{__version__}")
     print("=" * 60)
     print(f"Python Runtime: {sys.version.split()[0]} ({sys.platform})")
     print(f"Repository Root: {REPO_ROOT}")

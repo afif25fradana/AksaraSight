@@ -210,8 +210,8 @@ def run_doctor(args: argparse.Namespace) -> int:
 
     if profile.vram_mb is not None and profile.vram_mb < MIN_RECOMMENDED_VRAM_MB:
         lines.append(
-            f"   [WARN] VRAM:                {profile.vram_mb} MB detected — below recommended minimum "
-            f"({MIN_RECOMMENDED_VRAM_MB} MB). Full GPU offload may not fit; expect partial CPU fallback."
+            f"   [WARN] VRAM:                {profile.vram_mb} MB detected (below recommended minimum of "
+            f"{MIN_RECOMMENDED_VRAM_MB} MB). Full GPU offload may not fit; expect partial CPU fallback."
         )
 
     lines.append(f"   [PASS] Recommended Backend: {profile.recommended_backend.upper()}")
@@ -382,7 +382,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Emit prominent warning if non-loopback endpoint is in use
     if not settings.is_loopback:
         sys.stderr.write(
-            f"WARNING: Backend endpoint is non-loopback — document data will leave this machine: "
+            f"WARNING: Backend endpoint is non-loopback; document data will leave this machine: "
             f"'{settings.local_endpoint}'\n"
         )
 

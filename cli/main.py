@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the command-line argument parser."""
     parser = argparse.ArgumentParser(
         prog="AksaraSight-CLI",
-        description="Lightweight local OCR tool powered by OpenAI-compatible vision models.",
+        description="Lightweight local OCR tool using OpenAI-compatible vision models.",
     )
     parser.add_argument(
         "-v",

@@ -403,7 +403,7 @@ class QueueManager:
         )
         name.grid(row=0, column=2, sticky="w", padx=(0, 4), pady=(6, 0))
 
-        # Line 2: Format · Size · [Pages] · [Duration/Status]
+        # Line 2: Format / Size / Pages / Status
         detail = ctk.CTkLabel(
             row,
             text=self.format_item_meta(item),

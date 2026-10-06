@@ -49,7 +49,7 @@ def three_page_pdf(tmp_path: Path) -> Path:
     return path
 
 
-# 1. VisionClient.complete() — arbitrary non-ClientError exception mid-batch
+# 1. VisionClient.complete() - arbitrary non-ClientError exception mid-batch
 
 def test_failure_isolation_client_arbitrary_exception_mid_batch(
     three_page_pdf: Path,
@@ -83,7 +83,7 @@ def test_failure_isolation_client_arbitrary_exception_mid_batch(
     assert result.pages[0].markdown == "Page 1 OK"
 
 
-# 2. VisionClient.complete() — ClientError (non-offline) mid-batch
+# 2. VisionClient.complete() - ClientError (non-offline) mid-batch
 
 def test_failure_isolation_client_error_mid_batch(
     three_page_pdf: Path,
@@ -125,7 +125,7 @@ def test_failure_isolation_client_error_mid_batch(
     assert result.pages[2].markdown == "Page 3 OK"
 
 
-# 3. VisionClient.complete() — ServerOfflineError aborts batch
+# 3. VisionClient.complete() - ServerOfflineError aborts batch
 
 def test_failure_isolation_client_offline_mid_batch(
     three_page_pdf: Path,
@@ -159,7 +159,7 @@ def test_failure_isolation_client_offline_mid_batch(
     assert mock_client.complete.call_count == 2
 
 
-# 4. pipeline.ingest() — PipelineError during ingestion
+# 4. pipeline.ingest() - PipelineError during ingestion
 
 def test_failure_isolation_pipeline_error_raises(mock_client: MagicMock) -> None:
     """A PipelineError from ingest() produces doc FAILED with 0 pages and a
@@ -180,7 +180,7 @@ def test_failure_isolation_pipeline_error_raises(mock_client: MagicMock) -> None
     mock_client.complete.assert_not_called()
 
 
-# 5. pipeline.ingest() — arbitrary RuntimeError during ingestion
+# 5. pipeline.ingest() - arbitrary RuntimeError during ingestion
 
 def test_failure_isolation_pipeline_unexpected_raises(mock_client: MagicMock) -> None:
     """An unexpected RuntimeError from ingest() is caught by the top-level
@@ -201,7 +201,7 @@ def test_failure_isolation_pipeline_unexpected_raises(mock_client: MagicMock) ->
     mock_client.complete.assert_not_called()
 
 
-# 6. Pipeline rasterization — per-page failure via ExtractedPage.error
+# 6. Pipeline rasterization - per-page failure via ExtractedPage.error
 
 def test_failure_isolation_rasterization_page_failure(mock_client: MagicMock) -> None:
     """A page yielded with error from the pipeline marks that page FAILED but
@@ -230,7 +230,7 @@ def test_failure_isolation_rasterization_page_failure(mock_client: MagicMock) ->
     assert mock_client.complete.call_count == 2
 
 
-# 7. Progress callback — exception doesn't affect processing
+# 7. Progress callback - exception doesn't affect processing
 
 def test_failure_isolation_progress_callback_raises(
     three_page_pdf: Path,
@@ -254,7 +254,7 @@ def test_failure_isolation_progress_callback_raises(
     assert mock_client.complete.call_count == 3
 
 
-# 8. CLI batch loop — process_document raises, sibling docs continue
+# 8. CLI batch loop - process_document raises, sibling docs continue
 
 @patch("cli.main.OCREngine")
 @patch("cli.main.Settings.from_env")
@@ -304,7 +304,7 @@ def test_failure_isolation_cli_batch_document_crash(
     assert "02_ok.png" in captured.out
 
 
-# 9. Error message integrity — str(error) doesn't itself throw
+# 9. Error message integrity - str(error) doesn't itself throw
 
 def test_failure_error_messages_are_safe_strings(
     three_page_pdf: Path,
@@ -339,7 +339,7 @@ def test_failure_error_messages_are_safe_strings(
     _ = result.to_json()
 
 
-# 10. docx_export.build_docx() raises — CLI batch continues
+# 10. docx_export.build_docx() raises - CLI batch continues
 
 @patch("cli.main.OCREngine")
 @patch("cli.main.Settings.from_env")
@@ -408,7 +408,7 @@ def test_failure_isolation_docx_export_raises(
     assert (out_dir / "02_good_docx.docx").exists()
 
 
-# 11. format_output() raises (inside save_artifacts path) — CLI batch continues
+# 11. format_output() raises (inside save_artifacts path) - CLI batch continues
 
 @patch("cli.main.OCREngine")
 @patch("cli.main.Settings.from_env")
@@ -481,7 +481,7 @@ def test_failure_isolation_format_output_raises(
 
 
 
-# 12. save_artifacts() raises — CLI batch continues
+# 12. save_artifacts() raises - CLI batch continues
 
 @patch("cli.main.OCREngine")
 @patch("cli.main.Settings.from_env")
@@ -492,7 +492,7 @@ def test_failure_isolation_save_artifacts_raises(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A disk-write OSError from save_artifacts() on doc 1 must not crash the
-    batch — doc 2 writes successfully, exit code 2."""
+    batch - doc 2 writes successfully, exit code 2."""
     from cli.main import main
 
     mock_settings_from_env.return_value = Settings()

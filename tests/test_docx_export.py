@@ -19,9 +19,7 @@ from core.docx_export import (
 from core.models import JobStatus, OCRResult, PageResult
 
 
-# ==============================================================================
 # Page Breaks
-# ==============================================================================
 
 def test_page_breaks_between_pages_only(tmp_path: Path) -> None:
     """Verify literal page breaks are inserted strictly between pages and never after the last page."""
@@ -92,9 +90,7 @@ def test_internal_horizontal_rule_is_not_page_break(tmp_path: Path) -> None:
     assert divider_found, "Internal horizontal rule should render as visual divider paragraph"
 
 
-# ==============================================================================
 # GFM Tables & OOXML Round-Trip Tests
-# ==============================================================================
 
 def test_table_ooxml_header_repeat_and_cant_split(tmp_path: Path) -> None:
     """Verify OOXML w:tblHeader and w:cantSplit attributes on raw XML round-trip."""
@@ -194,9 +190,7 @@ def test_messy_table_edge_cases(tmp_path: Path) -> None:
     assert table.rows[3].cells[2].text == "", "Third cell of row 3 must be empty"
 
 
-# ==============================================================================
 # Headings, Text Formatting, & Lists
-# ==============================================================================
 
 def test_headings_mapping(tmp_path: Path) -> None:
     """Verify #, ##, ### map to Heading 1, Heading 2, Heading 3."""
@@ -274,9 +268,7 @@ def test_bold_italic_and_lists(tmp_path: Path) -> None:
     assert "Second numbered" in paragraphs[4].text
 
 
-# ==============================================================================
 # Inline Code vs. Fenced Code Blocks & Blockquotes
-# ==============================================================================
 
 def test_inline_code_vs_fenced_code_block_distinction(tmp_path: Path) -> None:
     """Verify inline code stays inline in same paragraph while fenced code is indented block."""
@@ -333,9 +325,7 @@ def test_inline_code_vs_fenced_code_block_distinction(tmp_path: Path) -> None:
     assert p_quote.runs[0].font.name == "Consolas"
 
 
-# ==============================================================================
 # LaTeX Formula Preservation
-# ==============================================================================
 
 def test_latex_formula_raw_text_preservation(tmp_path: Path) -> None:
     """Verify LaTeX math syntax ($...$ and $$...$$) is preserved verbatim as plain text."""
@@ -366,9 +356,7 @@ def test_latex_formula_raw_text_preservation(tmp_path: Path) -> None:
     assert "$$\\sum_{i=1}^n x_i = X$$" in p1_text
 
 
-# ==============================================================================
 # Export Helper (export_to_docx_bytes)
-# ==============================================================================
 
 def test_export_to_docx_bytes() -> None:
     """Verify export_to_docx_bytes produces valid binary buffer."""
@@ -399,9 +387,7 @@ def test_empty_or_failed_result_handled_cleanly() -> None:
     assert "Error: Corrupt PDF header" in doc_err.paragraphs[0].text
 
 
-# ==============================================================================
 # Table Alignment, Inline Styling, and Degenerate Cases Tests
-# ==============================================================================
 
 def test_table_cell_alignment_left_center_right(tmp_path: Path) -> None:
     """Verify table cell paragraph alignment matches GFM column specification (:---, :---:, ---:)."""
@@ -576,9 +562,7 @@ def test_multipage_with_failed_or_empty_pages_page_break_fidelity(tmp_path: Path
     assert '<w:br w:type="page"/>' not in paragraphs[-1].runs[-1]._r.xml
 
 
-# ==============================================================================
 # Nested Lists & Image Placeholder Rendering
-# ==============================================================================
 
 def test_no_text_silently_dropped() -> None:
     """Every text node in the markdown AST must appear somewhere in the DOCX output.

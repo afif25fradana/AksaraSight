@@ -18,9 +18,7 @@ from core.client import (
 )
 
 
-# ==============================================================================
 # Endpoint Normalization Tests
-# ==============================================================================
 
 @pytest.mark.parametrize(
     "input_url, expected",
@@ -44,9 +42,7 @@ def test_resolve_chat_endpoint(input_url: str, expected: str) -> None:
     assert resolve_chat_endpoint(input_url) == expected
 
 
-# ==============================================================================
 # Initialization & Lifecycle Tests
-# ==============================================================================
 
 def test_vision_client_default_initialization() -> None:
     client = VisionClient()
@@ -81,9 +77,7 @@ def test_vision_client_context_manager() -> None:
     assert client._session is not None
 
 
-# ==============================================================================
 # Success & Payload Construction Tests
-# ==============================================================================
 
 def test_complete_success_payload_and_return_values() -> None:
     mock_response = MagicMock(spec=requests.Response)
@@ -141,9 +135,7 @@ def test_complete_success_payload_and_return_values() -> None:
 
 
 
-# ==============================================================================
 # Network Error & Fail-Fast Tests
-# ==============================================================================
 
 def test_server_offline_connection_error_fails_fast() -> None:
     mock_session = MagicMock(spec=requests.Session)
@@ -178,9 +170,7 @@ def test_generic_request_exception() -> None:
         client.complete("data:image/jpeg;base64,abc")
 
 
-# ==============================================================================
 # HTTP Error Status & Retry Loop Tests
-# ==============================================================================
 
 def test_bad_request_http_400_fails_fast() -> None:
     mock_response = MagicMock(spec=requests.Response)
@@ -278,9 +268,7 @@ def test_non_retryable_404_raises_server_error_without_retry() -> None:
     assert mock_session.post.call_count == 1
 
 
-# ==============================================================================
 # Defensive Response Parsing Tests
-# ==============================================================================
 
 def test_response_parsing_invalid_json() -> None:
     mock_response = MagicMock(spec=requests.Response)
@@ -434,9 +422,7 @@ def test_response_parsing_error_message_truncation() -> None:
     assert len(err_str2) <= 350
 
 
-# ==============================================================================
 # Multimodal Support Verification Tests
-# ==============================================================================
 
 def test_verify_multimodal_support_success() -> None:
     """Verify verify_multimodal_support succeeds when server returns valid response."""

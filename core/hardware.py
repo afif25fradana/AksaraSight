@@ -289,7 +289,6 @@ def detect_hardware() -> HardwareProfile:
     """
     cpu_name = _probe_cpu_info()
 
-    # 1. NVIDIA / CUDA Detection
     gpu_name: Optional[str] = None
     vram_mb: Optional[int] = None
     cuda_driver_version: Optional[str] = None
@@ -335,10 +334,8 @@ def detect_hardware() -> HardwareProfile:
         else:
             cuda_supported = True
 
-    # 2. Vulkan Detection
     vulkan_available, vulkan_device_name = _probe_vulkan_ctypes()
 
-    # 3. Decision Matrix
     if cuda_available and cuda_supported:
         rec_backend = "cuda"
         vram_info = f" with {vram_mb} MB VRAM" if vram_mb else ""

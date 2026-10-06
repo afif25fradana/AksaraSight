@@ -160,7 +160,6 @@ def run_doctor(args: argparse.Namespace) -> int:
     failed_checks = 0
     remediations: List[str] = []
 
-    # 1. Configuration
     lines.append("1. Configuration")
     config_ok = False
     settings: Optional[Settings] = None
@@ -188,7 +187,6 @@ def run_doctor(args: argparse.Namespace) -> int:
         failed_checks += 1
         remediations.append("Fix invalid configuration in .env or provide valid CLI arguments.")
 
-    # 2. Hardware Detection
     lines.append("\n2. Hardware Detection")
     profile = detect_hardware()
     cpu_label = profile.cpu_name or "Unknown"
@@ -218,7 +216,6 @@ def run_doctor(args: argparse.Namespace) -> int:
 
     lines.append(f"   [PASS] Recommended Backend: {profile.recommended_backend.upper()}")
 
-    # 3. Runtime Installation (branching on runtime_mode)
     if not config_ok or settings is None:
         lines.append("\n3. Runtime Installation")
         lines.append("   [SKIP] Runtime Check:       SKIPPED (Configuration error)")
@@ -264,7 +261,6 @@ def run_doctor(args: argparse.Namespace) -> int:
                 f"Install the managed runtime '{tag}-{target_backend}' via GUI Settings or download to '{expected_dir}'."
             )
 
-    # 4. Server Reachability
     lines.append("\n4. Server Reachability")
     server_ready = False
     if not config_ok or settings is None:
@@ -294,7 +290,6 @@ def run_doctor(args: argparse.Namespace) -> int:
             failed_checks += 1
             remediations.append(f"Server returned an error during health check: {health_msg}")
 
-    # 5. Multimodal Vision Probe
     lines.append("\n5. Multimodal Vision Probe")
     if not config_ok or settings is None or not server_ready:
         skip_reason = "Configuration error" if not config_ok else "Server is not ready"
@@ -366,12 +361,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     input_path: Path = args.input
 
-    # 1. Validate input existence (Fatal error -> Exit Code 1)
     if not input_path.exists():
         sys.stderr.write(f"Error: Input path does not exist: '{input_path}'\n")
         return 1
 
-    # 2. Build Settings with CLI overrides and validate
     try:
         base_settings = Settings.from_env()
         overrides = {}
@@ -393,7 +386,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"'{settings.local_endpoint}'\n"
         )
 
-    # 3. Build JobConfig
     if args.max_pages is not None and args.max_pages <= 0:
         sys.stderr.write("Error: --max-pages must be a positive integer.\n")
         return 1
@@ -412,7 +404,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_image_dimension=settings.max_image_dimension,
     )
 
-    # 4. Resolve files to process
     if input_path.is_dir():
         if args.output is None:
             sys.stderr.write("Error: -o/--output directory is required when input is a directory.\n")
@@ -431,7 +422,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if settings.is_loopback:
         start_hardware_prewarm()
 
-    # 5. Initialize Engine and process documents (streaming mode to prevent unbounded memory growth)
     engine = OCREngine(settings=settings)
 
     # Pre-flight startup self-test before processing the first document
@@ -532,7 +522,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sys.stderr.write(f"Aborted: {result.error}\n")
             return 1
 
-    # 6. Exit code calculation
     if has_aborted:
         raise RuntimeError("unreachable: aborted batch jobs must fail fast and return early")
 

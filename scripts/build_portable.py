@@ -86,7 +86,6 @@ def verify_bundle_integrity() -> Path:
     except Exception:
         pass
 
-    # 1. Executables check
     gui_exe = dist_dir / "AksaraSight.exe"
     cli_exe = dist_dir / "AksaraSight-CLI.exe"
 
@@ -97,34 +96,29 @@ def verify_bundle_integrity() -> Path:
         size_kb = exe.stat().st_size / 1024
         print(f"  [OK] {exe.name} ({label}): {size_kb:.1f} KB")
 
-    # 2. _internal directory check
     internal_dir = dist_dir / "_internal"
     if not internal_dir.is_dir():
         sys.stderr.write("ERROR: Missing _internal runtime directory\n")
         sys.exit(1)
 
-    # 3. Native DLL check (pdfium.dll)
     pdfium_matches = list(internal_dir.rglob("pdfium.dll"))
     if not pdfium_matches:
         sys.stderr.write("ERROR: pdfium.dll not found in _internal directory!\n")
         sys.exit(1)
     print(f"  [OK] Native PDFium DLL: {pdfium_matches[0].relative_to(dist_dir)}")
 
-    # 4. CustomTkinter assets check
     ctk_themes = list(internal_dir.rglob("assets/themes")) + list(internal_dir.rglob("themes"))
     if not ctk_themes:
         sys.stderr.write("ERROR: customtkinter theme assets not found in _internal!\n")
         sys.exit(1)
     print(f"  [OK] CustomTkinter assets: {ctk_themes[0].relative_to(dist_dir)}")
 
-    # 5. TkinterDnD2 tkdnd check
     tkdnd_dirs = list(internal_dir.rglob("tkdnd"))
     if not tkdnd_dirs:
         sys.stderr.write("ERROR: tkinterdnd2 tkdnd binaries not found in _internal!\n")
         sys.exit(1)
     print(f"  [OK] TkinterDnD2 binaries: {tkdnd_dirs[0].relative_to(dist_dir)}")
 
-    # 6. python-docx template check (default.docx)
     docx_templates = list(internal_dir.rglob("default.docx"))
     if not docx_templates:
         sys.stderr.write("ERROR: python-docx default.docx template not found in _internal!\n")

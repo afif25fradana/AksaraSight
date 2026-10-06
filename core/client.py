@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-# ==============================================================================
 # Client Exception Hierarchy
-# ==============================================================================
 
 class ClientError(Exception):
     """Base exception for all local inference client failures."""
@@ -53,9 +51,7 @@ _TINY_1X1_PNG_B64 = (
 )
 
 
-# ==============================================================================
 # Helper Functions
-# ==============================================================================
 
 def resolve_chat_endpoint(endpoint: str) -> str:
     """Normalize a base URL or endpoint to a full chat completions URL.
@@ -75,9 +71,7 @@ def resolve_chat_endpoint(endpoint: str) -> str:
     return f"{cleaned}/v1/chat/completions"
 
 
-# ==============================================================================
 # VisionClient Implementation
-# ==============================================================================
 
 class VisionClient:
     """Universal OpenAI-compatible vision client for local LLM engines.

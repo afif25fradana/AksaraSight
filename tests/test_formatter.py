@@ -17,9 +17,7 @@ from core.formatter import (
 from core.models import JobConfig, JobStatus, OCRResult, OutputFormat, PageResult
 
 
-# ==============================================================================
 # Fixtures
-# ==============================================================================
 
 @pytest.fixture
 def sample_ocr_result() -> OCRResult:
@@ -47,9 +45,7 @@ def sample_ocr_result() -> OCRResult:
     return result
 
 
-# ==============================================================================
 # Format Output Tests
-# ==============================================================================
 
 def test_format_output_markdown_only(sample_ocr_result: OCRResult) -> None:
     outputs = format_output(sample_ocr_result, OutputFormat.MARKDOWN)
@@ -82,9 +78,7 @@ def test_format_output_both(sample_ocr_result: OCRResult) -> None:
     assert json.loads(outputs["json"])["page_count"] == 2
 
 
-# ==============================================================================
 # Save Artifacts Tests
-# ==============================================================================
 
 def test_save_artifacts_default_stem_from_file_path(
     sample_ocr_result: OCRResult,
@@ -144,9 +138,7 @@ def test_save_artifacts_in_memory_fallback_stem(tmp_path: Path) -> None:
     assert expected_json.exists()
 
 
-# ==============================================================================
 # Filename Stem Sanitization Tests (Finding 1.2)
-# ==============================================================================
 
 @pytest.mark.parametrize(
     ("raw_stem", "expected"),
@@ -173,9 +165,7 @@ def test_sanitize_filename_stem(raw_stem: str, expected: str) -> None:
     assert sanitize_filename_stem(raw_stem) == expected
 
 
-# ==============================================================================
 # Unique Collision Resolution Tests (Finding 1.1)
-# ==============================================================================
 
 def test_resolve_unique_stem_with_existing_disk_files(tmp_path: Path) -> None:
     # Pre-create disk files
@@ -253,9 +243,7 @@ def test_save_artifacts_avoids_clobbering_existing_disk_files(
     assert (tmp_path / "financial_audit_2.md").exists()
 
 
-# ==============================================================================
 # Path Privacy Export Sanitization Tests (Finding 4.1)
-# ==============================================================================
 
 def test_sanitize_export_path_relative_to_base_and_cwd(tmp_path: Path) -> None:
     """Verify sanitize_export_path relativizes within base_dir or cwd."""

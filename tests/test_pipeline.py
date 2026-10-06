@@ -64,9 +64,7 @@ startxref
 %%EOF"""
 
 
-# ==============================================================================
 # Pre-Flight Checks
-# ==============================================================================
 
 def test_preflight_nonexistent_file(tmp_path):
     """Verify preflight rejects missing file path."""
@@ -104,9 +102,7 @@ def test_preflight_valid_path(tmp_path):
     check_preflight(valid_file)  # No exception raised
 
 
-# ==============================================================================
 # Helper Functions (is_pdf, image_to_base64_url)
-# ==============================================================================
 
 def test_is_pdf_detection(tmp_path):
     """Verify is_pdf identifies files by extension and magic bytes."""
@@ -137,9 +133,7 @@ def test_image_to_base64_url():
     assert url_default.startswith("data:image/jpeg;base64,")
 
 
-# ==============================================================================
 # Ingestion: Images
-# ==============================================================================
 
 def test_ingest_valid_png(tmp_path):
     """Verify ingestion of a valid PNG image."""
@@ -203,9 +197,7 @@ def test_ingest_unsupported_format(tmp_path):
         list(ingest(text_file))
 
 
-# ==============================================================================
 # Ingestion: PDFs
-# ==============================================================================
 
 def test_ingest_valid_multipage_pdf(tmp_path):
     """Verify rasterization of a valid multi-page PDF document."""
@@ -254,9 +246,7 @@ def test_ingest_zero_page_pdf(tmp_path):
         list(ingest(zero_page_path))
 
 
-# ==============================================================================
 # Edge Cases: Misnamed Extensions
-# ==============================================================================
 
 def test_ingest_mislabeled_image_as_pdf(tmp_path):
     """Verify image misnamed with .pdf extension falls back to image processing."""
@@ -300,9 +290,7 @@ def test_ingest_mislabeled_pdf_as_image(tmp_path):
     assert pages[1].is_success is True
 
 
-# ==============================================================================
 # Thread Safety: Concurrent PDF Ingestion
-# ==============================================================================
 
 def test_ingest_multithreaded_pdf_concurrency(tmp_path):
     """Verify concurrent calls to ingest() across multiple threads succeed without crash.
@@ -349,9 +337,7 @@ def test_ingest_multithreaded_pdf_concurrency(tmp_path):
     assert errors == []
 
 
-# ==============================================================================
 # Pre-Render Dimension Safety Tests (Finding 3.2)
-# ==============================================================================
 
 def test_oversized_pdf_page_dimension_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that a PDF page exceeding scaled raster limit is rejected with clean error."""

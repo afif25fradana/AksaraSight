@@ -41,9 +41,7 @@ KNOWN_PINNED_HASHES: Dict[str, str] = {
 _EXE_NAME: str = "llama-server.exe" if sys.platform == "win32" else "llama-server"
 
 
-# ==============================================================================
 # Exceptions Hierarchy
-# ==============================================================================
 
 class RuntimeManagerError(Exception):
     """Base exception for all runtime manager operations."""
@@ -70,9 +68,7 @@ class RuntimeValidationError(RuntimeManagerError):
     pass
 
 
-# ==============================================================================
 # Data Models
-# ==============================================================================
 
 @dataclass(frozen=True)
 class ReleaseAssetInfo:
@@ -92,9 +88,7 @@ class InstalledRuntimeInfo:
     manifest_path: Path
 
 
-# ==============================================================================
 # Directory Resolution
-# ==============================================================================
 
 def get_runtime_base_dir() -> Path:
     """Return the root base directory for all managed local runtimes.
@@ -121,9 +115,7 @@ def get_runtime_dir(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Pat
     return get_runtime_base_dir() / f"{clean_tag}-{clean_backend}"
 
 
-# ==============================================================================
 # Asset Resolution
-# ==============================================================================
 
 def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) -> List[str]:
     """Resolve the required archive filenames for a given backend and build tag.
@@ -225,9 +217,7 @@ def fetch_release_assets_metadata(
         raise RuntimeDownloadError(f"Unexpected error resolving release assets: {exc}") from exc
 
 
-# ==============================================================================
 # Streaming Download with Integrity Verification
-# ==============================================================================
 
 def download_and_verify_asset(
     asset: ReleaseAssetInfo,
@@ -348,9 +338,7 @@ def download_and_verify_asset(
     return final_path
 
 
-# ==============================================================================
 # Safe Extraction (Zip-Slip Immune)
-# ==============================================================================
 
 def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
     """Extract a ZIP archive strictly verifying that no member escapes target_dir.
@@ -382,9 +370,7 @@ def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
         logger.info("Successfully extracted %s into %s", zip_path.name, target_dir_resolved)
 
 
-# ==============================================================================
 # Post-Install Binary Sanity Validation
-# ==============================================================================
 
 def validate_runtime_binary(exe_path: Path) -> bool:
     """Execute minimal sanity check to confirm the binary can initialize on this machine.
@@ -451,9 +437,7 @@ def validate_runtime_binary(exe_path: Path) -> bool:
                 pass
 
 
-# ==============================================================================
 # Idempotency & Caching
-# ==============================================================================
 
 def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> bool:
     """Determine whether a valid, verified runtime installation already exists on disk.
@@ -491,9 +475,7 @@ def get_installed_runtime_path(tag: str = PINNED_LLAMA_BUILD, backend: str = "cu
     return None
 
 
-# ==============================================================================
 # Orchestrator: Ensure Runtime
-# ==============================================================================
 
 def ensure_runtime(
     backend: str,
@@ -531,7 +513,6 @@ def ensure_runtime(
     clean_backend = backend.strip().lower()
     clean_tag = tag.strip()
 
-    # 1. Idempotency check: Zero network calls if already installed and not forced
     if not force:
         existing = get_installed_runtime_path(clean_tag, clean_backend)
         if existing is not None:
@@ -546,7 +527,6 @@ def ensure_runtime(
     exe_name = _EXE_NAME
 
     try:
-        # 2. Resolve required assets
         required_names = resolve_required_asset_names(clean_backend, clean_tag)
 
         if progress_callback:
@@ -554,7 +534,6 @@ def ensure_runtime(
 
         assets_metadata = fetch_release_assets_metadata(clean_tag, session=session)
 
-        # 3. Download and verify each archive
         downloaded_archives: List[Path] = []
         for asset_name in required_names:
             if asset_name not in assets_metadata:
@@ -575,7 +554,6 @@ def ensure_runtime(
             )
             downloaded_archives.append(archive_path)
 
-        # 4. Safe extraction into temporary staging folder
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
         staging_dir.mkdir(parents=True, exist_ok=True)
@@ -585,14 +563,12 @@ def ensure_runtime(
                 progress_callback(f"Extracting {archive.name}...", 0, 0)
             safe_extract_zip(archive, staging_dir)
 
-        # 5. Confirm executable existence
         staging_exe = staging_dir / exe_name
         if not staging_exe.is_file():
             raise RuntimeValidationError(
                 f"Extraction completed but executable '{exe_name}' was not found in archive."
             )
 
-        # 6. Post-install validation check
         if progress_callback:
             progress_callback("Verifying runtime binary...", 0, 0)
 
@@ -602,7 +578,6 @@ def ensure_runtime(
                 "Check for missing system dependencies or driver incompatibility."
             )
 
-        # 7. Write manifest.json
         manifest = {
             "tag": clean_tag,
             "backend": clean_backend,
@@ -613,7 +588,6 @@ def ensure_runtime(
         manifest_path = staging_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-        # 8. Atomic directory move/replace
         if runtime_dir.exists():
             backup_dir = base_dir / f"{runtime_dir.name}_old_{uuid.uuid4().hex[:6]}"
             runtime_dir.rename(backup_dir)
@@ -640,7 +614,6 @@ def ensure_runtime(
         return final_exe
 
     except Exception as exc:
-        # 9. Clean up staging on any failure
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
         logger.error("Failed to ensure runtime %s-%s: %s", clean_tag, clean_backend, exc)

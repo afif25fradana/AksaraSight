@@ -12,9 +12,7 @@ from core.models import JobStatus, OCRResult, PageResult
 from tests.fixture_helpers import load_real_glm_ocr_response
 
 
-# ==============================================================================
 # Fixtures & Helpers
-# ==============================================================================
 
 @pytest.fixture
 def dummy_png(tmp_path: Path) -> Path:
@@ -47,9 +45,7 @@ def mock_success_result() -> OCRResult:
     )
 
 
-# ==============================================================================
 # Extension Discovery Tests
-# ==============================================================================
 
 def test_discover_files_explicit_whitelist(tmp_path: Path) -> None:
     # Supported
@@ -79,9 +75,7 @@ def test_discover_files_explicit_whitelist(tmp_path: Path) -> None:
     assert sorted(rec_names) == ["doc.pdf", "img1.PNG", "img2.jpg", "photo.webp", "scan.tiff", "sub_doc.pdf"]
 
 
-# ==============================================================================
 # Single File Execution Tests
-# ==============================================================================
 
 @patch("cli.main.OCREngine")
 def test_cli_single_file_stdout_markdown(
@@ -175,9 +169,7 @@ def test_cli_single_file_save_to_output_dir(
     assert (out_dir / "sample.json").exists()
 
 
-# ==============================================================================
 # Fatal Configuration & Validation Tests (Exit Code 1)
-# ==============================================================================
 
 def test_cli_fatal_nonexistent_input_path(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["nonexistent_path_xyz.pdf"])
@@ -242,9 +234,7 @@ def test_cli_fatal_backend_offline_abort(
     assert "Aborted: Inference backend offline" in captured.err
 
 
-# ==============================================================================
 # Batch Processing & Exit Code 2 (Partial/Failure) Tests
-# ==============================================================================
 
 @patch("cli.main.OCREngine")
 def test_cli_batch_folder_all_success(
@@ -298,9 +288,7 @@ def test_cli_batch_folder_partial_failure_exit_code_2(
     assert exit_code == 2
 
 
-# ==============================================================================
 # Settings Override & Parameter Passing Test
-# ==============================================================================
 
 @patch("cli.main.OCREngine")
 def test_cli_passes_settings_and_prompt_overrides(
@@ -526,9 +514,7 @@ def test_cli_batch_streaming_exit_codes(
     assert exit_1 == 1
 
 
-# ==============================================================================
 # Hardware Detection CLI Flag Tests
-# ==============================================================================
 
 @patch("cli.main.detect_hardware")
 def test_cli_detect_hardware_flag(
@@ -633,9 +619,7 @@ def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytes
     assert "Error: Backend not responding correctly to image input" in captured.err
 
 
-# ==============================================================================
 # Doctor Flag Tests (--doctor)
-# ==============================================================================
 
 @patch("cli.main.OCREngine")
 @patch("cli.main.probe_server_health")
@@ -857,9 +841,7 @@ def test_cli_doctor_config_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert "STATUS: UNHEALTHY" in captured.out
 
 
-# ==============================================================================
 # DOCX Export CLI Tests
-# ==============================================================================
 
 def test_cli_parser_docx_choice() -> None:
     """Verify CLI parser accepts 'docx' as a valid -f/--format choice."""
@@ -982,9 +964,7 @@ def test_cli_existing_formats_untouched(
     assert '"status": "SUCCESS"' in out_both
 
 
-# ==============================================================================
 # Batch Progress, Abort Fast-Fail, and CLI Error Handling Tests
-# ==============================================================================
 
 @patch("cli.main.OCREngine")
 def test_cli_batch_progress_and_summary_output(

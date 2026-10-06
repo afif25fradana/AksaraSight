@@ -27,9 +27,7 @@ from gui.theme import (
 from gui.worker_coordinator import WorkerCoordinator, WorkerEvent, WorkerEventType
 
 
-# ==============================================================================
 # Headless Widget Fakes
-# ==============================================================================
 
 
 class FakeProgressBar:
@@ -109,9 +107,7 @@ class FakeQueueManager:
         return f"{item.file_size_str} • {item.processed_dpi} DPI"
 
 
-# ==============================================================================
 # Helper Factories
-# ==============================================================================
 
 
 def _create_fake_item(file_path: Path, item_id: Optional[str] = None) -> QueueItem:
@@ -127,9 +123,7 @@ def _create_fake_item(file_path: Path, item_id: Optional[str] = None) -> QueueIt
     return item
 
 
-# ==============================================================================
 # Unit Tests
-# ==============================================================================
 
 
 def test_coordinator_init_defaults() -> None:

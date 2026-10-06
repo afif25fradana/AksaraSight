@@ -39,9 +39,7 @@ def _create_test_zip(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-# ==============================================================================
 # Asset Resolution Tests
-# ==============================================================================
 
 def test_resolve_required_asset_names() -> None:
     """Verify correct archive mapping per backend."""
@@ -63,9 +61,7 @@ def test_resolve_required_asset_names() -> None:
         resolve_required_asset_names("metal", "b11361")
 
 
-# ==============================================================================
 # Release Metadata Fetching Tests
-# ==============================================================================
 
 def test_fetch_release_assets_metadata_success() -> None:
     """Verify release metadata parsing and digest resolution."""
@@ -125,9 +121,7 @@ def test_fetch_release_assets_metadata_errors() -> None:
         fetch_release_assets_metadata("b11361", session=mock_session)
 
 
-# ==============================================================================
 # Download & Integrity Verification Tests
-# ==============================================================================
 
 def test_download_and_verify_asset_success(tmp_path: Path) -> None:
     """Verify streaming download with matching SHA-256 succeeds."""
@@ -324,9 +318,7 @@ def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None
             download_and_verify_asset(asset=asset_no_gh_digest, dest_dir=tmp_path, session=mock_session)
 
 
-# ==============================================================================
 # Safe Extraction & Zip-Slip Protection Tests
-# ==============================================================================
 
 def test_safe_extract_zip_valid(tmp_path: Path) -> None:
     """Safe extraction unpacks clean members without error."""
@@ -361,9 +353,7 @@ def test_safe_extract_zip_slip_rejection(tmp_path: Path) -> None:
     assert not (tmp_path / "evil_payload.exe").exists()
 
 
-# ==============================================================================
 # Post-Install Binary Validation Tests
-# ==============================================================================
 
 def test_validate_runtime_binary(tmp_path: Path) -> None:
     """Verify validation check executes minimal invocation."""
@@ -440,9 +430,7 @@ def test_validate_runtime_binary_restores_error_mode(tmp_path: Path) -> None:
         assert ctypes.windll.kernel32.GetErrorMode() == initial_mode
 
 
-# ==============================================================================
 # Idempotency & Cache Verification Tests
-# ==============================================================================
 
 def test_is_runtime_installed_and_path(tmp_path: Path) -> None:
     """Verify detection of cached installed runtimes."""
@@ -466,9 +454,7 @@ def test_is_runtime_installed_and_path(tmp_path: Path) -> None:
         assert get_installed_runtime_path("b11361", "vulkan") is None
 
 
-# ==============================================================================
 # End-to-End Orchestration & Failure Recovery Tests
-# ==============================================================================
 
 def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
     """Verify complete download, verification, extraction, and manifest creation flow."""

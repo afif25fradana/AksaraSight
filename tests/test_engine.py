@@ -21,9 +21,7 @@ from core.pipeline import ExtractedPage
 from tests.fixture_helpers import load_real_glm_ocr_response
 
 
-# ==============================================================================
 # Fixtures & Helpers
-# ==============================================================================
 
 @pytest.fixture
 def mock_client() -> MagicMock:
@@ -57,9 +55,7 @@ def sample_pdf_path(tmp_path: Path) -> Path:
     return path
 
 
-# ==============================================================================
 # Pipeline & Generator Laziness Isolation Tests
-# ==============================================================================
 
 def test_engine_catches_nonexistent_file_laziness_fix(mock_client: MagicMock) -> None:
     """Verify generator laziness: check_preflight runs and is caught cleanly."""
@@ -105,9 +101,7 @@ def test_engine_catches_unsupported_format(tmp_path: Path, mock_client: MagicMoc
     mock_client.complete.assert_not_called()
 
 
-# ==============================================================================
 # Happy Path Orchestration Tests
-# ==============================================================================
 
 def test_engine_process_document_success(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     engine = OCREngine(client=mock_client)
@@ -139,9 +133,7 @@ def test_engine_process_document_success(sample_pdf_path: Path, mock_client: Mag
 
 
 
-# ==============================================================================
 # Per-Page Fault Isolation Tests (Partial Success)
-# ==============================================================================
 
 def test_engine_per_page_isolation_client_errors(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Page 1 succeeds, Page 2 times out, Page 3 succeeds -> PARTIAL status."""
@@ -172,9 +164,7 @@ def test_engine_per_page_isolation_client_errors(sample_pdf_path: Path, mock_cli
     assert "Page 3 Markdown" in result.markdown
 
 
-# ==============================================================================
 # ServerOfflineError Fail-Fast Short-Circuit Tests
-# ==============================================================================
 
 def test_engine_server_offline_on_first_page_short_circuits(
     sample_pdf_path: Path,
@@ -230,9 +220,7 @@ def test_engine_server_offline_mid_document_short_circuits(
 
 
 
-# ==============================================================================
 # Pipeline-Yielded Page Failure Test
-# ==============================================================================
 
 def test_engine_handles_pipeline_rasterization_failure(mock_client: MagicMock) -> None:
     """Simulate a single page failing during rasterization from pipeline."""
@@ -255,9 +243,7 @@ def test_engine_handles_pipeline_rasterization_failure(mock_client: MagicMock) -
     assert mock_client.complete.call_count == 1
 
 
-# ==============================================================================
 # Page Limits & Cancellation Tests (Finding 3.1)
-# ==============================================================================
 
 def test_engine_max_pages_limit(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Verify max_pages limits number of pages processed on multi-page documents."""
@@ -295,9 +281,7 @@ def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: Magi
     assert result.pages[0].markdown == "# Page 1 Text"
 
 
-# ==============================================================================
 # Progress Callback & Image Retention Tests (Stage A)
-# ==============================================================================
 
 def test_engine_progress_callback_invoked(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Verify progress_callback is called after each page with current_page, total_pages, and PageResult."""
@@ -387,9 +371,7 @@ def test_engine_verify_backend_raises_on_failure(mock_client: MagicMock) -> None
     assert engine._multimodal_verified is False
 
 
-# ==============================================================================
 # End-to-End Loopback Server & Engine Lifecycle Integration Tests
-# ==============================================================================
 
 def test_engine_close_lifecycle() -> None:
     """Verify engine.close() safely releases client network session."""

@@ -24,9 +24,7 @@ _PDFIUM_LOCK = threading.Lock()
 DEFAULT_JPEG_QUALITY: int = 95
 
 
-# ==============================================================================
 # Pipeline Exception Hierarchy
-# ==============================================================================
 
 class PipelineError(Exception):
     """Base exception for all document ingestion and pre-flight validation failures."""
@@ -56,9 +54,7 @@ class EmptyDocumentError(PipelineError):
     """Raised when a document contains 0 pages or no rasterizable content."""
 
 
-# ==============================================================================
 # Pipeline Data Models
-# ==============================================================================
 
 @dataclass
 class ExtractedPage:
@@ -85,9 +81,7 @@ class ExtractedPage:
         return self.error is None and self.image_b64 is not None
 
 
-# ==============================================================================
 # Pre-Flight and Format Verification
-# ==============================================================================
 
 def check_preflight(source: Union[str, Path]) -> None:
     """Verify source existence, read permissions, and non-empty status.
@@ -169,9 +163,7 @@ def _downscale_if_needed(image: Image.Image, max_dim: int) -> Image.Image:
     return image
 
 
-# ==============================================================================
 # Ingestion Workers
-# ==============================================================================
 
 def _process_image(
     source: Union[str, Path],
@@ -406,9 +398,7 @@ def _process_pdf(
             doc.close()
 
 
-# ==============================================================================
 # Public Ingestion Interface
-# ==============================================================================
 
 def ingest(
     source: Union[str, Path],

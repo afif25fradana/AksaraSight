@@ -363,7 +363,7 @@ def test_save_to_env_preserves_comments_and_unrelated_vars(tmp_path):
 
 
 def test_save_to_env_preserves_path_with_hash_and_spaces(tmp_path):
-    """Verify paths containing '#' and spaces are quoted and reload accurately without truncation (SEC-2.1)."""
+    """Verify paths containing '#' and spaces are quoted and reload accurately without truncation."""
     env_file = tmp_path / "quoted.env"
     path_with_hash = r"C:\tools\build#1 with spaces\llama-server.exe"
 
@@ -379,7 +379,7 @@ def test_save_to_env_preserves_path_with_hash_and_spaces(tmp_path):
 
 
 def test_save_to_env_preserves_path_with_single_quotes(tmp_path):
-    """Verify paths containing literal single quotes (e.g. D'Angelo) are escaped and round-trip accurately (SEC-2.1)."""
+    """Verify paths containing literal single quotes (e.g. D'Angelo) are escaped and round-trip accurately."""
     env_file = tmp_path / "quote.env"
     path_with_quote = r"C:\Users\D'Angelo\llama-server.exe"
 

@@ -971,7 +971,7 @@ def test_server_manager_registers_atexit():
 
 
 def test_server_manager_job_object_lifecycle(tmp_path):
-    """Verify ServerManager creates a Windows Job Object upon process spawn and releases it on stop (SEC-4.1)."""
+    """Verify ServerManager creates a Windows Job Object upon process spawn and releases it on stop."""
     import sys
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")

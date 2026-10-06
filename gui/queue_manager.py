@@ -167,7 +167,7 @@ class QueueManager:
         ):
             return None
 
-        # Compute formatted file size once at creation time (P10)
+        # Compute formatted file size once at creation time
         try:
             file_size_str = _format_file_size(path.stat().st_size)
         except Exception as exc:

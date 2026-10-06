@@ -274,13 +274,7 @@ class VisionClient:
         response: requests.Response,
         latency: float,
     ) -> Tuple[str, Dict[str, Any], float, bool]:
-        """Parse and validate OpenAI-compatible chat completion JSON response.
-
-        Note:
-            Parsing edge cases (such as None content, missing choices, or non-string
-            content fields) are implemented defensively (unverified against live llama-server)
-            and must be re-validated during integration testing.
-        """
+        """Parse and validate OpenAI-compatible chat completion JSON response."""
         try:
             data = response.json()
         except Exception as exc:

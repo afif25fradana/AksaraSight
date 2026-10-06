@@ -20,11 +20,11 @@ from core.models import JobStatus, OCRResult, PageResult
 
 
 # ==============================================================================
-# Requirement 1: Page Breaks
+# Page Breaks
 # ==============================================================================
 
 def test_page_breaks_between_pages_only(tmp_path: Path) -> None:
-    """Requirement 1: Verify literal page breaks are inserted strictly between pages and never after the last page."""
+    """Verify literal page breaks are inserted strictly between pages and never after the last page."""
     result = OCRResult(
         file_path="multipage.pdf",
         pages=[
@@ -60,7 +60,7 @@ def test_page_breaks_between_pages_only(tmp_path: Path) -> None:
 
 
 def test_internal_horizontal_rule_is_not_page_break(tmp_path: Path) -> None:
-    """Requirement 1: Verify markdown '---' inside a single page is rendered as visual divider, not a page break."""
+    """Verify markdown '---' inside a single page is rendered as visual divider, not a page break."""
     result = OCRResult(
         file_path="single_page_divider.pdf",
         pages=[
@@ -93,11 +93,11 @@ def test_internal_horizontal_rule_is_not_page_break(tmp_path: Path) -> None:
 
 
 # ==============================================================================
-# Requirement 2: GFM Tables & OOXML Round-Trip Tests
+# GFM Tables & OOXML Round-Trip Tests
 # ==============================================================================
 
 def test_table_ooxml_header_repeat_and_cant_split(tmp_path: Path) -> None:
-    """Requirement 2: Verify OOXML w:tblHeader and w:cantSplit attributes on raw XML round-trip."""
+    """Verify OOXML w:tblHeader and w:cantSplit attributes on raw XML round-trip."""
     table_md = (
         "| School Region | Total Enrolled | Pass Rate |\n"
         "|:---|:---:|---:|\n"
@@ -140,7 +140,7 @@ def test_table_ooxml_header_repeat_and_cant_split(tmp_path: Path) -> None:
 
 
 def test_messy_table_edge_cases(tmp_path: Path) -> None:
-    """Requirement 2: Verify ragged rows padding, escaped pipes, empty cells, and numeric fidelity."""
+    """Verify ragged rows padding, escaped pipes, empty cells, and numeric fidelity."""
     # Table containing:
     # 1. Escaped pipe \| in header
     # 2. Uneven columns (row 1 has 3 cells, row 2 has 2 cells, row 3 has empty cells)
@@ -195,11 +195,11 @@ def test_messy_table_edge_cases(tmp_path: Path) -> None:
 
 
 # ==============================================================================
-# Requirement 3: Headings, Text Formatting, & Lists
+# Headings, Text Formatting, & Lists
 # ==============================================================================
 
 def test_headings_mapping(tmp_path: Path) -> None:
-    """Requirement 3: Verify #, ##, ### map to Heading 1, Heading 2, Heading 3."""
+    """Verify #, ##, ### map to Heading 1, Heading 2, Heading 3."""
     md = "# Main Title\n\n## Sub Section\n\n### Detail Level"
     result = OCRResult(
         file_path="headings.pdf",
@@ -228,7 +228,7 @@ def test_headings_mapping(tmp_path: Path) -> None:
 
 
 def test_bold_italic_and_lists(tmp_path: Path) -> None:
-    """Requirement 3: Verify bold/italic run formatting and bullet/numbered list styles."""
+    """Verify bold/italic run formatting and bullet/numbered list styles."""
     md = (
         "Text with **bold words** and *italic words*.\n\n"
         "- Bullet item 1\n"
@@ -275,11 +275,11 @@ def test_bold_italic_and_lists(tmp_path: Path) -> None:
 
 
 # ==============================================================================
-# Requirement 4: Inline Code vs. Fenced Code Blocks & Blockquotes
+# Inline Code vs. Fenced Code Blocks & Blockquotes
 # ==============================================================================
 
 def test_inline_code_vs_fenced_code_block_distinction(tmp_path: Path) -> None:
-    """Requirement 4: Verify inline code stays inline in same paragraph while fenced code is indented block."""
+    """Verify inline code stays inline in same paragraph while fenced code is indented block."""
     md = (
         "Run the `cli.main` command with `--format` flag.\n\n"
         "```python\n"
@@ -334,11 +334,11 @@ def test_inline_code_vs_fenced_code_block_distinction(tmp_path: Path) -> None:
 
 
 # ==============================================================================
-# Requirement 5: LaTeX Formula Preservation
+# LaTeX Formula Preservation
 # ==============================================================================
 
 def test_latex_formula_raw_text_preservation(tmp_path: Path) -> None:
-    """Requirement 5: Verify LaTeX math syntax ($...$ and $$...$$) is preserved verbatim as plain text."""
+    """Verify LaTeX math syntax ($...$ and $$...$$) is preserved verbatim as plain text."""
     latex_md = (
         "Inline formula: $E = mc^2$ and $x_{1,2} = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$.\n\n"
         "Block equation: $$\\sum_{i=1}^n x_i = X$$\n"
@@ -577,7 +577,7 @@ def test_multipage_with_failed_or_empty_pages_page_break_fidelity(tmp_path: Path
 
 
 # ==============================================================================
-# Requirement 6: Nested Lists & Image Placeholder Rendering
+# Nested Lists & Image Placeholder Rendering
 # ==============================================================================
 
 def test_no_text_silently_dropped() -> None:

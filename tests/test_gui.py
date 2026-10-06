@@ -1863,7 +1863,7 @@ def test_settings_dialog_opening_and_runtime_sync():
         assert app.engine.client.settings.max_retries == 3
         assert "Backend: ollama" in app._backend_badge.cget("text")
 
-        # 3. Settings update deferred during active processing (SEC-3.1)
+        # 3. Settings update deferred during active processing
         fake_cancel = threading.Event()
         app._worker_coordinator.current_cancel_event = fake_cancel
         in_flight_settings = Settings(
@@ -1976,7 +1976,7 @@ def test_queue_item_badges_use_dots_never_brackets(tmp_path):
 
 
 def test_batch2_lazy_tab_rendering_lifecycle(tmp_path):
-    """P1: Verify that on progress/render events only the active tab is updated,
+    """Verify that on progress/render events only the active tab is updated,
     and switching tabs renders the inactive tab on-demand."""
     p = tmp_path / "sample.pdf"
     p.write_bytes(b"%PDF-1.4 mock")
@@ -2030,7 +2030,7 @@ def test_batch2_lazy_tab_rendering_lifecycle(tmp_path):
 
 
 def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
-    """P2: Verify on-demand image loading from disk when image_b64 is None (both PDF and PNG),
+    """Verify on-demand image loading from disk when image_b64 is None (both PDF and PNG),
     and verify missing source file displays 'Source file unavailable' gracefully."""
     from PIL import Image
     import pypdfium2 as pdfium
@@ -2106,7 +2106,7 @@ def test_batch2_on_demand_image_loading_and_fallback(tmp_path):
 
 
 def test_batch2_queue_item_file_size_caching(tmp_path):
-    """P10: Verify QueueItem caches formatted file size at creation time,
+    """Verify QueueItem caches formatted file size at creation time,
     preventing repeated stat() calls during lifecycle events."""
     test_file = tmp_path / "cached_size_test.png"
     test_file.write_bytes(b"x" * 2048)
@@ -2233,7 +2233,7 @@ def test_batch2_gui_item_selection_vs_worker_race_reverified(tmp_path):
 
 
 def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
-    """Verify adaptive polling backoff for queue poller, server poller, and status widget caching (P5)."""
+    """Verify adaptive polling backoff for queue poller, server poller, and status widget caching."""
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2307,7 +2307,7 @@ def test_batch3_adaptive_polling_backoff(monkeypatch) -> None:
 
 
 def test_batch3_batch_folder_drop_and_validation(tmp_path: Path) -> None:
-    """Verify background directory scanning, chunked row insertion, and per-file validation (P6)."""
+    """Verify background directory scanning, chunked row insertion, and per-file validation."""
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2354,7 +2354,7 @@ def test_batch3_batch_folder_drop_and_validation(tmp_path: Path) -> None:
 
 
 def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
-    """Verify soft cleanup prompt appears when finished queue items exceed 100 and clears properly (P7)."""
+    """Verify soft cleanup prompt appears when finished queue items exceed 100 and clears properly."""
     mock_engine = MagicMock()
     app = OCRApp(engine=mock_engine)
     app.withdraw()
@@ -2393,7 +2393,7 @@ def test_batch3_queue_item_cap_cleanup_hint(tmp_path: Path) -> None:
 
 
 def test_batch3_background_export_all_and_concurrency_lock(tmp_path: Path) -> None:
-    """Verify Export All runs on background daemon thread and prevents concurrent duplicate exports (P8)."""
+    """Verify Export All runs on background daemon thread and prevents concurrent duplicate exports."""
     import os
     import traceback
 

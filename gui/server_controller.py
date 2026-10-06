@@ -56,7 +56,6 @@ class ServerUIController:
 
     @property
     def server_manager(self) -> Any:
-        """Return the server manager instance."""
         return self._server_manager
 
     @server_manager.setter
@@ -65,7 +64,6 @@ class ServerUIController:
 
     @property
     def settings(self) -> Any:
-        """Return the application settings."""
         return self._settings
 
     @settings.setter

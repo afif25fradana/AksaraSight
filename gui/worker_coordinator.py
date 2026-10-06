@@ -118,7 +118,6 @@ class WorkerCoordinator:
 
     @property
     def engine(self) -> Any:
-        """Return engine instance."""
         return self._engine
 
     @engine.setter
@@ -127,7 +126,6 @@ class WorkerCoordinator:
 
     @property
     def settings(self) -> Any:
-        """Return application settings."""
         return self._settings
 
     @settings.setter
@@ -136,7 +134,6 @@ class WorkerCoordinator:
 
     @property
     def queue_manager(self) -> Any:
-        """Return queue manager instance."""
         return self._queue_manager
 
     @queue_manager.setter
@@ -145,7 +142,6 @@ class WorkerCoordinator:
 
     @property
     def task_queue(self) -> queue.Queue[Optional[Path]]:
-        """Return the inbound document task queue."""
         return self._task_queue
 
     @task_queue.setter
@@ -154,7 +150,6 @@ class WorkerCoordinator:
 
     @property
     def result_queue(self) -> queue.Queue[WorkerEvent]:
-        """Return the outbound worker result event queue."""
         return self._result_queue
 
     @result_queue.setter
@@ -163,7 +158,6 @@ class WorkerCoordinator:
 
     @property
     def worker_thread(self) -> Optional[threading.Thread]:
-        """Return the background worker thread."""
         return self._worker_thread
 
     @worker_thread.setter
@@ -172,7 +166,6 @@ class WorkerCoordinator:
 
     @property
     def poll_id(self) -> Optional[str]:
-        """Return the active after() timer token for result queue polling."""
         return self._poll_id
 
     @poll_id.setter
@@ -181,7 +174,6 @@ class WorkerCoordinator:
 
     @property
     def current_cancel_event(self) -> Optional[threading.Event]:
-        """Return the cancel token for the actively processing document."""
         return self._current_cancel_event
 
     @current_cancel_event.setter
@@ -190,7 +182,6 @@ class WorkerCoordinator:
 
     @property
     def pending_engine_settings(self) -> Optional[Settings]:
-        """Return staged engine settings waiting for document boundary."""
         return self._pending_engine_settings
 
     @pending_engine_settings.setter
@@ -199,7 +190,6 @@ class WorkerCoordinator:
 
     @property
     def success_count(self) -> int:
-        """Return lifetime count of successfully processed documents."""
         return self._success_count
 
     @success_count.setter
@@ -208,7 +198,6 @@ class WorkerCoordinator:
 
     @property
     def failed_count(self) -> int:
-        """Return lifetime count of failed documents."""
         return self._failed_count
 
     @failed_count.setter
@@ -217,7 +206,6 @@ class WorkerCoordinator:
 
     @property
     def progress_indeterminate(self) -> bool:
-        """Return True if progress bar is pulsing in indeterminate mode."""
         return self._progress_indeterminate
 
     @progress_indeterminate.setter

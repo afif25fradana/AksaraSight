@@ -89,10 +89,8 @@ class Settings:
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration attributes across all construction paths."""
-        # Allow remote validation
         object.__setattr__(self, "allow_remote", _to_bool(self.allow_remote))
 
-        # Runtime mode validation & normalization
         if not isinstance(self.runtime_mode, str):
             raise ValueError(f"RUNTIME_MODE must be a string, got: '{self.runtime_mode}'")
         clean_runtime_mode = self.runtime_mode.strip().lower()
@@ -101,7 +99,6 @@ class Settings:
             raise ValueError(f"Invalid RUNTIME_MODE: '{self.runtime_mode}'. Must be one of: {valid_modes}")
         object.__setattr__(self, "runtime_mode", clean_runtime_mode)
 
-        # Managed backend override validation & normalization
         if not isinstance(self.managed_backend_override, str):
             raise ValueError(f"MANAGED_BACKEND_OVERRIDE must be a string, got: '{self.managed_backend_override}'")
         clean_backend_override = self.managed_backend_override.strip().lower()
@@ -112,7 +109,6 @@ class Settings:
             )
         object.__setattr__(self, "managed_backend_override", clean_backend_override)
 
-        # Backend validation & normalization
         if not isinstance(self.backend, str):
             raise ValueError(f"BACKEND must be a string, got: '{self.backend}'")
         clean_backend = self.backend.strip().lower()
@@ -121,7 +117,6 @@ class Settings:
             raise ValueError(f"Invalid BACKEND: '{self.backend}'. Supported backends: {valid_list}")
         object.__setattr__(self, "backend", clean_backend)
 
-        # Endpoint validation & normalization
         if not isinstance(self.local_endpoint, str):
             raise ValueError(f"LOCAL_ENDPOINT must be a string, got: '{self.local_endpoint}'")
         clean_endpoint = self.local_endpoint.strip().replace("\r", "").replace("\n", "").rstrip("/")
@@ -149,7 +144,6 @@ class Settings:
 
         object.__setattr__(self, "local_endpoint", clean_endpoint)
 
-        # Timeout validation
         try:
             val_timeout = float(self.timeout)
             if val_timeout <= 0:
@@ -158,7 +152,6 @@ class Settings:
             raise ValueError(f"TIMEOUT must be a positive number, got: '{self.timeout}'")
         object.__setattr__(self, "timeout", val_timeout)
 
-        # Max retries validation
         try:
             val_retries = int(self.max_retries)
             if val_retries < 0:
@@ -167,12 +160,10 @@ class Settings:
             raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{self.max_retries}'")
         object.__setattr__(self, "max_retries", val_retries)
 
-        # Server binary path normalization
         if self.llama_server_path is not None:
             clean_path = str(self.llama_server_path).strip().replace("\r", "").replace("\n", "")
             object.__setattr__(self, "llama_server_path", clean_path if clean_path else None)
 
-        # Model repository validation
         if not isinstance(self.model_repo, str) or not self.model_repo.strip():
             raise ValueError(f"MODEL_REPO must be a non-empty string, got: '{self.model_repo}'")
         clean_repo = self.model_repo.strip().replace("\r", "").replace("\n", "")
@@ -180,10 +171,8 @@ class Settings:
             raise ValueError(f"MODEL_REPO must not be empty, got: '{self.model_repo}'")
         object.__setattr__(self, "model_repo", clean_repo)
 
-        # Auto-start server validation
         object.__setattr__(self, "auto_start_server", _to_bool(self.auto_start_server))
 
-        # DPI validation
         try:
             val_dpi = int(self.dpi)
             if val_dpi <= 0:
@@ -192,7 +181,6 @@ class Settings:
             raise ValueError(f"DPI must be a positive integer, got: '{self.dpi}'")
         object.__setattr__(self, "dpi", val_dpi)
 
-        # Max pages validation
         if self.max_pages is not None:
             try:
                 val_max_pages = int(self.max_pages)
@@ -202,7 +190,6 @@ class Settings:
                 raise ValueError(f"MAX_PAGES must be a positive integer or None, got: '{self.max_pages}'")
             object.__setattr__(self, "max_pages", val_max_pages)
 
-        # Max image dimension validation
         try:
             val_dim = int(self.max_image_dimension)
             if not (512 <= val_dim <= 8192):
@@ -213,7 +200,6 @@ class Settings:
             )
         object.__setattr__(self, "max_image_dimension", val_dim)
 
-        # Max tokens validation
         try:
             val_max_tokens = int(self.max_tokens)
             if val_max_tokens <= 0:

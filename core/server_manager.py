@@ -272,17 +272,14 @@ class ServerManager:
 
     @property
     def status(self) -> ServerStatus:
-        """Return the current cached ServerStatus."""
         return self._status
 
     @property
     def ownership(self) -> ServerOwnership:
-        """Return the current process ownership origin."""
         return self._ownership
 
     @property
     def is_managed(self) -> bool:
-        """Return True if the active server was spawned by this manager."""
         return self._ownership == ServerOwnership.MANAGED
 
     def get_status_info(self) -> ServerStatusInfo:

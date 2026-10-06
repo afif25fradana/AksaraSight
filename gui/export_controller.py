@@ -76,7 +76,6 @@ class ExportController:
 
     @property
     def queue_manager(self) -> Any:
-        """Return the resolved queue manager instance or callable result."""
         if callable(self._queue_manager):
             return self._queue_manager()
         return self._queue_manager
@@ -87,12 +86,10 @@ class ExportController:
 
     @property
     def is_exporting(self) -> bool:
-        """Return True if a batch export thread is currently in-flight."""
         return self._is_exporting
 
     @property
     def export_thread(self) -> Optional[threading.Thread]:
-        """Return the active background export thread, if any."""
         return self._export_thread
 
     def get_selected_export_format(self) -> OutputFormat:

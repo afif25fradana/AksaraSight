@@ -15,7 +15,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
-### v1.2.1 — Diagnostics & Maintenance Update (October 5, 2026)
+### v1.2.1: Diagnostics & Maintenance Update (October 5, 2026)
 *Focus: Runtime diagnostics, logging architecture, hardware pre-flight warnings, export collision isolation, and configuration persistence.*
 - **Added**: A startup warning when a CUDA graphics card reports less than ~2.2 GB of total video memory, so likely out-of-memory problems are easier to spot. It doesn't slow down app launch.
 - **Added**: When connecting to an already-running local server, AksaraSight now warns if that server is serving a different model than the one configured.
@@ -27,7 +27,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-### v1.2.0 — GUI Modularization, Architecture Consolidation & Test Expansion (October 1, 2026)
+### v1.2.0: GUI Modularization, Architecture Consolidation & Test Expansion (October 1, 2026)
 *Focus: Desktop GUI modularization into dedicated controllers, test suite expansion, server manager lifecycle lock hardening, and documentation sanitization. (Architectural consolidation; no breaking changes).*
 - **Modular GUI Controllers (`gui/`)**: Extracted 7 dedicated, testable controller modules from `gui/app.py`:
   - `QueueManager` (`gui/queue_manager.py`): Queue item state, list selection, and batch ingestion.
@@ -43,11 +43,11 @@ A chronological overview of the development, architecture, security hardening, a
 - **Server Lifecycle Concurrency Hardening (`core/server_manager.py`)**: Introduced `_lifecycle_lock` to serialize process start/stop lifecycles across blocking process termination, freeing `_lock` to guard state snapshots without deadlock risk during concurrent stdout draining.
 - **DOCX Nested List & Image Node Support (`core/docx_export.py`)**: Added recursive AST rendering for deeply nested bullet/ordered lists with depth indentation, and converted image AST nodes into clean visible placeholders.
 - **CI Matrix & Dependency Pinning**: Added Python 3.10 to the GitHub Actions test matrix alongside 3.14; pinned direct dependencies across runtime, dev, and build manifests.
-- **Documentation Sanitization**: Stripped internal AI process markers from codebase docstrings and synchronized technical architecture guides.
+- **Documentation**: Cleaned up module docstrings and updated technical architecture guides.
 
 ---
 
-### v1.1.1 — Maintenance, Test-Suite Hardening & Documentation Synchronization (September 22, 2026)
+### v1.1.1: Maintenance, Test-Suite Hardening & Documentation Synchronization (September 22, 2026)
 *Focus: Release readiness, version alignment, batch CLI assertion hardening, and documentation synchronization. (Patch/hardening; no breaking changes).*
 - **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.
 - **Batch CLI Fast-Fail Assertion (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), ensuring aborted batch runs exit early.
@@ -73,7 +73,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-### v1.1.0 — Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
+### v1.1.0: Microsoft Word (.docx) Export & GFM Table Prompt Hardening (September 17, 2026)
 *Focus: Native Word document generation from OCR CommonMark/GFM AST, tabular formatting fidelity, write-path sanitization widening, and frozen bundle distribution. (Additive; no breaking changes).*
 - **Native DOCX Export Engine (`core/docx_export.py`)**: Implemented pure-Python CommonMark and GFM AST converter (`python-docx` + `markdown-it-py`) translating OCR Markdown into clean Word documents with styled headings, inline formatting (bold, italic, inline code), blockquotes, lists, verbatim code blocks, and full table support (including header repeat across pages `w:tblHeader` and row split prevention `w:cantSplit`). Multi-page OCR documents insert page breaks strictly between pages.
 - **GFM Table Prompt Instruction (`core/models.py`)**: Updated default text transcription prompt preset (`PROMPT_PRESETS["text"]`) to explicitly instruct GLM-OCR to format tabular, grid, or checklist content (including checkbox columns) using GFM pipe tables (`| ... |`), directly feeding table AST nodes to the DOCX converter.

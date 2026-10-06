@@ -4,7 +4,7 @@
 
 AksaraSight is a desktop app for running OCR locally on your computer. It takes scanned documents, PDFs, receipts, or images and converts them into Markdown, Word documents (.docx), or structured JSON.
 
-I built this because most modern OCR tools require uploading files to third-party cloud APIs. If you are scanning tax papers, legal contracts, medical records, or personal notes, sending them off to a remote server is often unacceptable. AksaraSight runs entirely offline using the GLM-OCR model and llama.cpp under the hood. There is no cloud fallback — if the local backend is unreachable, it stops instead of quietly routing your files across the internet.
+I built this because most modern OCR tools require uploading files to third-party cloud APIs. If you are scanning tax papers, legal contracts, medical records, or personal notes, sending them off to a remote server is often unacceptable. AksaraSight runs entirely offline using the GLM-OCR model and llama.cpp under the hood. There is no cloud fallback. If the local backend is unreachable, it stops instead of quietly routing your files across the internet.
 
 ![AksaraSight Desktop GUI Studio Preview](docs/images/gui_refined_preview.png)
 

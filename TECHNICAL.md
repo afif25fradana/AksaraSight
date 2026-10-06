@@ -1,4 +1,4 @@
-# AksaraSight — Technical Documentation & Architecture
+# AksaraSight: Technical Documentation & Architecture
 
 This document provides in-depth technical specifications, architecture notes, configuration details, and developer workflows for engineers, system administrators, and contributors.
 
@@ -123,7 +123,7 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | --- | --- | --- |
 | `OCR_RUNTIME_MODE` | `managed` | `managed` (auto-detect and supervise) or `custom` (manual external server). |
 | `OCR_MANAGED_BACKEND_OVERRIDE` | `auto` | Force managed backend: `auto`, `cuda`, `vulkan`, or `cpu`. |
-| `OCR_LLAMA_SERVER_PATH` | — | Absolute path to `llama-server.exe` when in `custom` mode. |
+| `OCR_LLAMA_SERVER_PATH` | None | Absolute path to `llama-server.exe` when in `custom` mode. |
 | `OCR_MODEL_REPO` | `ggml-org/GLM-OCR-GGUF` | Hugging Face repository for GGUF model weights. |
 | `OCR_AUTO_START_SERVER` | `false` | Automatically start the managed server when the GUI launches. |
 | `OCR_BACKEND` | `llama-cpp` | Inference engine type: `llama-cpp`, `ollama`, or `vllm`. |
@@ -132,7 +132,7 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | `OCR_MAX_RETRIES` | `2` | Retry attempts on transient network or 5xx/429 errors. |
 | `OCR_ALLOW_REMOTE` | `false` | Opt-in to permit non-loopback endpoints. |
 | `OCR_DPI` | `100` | Rasterization DPI for PDF pages. |
-| `OCR_MAX_PAGES` | — | Global page cap per document (`None` = all pages). |
+| `OCR_MAX_PAGES` | None | Global page cap per document (`None` = all pages). |
 | `OCR_MAX_IMAGE_DIMENSION` | `2048` | Longest-edge dimension cap (512–8192 px) to protect VRAM. |
 
 A documented template is provided in [`.env.example`](.env.example).
@@ -161,14 +161,14 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 
 ## Security, Network Policy & Process Lifecycles
 
-- **Loopback Restriction by Default**: Network requests are strictly constrained to loopback interfaces (`127.0.0.1`, `localhost`, `::1`). External endpoints require explicit `--allow-remote` or `OCR_ALLOW_REMOTE=true`.
+- **Loopback Restriction by Default**: AksaraSight restricts network requests to loopback interfaces (`127.0.0.1`, `localhost`, `::1`). External endpoints require explicit `--allow-remote` or `OCR_ALLOW_REMOTE=true`.
 - **Explicit IPv4 Loopback Binding (`--host 127.0.0.1`)**: When spawning managed `llama-server` instances, `ServerManager` explicitly passes `--host 127.0.0.1` (`core/server_manager.py`), ensuring the inference server binds strictly to the local host interface rather than wildcard `0.0.0.0`.
 - **Proxy Bypass Prevention (`trust_env = False`)**: HTTP client sessions in `VisionClient` (`core/client.py`) and `ServerManager` (`core/server_manager.py`) explicitly set `trust_env = False` to prevent ambient system proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`) from intercepting or redirecting loopback traffic.
 - **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process runs inside a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. If the GUI or CLI is terminated, the OS kernel terminates child server processes automatically.
 - **Cryptographic Verification**: Managed runtime binaries and CUDA support DLLs downloaded from GitHub release assets are verified against pinned SHA-256 digests prior to archive extraction.
 - **Zip-Slip Protection**: Directory extraction asserts canonical path boundaries, rejecting archives containing directory traversal attacks (`../`).
 - **Pixel-Bomb Defense**: Images and PDF pages exceeding 89,478,485 pixels (`MAX_RASTER_PIXELS`) are rejected prior to rasterization to eliminate decompression memory bombs.
-- **Atomic File Writes**: Exports write to `.tmp` files first, renaming them into place atomically to prevent partial writes. Exported JSON paths are relativized to avoid leaking local username paths.
+- **Atomic File Writes**: Exports write to `.tmp` files first, renaming them into place atomically to prevent partial writes. The exporter relativizes paths in JSON output to prevent leaking username paths.
 
 ---
 
@@ -199,7 +199,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 ## Performance, Latency & Known Model Quirks
 
 - **DPI vs. Latency Trade-Off**:
-  - `100 DPI` (Default, ~1.7 MP): ~2.7s per page on an NVIDIA RTX 3050 Laptop GPU (60W). Reaches 100% character accuracy on standard dense-text documents.
+  - `100 DPI` (Default, ~1.7 MP): ~2.7s per page on an NVIDIA RTX 3050 Laptop GPU (60W). Provides reliable recognition on clear, standard printed text.
   - `150 DPI` (~3.8 MP): ~5.6s per page. Recommended for dense small-print receipts or low-resolution scans.
   - `72 DPI`: ~1.5s per page. Faster throughput, but may introduce OCR distortion on fine print.
 - **Currency Symbol Delimiter Anomaly (`$DIGIT`)**:

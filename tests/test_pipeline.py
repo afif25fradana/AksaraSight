@@ -19,6 +19,7 @@ from core.pipeline import (
     image_to_base64_url,
     ingest,
     is_pdf,
+    rasterize_page,
 )
 
 # Minimal valid PDF containing 0 pages (empty kids list)
@@ -244,6 +245,32 @@ def test_ingest_zero_page_pdf(tmp_path):
 
     with pytest.raises(EmptyDocumentError, match="0 pages"):
         list(ingest(zero_page_path))
+
+
+def test_rasterize_page_zero_page_pdf(tmp_path):
+    """Verify rasterize_page on a valid 0-page PDF raises EmptyDocumentError."""
+    zero_page_path = tmp_path / "zero_pages.pdf"
+    zero_page_path.write_bytes(MINIMAL_ZERO_PAGE_PDF)
+
+    with pytest.raises(EmptyDocumentError, match="0 pages"):
+        rasterize_page(zero_page_path)
+
+
+def test_rasterize_page_valid_pdf_and_image(tmp_path):
+    """Verify rasterize_page succeeds on valid PDF and valid image."""
+    pdf_path = tmp_path / "valid.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 300)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    png_bytes = rasterize_page(pdf_path, page_idx=0, dpi=100)
+    assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+
+    img_path = tmp_path / "valid.png"
+    Image.new("RGB", (100, 100), color="blue").save(img_path)
+    img_bytes = rasterize_page(img_path, page_idx=0)
+    assert img_bytes.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 # Edge Cases: Misnamed Extensions

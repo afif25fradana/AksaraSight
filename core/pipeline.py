@@ -471,14 +471,33 @@ def rasterize_page(
     scale = max(0.1, dpi / 72.0)
 
     if suffix == ".pdf" or is_pdf(file_path):
-        try:
-            with _PDFIUM_LOCK:
-                doc = pdfium.PdfDocument(str(file_path))
-                try:
-                    n_pages = len(doc)
-                    if n_pages == 0:
-                        raise EmptyDocumentError(f"PDF contains 0 pages: {file_path.name}")
-                    idx = max(0, min(page_idx, n_pages - 1))
+        enc_errhandler = "strict" if sys.platform.startswith("win32") else "surrogateescape"
+        cstr_path = (str(file_path) + "\x00").encode("utf-8", errors=enc_errhandler)
+
+        is_zero_page = False
+        err_code = None
+        doc = None
+        total_pages = 0
+
+        with _PDFIUM_LOCK:
+            raw_doc = pdfium_c.FPDF_LoadDocument(cstr_path, None)
+            if not raw_doc:
+                err_code = pdfium_c.FPDF_GetLastError()
+            else:
+                total_pages = pdfium_c.FPDF_GetPageCount(raw_doc)
+                if total_pages < 1:
+                    pdfium_c.FPDF_CloseDocument(raw_doc)
+                    is_zero_page = True
+                else:
+                    doc = pdfium.PdfDocument(raw_doc)
+
+        if is_zero_page:
+            raise EmptyDocumentError(f"PDF contains 0 pages: {file_path.name}")
+
+        if doc is not None:
+            try:
+                idx = max(0, min(page_idx, total_pages - 1))
+                with _PDFIUM_LOCK:
                     page = doc[idx]
                     try:
                         pil_img = page.render(scale=scale).to_pil()
@@ -487,9 +506,23 @@ def rasterize_page(
                         return buf.getvalue()
                     finally:
                         page.close()
-                finally:
+            except EmptyDocumentError:
+                raise
+            except Exception as exc:
+                raise CorruptDocumentError(f"Failed to rasterize PDF page: {exc}") from exc
+            finally:
+                with _PDFIUM_LOCK:
                     doc.close()
-        except pdfium.PdfiumError:
+        else:
+            if err_code == pdfium_c.FPDF_ERR_PASSWORD:
+                raise EncryptedDocumentError(
+                    "Password-protected PDF: decryption password required"
+                )
+            if err_code == pdfium_c.FPDF_ERR_SECURITY:
+                raise EncryptedDocumentError(
+                    "Encrypted PDF: unsupported security scheme or DRM handler"
+                )
+
             # Fallback for mislabeled extension (e.g. JPEG renamed to .pdf)
             try:
                 with Image.open(file_path) as img:
@@ -502,10 +535,6 @@ def rasterize_page(
                     return buf.getvalue()
             except Exception as fallback_exc:
                 raise CorruptDocumentError(f"Failed to rasterize PDF page: {fallback_exc}") from fallback_exc
-        except EmptyDocumentError:
-            raise
-        except Exception as exc:
-            raise CorruptDocumentError(f"Failed to rasterize PDF page: {exc}") from exc
 
     # Standalone image formats (PNG, JPG, TIFF, etc.)
     try:

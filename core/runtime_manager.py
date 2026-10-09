@@ -79,15 +79,6 @@ class ReleaseAssetInfo:
     digest: Optional[str] = None  # e.g., 'sha256:<hex>' or '<hex>'
 
 
-@dataclass(frozen=True)
-class InstalledRuntimeInfo:
-    """Descriptor for an installed, verified runtime binary."""
-    tag: str
-    backend: str
-    executable_path: Path
-    manifest_path: Path
-
-
 # Directory Resolution
 
 def get_runtime_base_dir() -> Path:
@@ -523,6 +514,7 @@ def ensure_runtime(
     base_dir = get_runtime_base_dir()
     downloads_dir = base_dir / "downloads"
     staging_dir = base_dir / f"staging_{clean_tag}_{clean_backend}_{uuid.uuid4().hex[:8]}"
+    downloaded_archives: List[Path] = []
 
     exe_name = _EXE_NAME
 
@@ -534,7 +526,6 @@ def ensure_runtime(
 
         assets_metadata = fetch_release_assets_metadata(clean_tag, session=session)
 
-        downloaded_archives: List[Path] = []
         for asset_name in required_names:
             if asset_name not in assets_metadata:
                 raise RuntimeDownloadError(
@@ -601,14 +592,6 @@ def ensure_runtime(
         else:
             staging_dir.rename(runtime_dir)
 
-        # Clean up downloaded archive files after successful installation (hygiene)
-        for archive in downloaded_archives:
-            try:
-                if archive.is_file():
-                    archive.unlink()
-            except Exception as cleanup_err:
-                logger.debug("Failed to remove downloaded archive %s: %s", archive, cleanup_err)
-
         final_exe = runtime_dir / exe_name
         logger.info("Managed runtime successfully installed: %s", final_exe)
         return final_exe
@@ -618,3 +601,12 @@ def ensure_runtime(
             shutil.rmtree(staging_dir, ignore_errors=True)
         logger.error("Failed to ensure runtime %s-%s: %s", clean_tag, clean_backend, exc)
         raise
+    finally:
+        # Clean up temporary downloaded archive files unconditionally (hygiene on success & failure)
+        for archive in downloaded_archives:
+            try:
+                if archive.is_file():
+                    archive.unlink()
+            except Exception as cleanup_err:
+                logger.debug("Failed to remove downloaded archive %s: %s", archive, cleanup_err)
+

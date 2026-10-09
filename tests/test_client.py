@@ -126,6 +126,7 @@ def test_complete_success_payload_and_return_values() -> None:
     assert sent_body["model"] == "glm-ocr"
     assert sent_body["max_tokens"] == 4096
     assert sent_body["temperature"] == 0.0
+    assert sent_body["stream"] is False
     assert len(sent_body["messages"]) == 1
     assert sent_body["messages"][0]["role"] == "user"
     assert sent_body["messages"][0]["content"] == [
@@ -133,6 +134,23 @@ def test_complete_success_payload_and_return_values() -> None:
         {"type": "image_url", "image_url": {"url": image_b64}},
     ]
 
+
+def test_complete_payload_explicitly_disables_streaming() -> None:
+    """Verify that chat completion payload explicitly specifies stream: False."""
+    mock_response = MagicMock(spec=requests.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "text"}}],
+    }
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.post.return_value = mock_response
+
+    client = VisionClient(session=mock_session)
+    client.complete("data:image/jpeg;base64,abc")
+
+    mock_session.post.assert_called_once()
+    _, kwargs = mock_session.post.call_args
+    assert kwargs["json"]["stream"] is False
 
 
 # Network Error & Fail-Fast Tests

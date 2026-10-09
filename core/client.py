@@ -175,6 +175,7 @@ class VisionClient:
             ],
             "max_tokens": effective_max_tokens,
             "temperature": temperature,
+            "stream": False,
         }
 
         headers = {"Content-Type": "application/json"}

@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import threading
 from typing import Any, AsyncIterator, Dict, List, Optional, Set, Tuple
+import uuid
 
 from core.client import ServerOfflineError
 from core.engine import OCREngine
@@ -41,6 +42,7 @@ class JobState:
     result: Optional[OCRResult] = None
     error: Optional[str] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
 
 class WebOrchestrator:
@@ -138,6 +140,8 @@ class WebOrchestrator:
                         "previewImageUrl": f"/api/documents/{job.job_id}/pages/1/preview",
                         "extractedText": full_text,
                         "pagesData": pages_data,
+                        "run_id": job.run_id,
+                        "runId": job.run_id,
                     }
                 )
 
@@ -167,6 +171,12 @@ class WebOrchestrator:
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(f"Job '{job_id}' not found")
+            job.run_id = uuid.uuid4().hex[:8]
+            job.pages_data.clear()
+            job.current_page = 0
+            job.cancel_event = threading.Event()
+            job.error = None
+            job.result = None
             job.status = JobStatus.QUEUED
         self._queue.put(job_id)
 
@@ -250,6 +260,7 @@ class WebOrchestrator:
                     "job_id": job.job_id,
                     "filename": job.filename,
                     "pages": job.page_count,
+                    "run_id": job.run_id,
                 },
             )
 

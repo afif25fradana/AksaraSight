@@ -30,6 +30,7 @@ export interface DocumentItem {
   promptMode?: PromptMode;
   docType: 'legal-agreement' | 'invoice' | 'historical-paper' | 'financial' | 'custom-image';
   previewImageUrl?: string;
+  runId?: string;
 }
 
 export type ExtractionMode = 'text' | 'table' | 'formula';

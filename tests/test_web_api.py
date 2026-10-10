@@ -118,6 +118,22 @@ class AsgiClient:
     ) -> Tuple[int, Dict[str, str], bytes]:
         return self.request("DELETE", path, headers=headers, query_string=query_string)
 
+    def put(
+        self,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        body: bytes = b"",
+    ) -> Tuple[int, Dict[str, str], bytes]:
+        return self.request("PUT", path, headers=headers, body=body)
+
+    def patch(
+        self,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        body: bytes = b"",
+    ) -> Tuple[int, Dict[str, str], bytes]:
+        return self.request("PATCH", path, headers=headers, body=body)
+
 
 def _create_sample_png_bytes(width: int = 100, height: int = 100) -> bytes:
     img = Image.new("RGB", (width, height), color="white")
@@ -912,3 +928,79 @@ def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path
     orchestrator.stop()
 
 
+def test_origin_check_covers_all_non_safe_methods(tmp_path: Path) -> None:
+    """Verify that all non-safe methods (standard mutating and custom verbs) enforce loopback Origin check, while safe methods pass."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+    bad_origin = {"origin": "http://evil.com"}
+
+    # Non-safe methods must be rejected with 403
+    for method in ("POST", "PUT", "DELETE", "PATCH", "CUSTOMVERB"):
+        status, _, _ = client.request(method, "/api/documents", headers=bad_origin)
+        assert status == 403, f"Method {method} with evil origin expected 403 but got {status}"
+
+    # Safe methods must pass Origin validation (not 403)
+    status_get, _, _ = client.request("GET", "/api/documents", headers=bad_origin)
+    assert status_get == 200
+
+    status_head, _, _ = client.request("HEAD", "/api/documents", headers=bad_origin)
+    assert status_head != 403
+
+
+def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
+    """Verify re-extracting a document creates a new run_id and wipes previous pagesData and progress."""
+    mock_eng = MockEngine()
+    mock_eng.process_delay = 1.0
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. Upload doc
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("doc.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # 2. Enqueue and simulate PROCESSING with partial pages data
+    status, _, _ = client.post(f"/api/documents/{doc_id}/extract")
+    assert status == 202
+
+    with orchestrator._lock:
+        job = orchestrator.jobs[doc_id]
+        initial_run_id = job.run_id
+        job.status = JobStatus.PROCESSING
+        job.current_page = 2
+        job.pages_data = {
+            1: {"text": "Page 1 content", "tokens": 10, "latency": 0.5, "truncated": False},
+            2: {"text": "Page 2 content", "tokens": 12, "latency": 0.4, "truncated": False},
+        }
+
+    # 3. Cancel document
+    status, _, _ = client.post(f"/api/documents/{doc_id}/cancel")
+    assert status == 200
+    with orchestrator._lock:
+        orchestrator.jobs[doc_id].status = JobStatus.CANCELLED
+
+    # 4. Enqueue again (re-extraction)
+    status, _, _ = client.post(f"/api/documents/{doc_id}/extract")
+    assert status == 202
+
+    # 5. Inspect job state and snapshot
+    with orchestrator._lock:
+        re_job = orchestrator.jobs[doc_id]
+        new_run_id = re_job.run_id
+        assert new_run_id != initial_run_id
+        assert re_job.current_page == 0
+        assert len(re_job.pages_data) == 0
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    doc_entry = next(d for d in docs if d["id"] == doc_id)
+    assert doc_entry["run_id"] == new_run_id
+    assert doc_entry["runId"] == new_run_id
+    assert doc_entry["processedPages"] == 0
+    assert doc_entry["pagesData"] == {}
+
+    orchestrator.stop()

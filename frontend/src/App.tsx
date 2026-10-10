@@ -90,6 +90,10 @@ export default function App() {
                 const existing = prevDocs.find((d) => d.id === sDoc.id);
                 if (!existing) return sDoc;
 
+                if (existing.runId && sDoc.runId && existing.runId !== sDoc.runId) {
+                  return sDoc;
+                }
+
                 const mergedPagesData = { ...(sDoc.pagesData || {}), ...(existing.pagesData || {}) };
                 const sortedKeys = Object.keys(mergedPagesData).map(Number).sort((a, b) => a - b);
                 const fullText = sortedKeys.map((k) => mergedPagesData[k]?.text || '').join('\n\n---\n\n');
@@ -156,7 +160,15 @@ export default function App() {
         setDocuments((prev) =>
           prev.map((doc) =>
             doc.id === data.job_id
-              ? { ...doc, status: 'Processing', processedPages: 0, statusNote: undefined }
+              ? {
+                  ...doc,
+                  status: 'Processing',
+                  processedPages: 0,
+                  pagesData: {},
+                  extractedText: '',
+                  runId: data.run_id,
+                  statusNote: undefined,
+                }
               : doc
           )
         );

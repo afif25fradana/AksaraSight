@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlsplit
 
 _LOOPBACK_HOST_PATTERN = re.compile(r"^(127\.0\.0\.1|localhost)(:\d+)?$")
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 
 class LoopbackSecurityMiddleware:
@@ -80,9 +81,9 @@ class LoopbackSecurityMiddleware:
             })
             return
 
-        # 2. Origin header validation for state-mutating methods
+        # 2. Origin header validation for non-safe methods
         method = scope.get("method", "").upper()
-        if method in ("POST", "PUT", "DELETE", "PATCH"):
+        if method not in SAFE_METHODS:
             raw_origin = headers.get(b"origin")
             if raw_origin is not None:
                 origin_str = raw_origin.decode("latin-1")

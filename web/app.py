@@ -10,10 +10,10 @@ import logging
 from pathlib import Path
 import sys
 import uuid
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 import pypdfium2 as pdfium
@@ -29,7 +29,6 @@ from web.security import (
     LoopbackSecurityMiddleware,
     MAX_UPLOAD_SIZE,
     generate_secure_upload_path,
-    get_upload_dir,
 )
 
 logger = logging.getLogger(__name__)

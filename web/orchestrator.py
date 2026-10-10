@@ -15,10 +15,10 @@ from pathlib import Path
 import queue
 import threading
 import time
-from typing import Any, Callable, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from core.engine import OCREngine
-from core.models import JobConfig, OCRResult, PageResult
+from core.models import OCRResult, PageResult
 import core.models as core_models
 
 logger = logging.getLogger(__name__)

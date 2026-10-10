@@ -6,22 +6,18 @@ import asyncio
 import io
 import json
 from pathlib import Path
-import threading
 import time
 from typing import Any, Dict, Optional, Tuple
 from unittest.mock import MagicMock, patch
-import urllib.parse
 
 from PIL import Image
 import pytest
 
 from core.models import JobStatus as CoreJobStatus, OCRResult, PageResult
 from web.app import app, orchestrator
-from web.orchestrator import DocumentJob, JobStatus, WebOrchestrator
+from web.orchestrator import JobStatus, WebOrchestrator
 from web.security import (
-    MAX_UPLOAD_SIZE,
     generate_secure_upload_path,
-    get_upload_dir,
     validate_loopback_host,
 )
 

@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import re
-from typing import Optional, Set
+from typing import Optional
 import urllib.parse
 import uuid
 

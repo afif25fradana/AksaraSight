@@ -1,0 +1,291 @@
+"""FastAPI web application factory for AksaraSight."""
+
+import io
+import json
+import logging
+import os
+from pathlib import Path
+import re
+import tempfile
+from typing import Any, Dict, Literal, Optional, Union
+import uuid
+
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+import pypdfium2 as pdfium
+
+from config.settings import Settings
+from core.client import ServerOfflineError
+from core.docx_export import export_to_docx_bytes
+from core.engine import OCREngine
+from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
+from web.orchestrator import JobState, JobStatus, WebOrchestrator
+from web.security import LoopbackSecurityMiddleware
+
+logger = logging.getLogger(__name__)
+
+
+def enforce_loopback_host(host: str) -> None:
+    """Validate that bind host is strictly loopback.
+
+    Raises:
+        ValueError: If host is not '127.0.0.1' or 'localhost'.
+    """
+    if host not in ("127.0.0.1", "localhost"):
+        raise ValueError(
+            f"Binding to '{host}' is prohibited. AksaraSight Web UI strictly requires loopback "
+            "binding ('127.0.0.1' or 'localhost') to enforce local-only access."
+        )
+
+
+def probe_page_count(path: Path) -> int:
+    """Determine the number of pages in a PDF or image file."""
+    if is_pdf(path):
+        with _PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(path)
+            try:
+                count = len(doc)
+                if count <= 0:
+                    raise ValueError("Document contains 0 pages")
+                return count
+            finally:
+                doc.close()
+    else:
+        with Image.open(path) as img:
+            return getattr(img, "n_frames", 1)
+
+
+def create_app(
+    settings: Optional[Settings] = None,
+    engine: Optional[OCREngine] = None,
+    orchestrator: Optional[WebOrchestrator] = None,
+    upload_dir: Optional[Union[str, Path]] = None,
+    max_upload_size: int = 104857600,
+    static_dir: Optional[Union[str, Path]] = None,
+) -> FastAPI:
+    """Create and configure the FastAPI web application instance."""
+    app_settings = settings or Settings()
+    app_engine = engine or OCREngine(settings=app_settings)
+    app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
+
+    if upload_dir is not None:
+        target_upload_dir = Path(upload_dir).resolve()
+    elif os.environ.get("LOCALAPPDATA"):
+        target_upload_dir = (Path(os.environ["LOCALAPPDATA"]) / "AksaraSight" / "web_uploads").resolve()
+    else:
+        target_upload_dir = (Path(tempfile.gettempdir()) / "aksarasight_web_uploads").resolve()
+
+    target_upload_dir.mkdir(parents=True, exist_ok=True)
+
+    app = FastAPI(
+        title="AksaraSight Web API",
+        version="1.2.1",
+        docs_url=None,
+        redoc_url=None,
+    )
+
+    # Attach loopback-only security middleware
+    app.add_middleware(LoopbackSecurityMiddleware)
+
+    # Store references on app state
+    app.state.settings = app_settings
+    app.state.engine = app_engine
+    app.state.orchestrator = app_orchestrator
+    app.state.upload_dir = target_upload_dir
+    app.state.max_upload_size = max_upload_size
+
+    @app.get("/health")
+    async def get_health() -> Dict[str, Any]:
+        """Probe local inference backend availability and return server status."""
+        health_status = "running"
+        err_msg: Optional[str] = None
+        try:
+            app_engine.verify_backend(force=True)
+        except ServerOfflineError as e:
+            health_status = "offline"
+            err_msg = str(e)
+        except Exception as e:
+            health_status = "offline"
+            err_msg = str(e)
+
+        return {
+            "status": health_status,
+            "backend": getattr(app_settings, "backend", "llama-cpp"),
+            "runtime_source": getattr(app_settings, "runtime_source", "managed"),
+            "target_backend": getattr(app_settings, "target_backend", "auto"),
+            "endpoint": getattr(app_settings, "local_endpoint", "http://127.0.0.1:8080/v1"),
+            "error": err_msg,
+        }
+
+    @app.post("/api/documents")
+    async def upload_document(file: UploadFile = File(...)) -> Dict[str, Any]:
+        """Stream upload a document, validate size limit and path safety, and return job metadata."""
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Missing filename")
+
+        raw_name = Path(file.filename).name
+        safe_name = re.sub(r"[^\w\.\-]", "_", raw_name)
+        job_id = uuid.uuid4().hex
+        target_filename = f"{job_id}_{safe_name}"
+        target_path = (target_upload_dir / target_filename).resolve()
+
+        if not target_path.is_relative_to(target_upload_dir):
+            raise HTTPException(status_code=400, detail="Invalid file destination path")
+
+        total_bytes = 0
+        try:
+            with open(target_path, "wb") as out_f:
+                while True:
+                    chunk = await file.read(64 * 1024)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > max_upload_size:
+                        out_f.close()
+                        if target_path.exists():
+                            target_path.unlink()
+                        raise HTTPException(status_code=413, detail="File exceeds upload limit")
+                    out_f.write(chunk)
+        except HTTPException:
+            raise
+        except Exception as e:
+            if target_path.exists():
+                target_path.unlink()
+            raise HTTPException(status_code=500, detail=f"Upload write failed: {e}")
+
+        try:
+            pages = probe_page_count(target_path)
+        except Exception as e:
+            if target_path.exists():
+                target_path.unlink()
+            raise HTTPException(status_code=400, detail=f"Failed to inspect document pages: {e}")
+
+        job = JobState(
+            job_id=job_id,
+            filename=file.filename,
+            file_path=target_path,
+            status=JobStatus.QUEUED,
+            page_count=pages,
+        )
+        app_orchestrator.register_job(job)
+
+        return {
+            "id": job_id,
+            "filename": file.filename,
+            "pages": pages,
+            "preview_url": f"/api/documents/{job_id}/pages/1/preview",
+        }
+
+    @app.get("/api/documents/{job_id}/pages/{page}/preview")
+    async def get_page_preview(job_id: str, page: int) -> Response:
+        """Rasterize and return a single document page as PNG bytes."""
+        job = app_orchestrator.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        page_idx = page - 1
+        if page_idx < 0 or (job.page_count > 0 and page_idx >= job.page_count):
+            raise HTTPException(status_code=404, detail="Page index out of bounds")
+
+        try:
+            png_bytes = rasterize_page(job.file_path, page_idx=page_idx)
+            return Response(content=png_bytes, media_type="image/png")
+        except Exception as e:
+            logger.exception("Failed to rasterize preview for job %s page %s", job_id, page)
+            raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {e}")
+
+    @app.post("/api/documents/{job_id}/extract", status_code=status.HTTP_202_ACCEPTED)
+    async def extract_document(job_id: str) -> Dict[str, Any]:
+        """Enqueue document extraction in the orchestrator worker."""
+        job = app_orchestrator.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        try:
+            app_orchestrator.enqueue(job_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        return {"message": "Extraction queued", "job_id": job_id}
+
+    @app.post("/api/documents/{job_id}/cancel")
+    async def cancel_document(job_id: str) -> Dict[str, Any]:
+        """Cancel an in-progress or queued document extraction."""
+        job = app_orchestrator.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        cancelled = app_orchestrator.cancel(job_id)
+        if not cancelled:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        return {"message": "Extraction cancelled", "job_id": job_id}
+
+    @app.get("/api/documents/{job_id}/export")
+    async def export_document(
+        job_id: str,
+        format: Literal["docx", "md", "json"] = "md",
+    ) -> Response:
+        """Export extracted document content as DOCX, Markdown, or JSON."""
+        job = app_orchestrator.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        if not job.result and not job.pages_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No extraction result available to export",
+            )
+
+        stem = Path(job.filename).stem or "extracted_document"
+
+        if format == "docx":
+            if not job.result:
+                raise HTTPException(status_code=400, detail="Complete extraction result required for DOCX")
+            content_bytes = export_to_docx_bytes(job.result)
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            filename = f"{stem}.docx"
+        elif format == "md":
+            if job.result:
+                text = job.result.markdown
+            else:
+                pages = sorted(job.pages_data.keys())
+                text = "\n\n---\n\n".join(job.pages_data[p].get("text", "") for p in pages)
+            content_bytes = text.encode("utf-8")
+            media_type = "text/markdown; charset=utf-8"
+            filename = f"{stem}.md"
+        elif format == "json":
+            if job.result:
+                json_str = job.result.to_json()
+            else:
+                json_str = json.dumps(job.pages_data, indent=2)
+            content_bytes = json_str.encode("utf-8")
+            media_type = "application/json; charset=utf-8"
+            filename = f"{stem}.json"
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
+
+        return Response(
+            content=content_bytes,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/api/events", response_class=EventSourceResponse)
+    async def sse_events(request: Request) -> EventSourceResponse:
+        """Stream real-time orchestrator queue events over Server-Sent Events."""
+        async def event_generator():
+            async for msg in app_orchestrator.subscribe():
+                if await request.is_disconnected():
+                    break
+                yield ServerSentEvent(event=msg["event"], data=msg["data"])
+
+        return EventSourceResponse(event_generator())
+
+    if static_dir and Path(static_dir).is_dir():
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+
+    return app

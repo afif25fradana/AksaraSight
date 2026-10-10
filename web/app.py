@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from pydantic import BaseModel
 import pypdfium2 as pdfium
 
 from config.settings import Settings
@@ -24,6 +25,7 @@ from core.client import ServerOfflineError
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
+from core.models import PROMPT_PRESETS
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
 from core.server_manager import (
     ServerManager,
@@ -154,6 +156,10 @@ def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
         "auto_start_server": settings.auto_start_server,
         "model_repo": settings.model_repo,
     }
+
+
+class ExtractRequest(BaseModel):
+    prompt_mode: Optional[str] = "text"
 
 
 def create_app(
@@ -607,18 +613,28 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {e}")
 
     @app.post("/api/documents/{job_id}/extract", status_code=status.HTTP_202_ACCEPTED)
-    async def extract_document(job_id: str) -> Dict[str, Any]:
+    async def extract_document(
+        job_id: str,
+        payload: Optional[ExtractRequest] = None,
+    ) -> Dict[str, Any]:
         """Enqueue document extraction in the orchestrator worker."""
         job = app_orchestrator.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Document job not found")
 
+        mode = (payload.prompt_mode if payload and payload.prompt_mode else "text").strip().lower()
+        if mode not in PROMPT_PRESETS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid prompt_mode: '{mode}'. Valid modes: {list(PROMPT_PRESETS.keys())}",
+            )
+
         try:
-            app_orchestrator.enqueue(job_id)
+            app_orchestrator.enqueue(job_id, prompt_mode=mode)
         except KeyError:
             raise HTTPException(status_code=404, detail="Document job not found")
 
-        return {"message": "Extraction queued", "job_id": job_id}
+        return {"message": "Extraction queued", "job_id": job_id, "prompt_mode": mode}
 
     @app.post("/api/documents/{job_id}/cancel")
     async def cancel_document(job_id: str, delete_file: bool = False) -> Dict[str, Any]:

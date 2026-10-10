@@ -7,7 +7,7 @@ import { ExtractedTextPanel } from './components/ExtractedTextPanel';
 import { SettingsView } from './components/SettingsView';
 import { OutputFolderModal } from './components/OutputFolderModal';
 import { ServerLogsModal } from './components/ServerLogsModal';
-import { DocumentItem, EngineSettings, ExportedFile, OutputFormatType } from './types';
+import { DocumentItem, EngineSettings, ExportedFile, OutputFormatType, PromptMode } from './types';
 import { INITIAL_DOCUMENTS, INITIAL_SETTINGS } from './data/mockDocuments';
 
 export default function App() {
@@ -461,20 +461,26 @@ export default function App() {
   };
 
   // Run whole document extraction via POST /api/documents/{id}/extract
-  const handleRunDocumentExtraction = async (docId: string) => {
+  const handleRunDocumentExtraction = async (docId: string, promptMode?: PromptMode) => {
     if (runningJobDocId !== null || engineSettings.status === 'offline') return;
     setRunningJobDocId(docId);
+
+    const mode = promptMode || (selectedDocument?.id === docId ? (selectedDocument.promptMode || 'text') : 'text');
 
     setDocuments((prev) =>
       prev.map((doc) =>
         doc.id === docId
-          ? { ...doc, status: 'Processing', processedPages: 0, statusNote: undefined }
+          ? { ...doc, status: 'Processing', processedPages: 0, statusNote: undefined, promptMode: mode }
           : doc
       )
     );
 
     try {
-      await fetch(`/api/documents/${docId}/extract`, { method: 'POST' });
+      await fetch(`/api/documents/${docId}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_mode: mode }),
+      });
     } catch (err) {
       console.error('Failed to start document extraction:', err);
     }
@@ -564,7 +570,7 @@ export default function App() {
     );
   };
 
-  const handleReExtractDocument = (docId: string) => {
+  const handleReExtractDocument = (docId: string, promptMode?: PromptMode) => {
     if (runningJobDocId !== null) {
       setDocuments((prev) => {
         const currentQueued = prev.filter((d) => d.status === 'Waiting' || d.isReExtractionQueued);
@@ -575,12 +581,13 @@ export default function App() {
                 ...doc,
                 isReExtractionQueued: true,
                 queuePosition: nextPos,
+                ...(promptMode ? { promptMode } : {}),
               }
             : doc
         );
       });
     } else {
-      handleRunDocumentExtraction(docId);
+      handleRunDocumentExtraction(docId, promptMode);
     }
   };
 

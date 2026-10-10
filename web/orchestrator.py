@@ -44,6 +44,7 @@ class JobState:
     error: Optional[str] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    prompt_mode: str = "text"
 
 
 class WebOrchestrator:
@@ -143,6 +144,7 @@ class WebOrchestrator:
                         "pagesData": pages_data,
                         "run_id": job.run_id,
                         "runId": job.run_id,
+                        "promptMode": job.prompt_mode,
                     }
                 )
 
@@ -166,12 +168,13 @@ class WebOrchestrator:
             job.cancel_event.set()
         return job
 
-    def enqueue(self, job_id: str) -> None:
+    def enqueue(self, job_id: str, prompt_mode: str = "text") -> None:
         """Enqueue an existing job for processing."""
         with self._lock:
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(f"Job '{job_id}' not found")
+            job.prompt_mode = prompt_mode
             job.run_id = uuid.uuid4().hex[:8]
             job.pages_data.clear()
             job.current_page = 0
@@ -301,9 +304,17 @@ class WebOrchestrator:
                 cfg = JobConfig(
                     dpi=getattr(doc_settings, "dpi", 100),
                     max_image_dimension=getattr(doc_settings, "max_image_dimension", 2048),
+                    prompt_mode=job.prompt_mode,
                 )
             else:
-                cfg = JobConfig()
+                cfg = JobConfig(prompt_mode=job.prompt_mode)
+
+            logger.info(
+                "Executing job %s with prompt_mode '%s' (effective prompt: %r)",
+                job.job_id,
+                job.prompt_mode,
+                cfg.effective_prompt,
+            )
 
             try:
                 result = self.engine.process_document(

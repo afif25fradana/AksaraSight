@@ -1437,3 +1437,165 @@ def test_settings_patch_mid_document_does_not_mutate_inflight_document_snapshot(
     orchestrator.stop()
 
 
+def test_extract_endpoint_default_prompt_mode(tmp_path: Path) -> None:
+    """Verify POST /api/documents/{id}/extract defaults to prompt_mode='text' when body is omitted."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("default_prompt.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Call extract without body
+    status, _, extract_resp = client.post(f"/api/documents/{doc_id}/extract")
+    assert status == 202
+    data = json.loads(extract_resp.decode("utf-8"))
+    assert data["message"] == "Extraction queued"
+    assert data["prompt_mode"] == "text"
+
+    # Verify job prompt_mode
+    job = orchestrator.get_job(doc_id)
+    assert job is not None
+    assert job.prompt_mode == "text"
+
+    # Wait for execution and verify JobConfig received prompt_mode
+    for _ in range(50):
+        job = orchestrator.get_job(doc_id)
+        if job and job.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+
+    assert job is not None
+    assert job.status == JobStatus.SUCCESS
+    assert mock_eng.last_config is not None
+    assert mock_eng.last_config.prompt_mode == "text"
+
+    orchestrator.stop()
+
+
+def test_extract_endpoint_custom_prompt_mode(tmp_path: Path) -> None:
+    """Verify POST /api/documents/{id}/extract accepts custom prompt_mode='table'."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("table_prompt.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Call extract with table prompt_mode
+    payload = json.dumps({"prompt_mode": "table"}).encode("utf-8")
+    status, _, extract_resp = client.post(
+        f"/api/documents/{doc_id}/extract",
+        headers={"content-type": "application/json"},
+        body=payload,
+    )
+    assert status == 202
+    data = json.loads(extract_resp.decode("utf-8"))
+    assert data["message"] == "Extraction queued"
+    assert data["prompt_mode"] == "table"
+
+    job = orchestrator.get_job(doc_id)
+    assert job is not None
+    assert job.prompt_mode == "table"
+
+    for _ in range(50):
+        job = orchestrator.get_job(doc_id)
+        if job and job.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+
+    assert job is not None
+    assert job.status == JobStatus.SUCCESS
+    assert mock_eng.last_config is not None
+    assert mock_eng.last_config.prompt_mode == "table"
+    assert mock_eng.last_config.effective_prompt == "Table Recognition:"
+
+    orchestrator.stop()
+
+
+def test_extract_endpoint_formula_prompt_mode(tmp_path: Path) -> None:
+    """Verify POST /api/documents/{id}/extract accepts prompt_mode='formula'."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("formula_prompt.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Call extract with formula prompt_mode
+    payload = json.dumps({"prompt_mode": "formula"}).encode("utf-8")
+    status, _, extract_resp = client.post(
+        f"/api/documents/{doc_id}/extract",
+        headers={"content-type": "application/json"},
+        body=payload,
+    )
+    assert status == 202
+    data = json.loads(extract_resp.decode("utf-8"))
+    assert data["message"] == "Extraction queued"
+    assert data["prompt_mode"] == "formula"
+
+    job = orchestrator.get_job(doc_id)
+    assert job is not None
+    assert job.prompt_mode == "formula"
+
+    for _ in range(50):
+        job = orchestrator.get_job(doc_id)
+        if job and job.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+
+    assert job is not None
+    assert job.status == JobStatus.SUCCESS
+    assert mock_eng.last_config is not None
+    assert mock_eng.last_config.prompt_mode == "formula"
+    assert mock_eng.last_config.effective_prompt == "Formula Recognition:"
+
+    orchestrator.stop()
+
+
+def test_extract_endpoint_invalid_prompt_mode(tmp_path: Path) -> None:
+    """Verify POST /api/documents/{id}/extract rejects unsupported prompt_mode with 400 Bad Request."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("invalid_prompt.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Call extract with unknown prompt_mode
+    payload = json.dumps({"prompt_mode": "unknown"}).encode("utf-8")
+    status, _, err_resp = client.post(
+        f"/api/documents/{doc_id}/extract",
+        headers={"content-type": "application/json"},
+        body=payload,
+    )
+    assert status == 400
+    err_data = json.loads(err_resp.decode("utf-8"))
+    assert "Invalid prompt_mode" in err_data["detail"]
+    assert "unknown" in err_data["detail"]
+
+    # Verify job status was not changed to QUEUED or PROCESSING
+    job = orchestrator.get_job(doc_id)
+    assert job is not None
+    assert job.status == JobStatus.UPLOADED
+
+    orchestrator.stop()
+
+
+

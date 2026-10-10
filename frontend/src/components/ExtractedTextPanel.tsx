@@ -27,11 +27,11 @@ interface ExtractedTextPanelProps {
   onOpenSettings: () => void;
   onTextChange?: (newText: string, pageNumber?: number) => void;
   onExport: (format: OutputFormatType) => void;
-  onRunDocumentExtraction: (docId: string) => void;
+  onRunDocumentExtraction: (docId: string, promptMode?: PromptMode) => void;
   onAddToQueue: (docId: string) => void;
   onRemoveFromQueue: (docId: string) => void;
   onCancelExtraction: (docId: string) => void;
-  onReExtractDocument: (docId: string) => void;
+  onReExtractDocument: (docId: string, promptMode?: PromptMode) => void;
 }
 
 // Engine-supported formats matching core.models.OutputFormat and core/formatter.py
@@ -136,6 +136,12 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     window.addEventListener('resize', updateIndicator);
     return () => window.removeEventListener('resize', updateIndicator);
   }, [activePreviewTab]);
+
+  useEffect(() => {
+    if (document?.promptMode) {
+      setTaskMode(document.promptMode);
+    }
+  }, [document?.id, document?.promptMode]);
 
   const taskModes = useMemo(() => [
     { mode: 'text' as const, label: 'Text Recognition', desc: 'Standard full-page OCR extraction' },
@@ -532,7 +538,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 </div>
               ) : (
                 <button
-                  onClick={() => onReExtractDocument(document.id)}
+                  onClick={() => onReExtractDocument(document.id, taskMode)}
                   className="h-8 px-2.5 text-[#4B5563] dark:text-[var(--text-1)] hover:text-[#14213D] dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] hover:dark:bg-[var(--bg-active)] rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
                   title="Re-extract entire document with current settings"
                   type="button"
@@ -594,7 +600,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </div>
           ) : (
             <button 
-              onClick={() => onRunDocumentExtraction(document.id)}
+              onClick={() => onRunDocumentExtraction(document.id, taskMode)}
               className="h-8 px-3.5 bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white font-semibold text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
               type="button" 
               aria-label="Extract Document"

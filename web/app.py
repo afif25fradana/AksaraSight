@@ -174,8 +174,10 @@ def create_app(
 
         return {
             "id": job_id,
+            "job_id": job_id,
             "filename": file.filename,
             "pages": pages,
+            "total_pages": pages,
             "preview_url": f"/api/documents/{job_id}/pages/1/preview",
         }
 
@@ -285,7 +287,8 @@ def create_app(
 
         return EventSourceResponse(event_generator())
 
-    if static_dir and Path(static_dir).is_dir():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+    target_static_dir = Path(static_dir) if static_dir else (Path(__file__).parent / "static")
+    if target_static_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(target_static_dir), html=True), name="static")
 
     return app

@@ -1,0 +1,6 @@
+{
+  "name": "AksaraSight - Document Workspace & Local OCR",
+  "description": "Archival document digitization workspace with local engine OCR processing, source document inspection, and structured text export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

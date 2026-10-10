@@ -57,6 +57,58 @@ def probe_page_count(path: Path) -> int:
             return getattr(img, "n_frames", 1)
 
 
+def _acquire_instance_lock(upload_dir: Path) -> Any:
+    """Acquire a non-blocking instance lock on upload_dir / '.instance.lock'.
+
+    Returns:
+        The open file handle holding the lock.
+
+    Raises:
+        BlockingIOError, OSError: If another instance currently holds the lock.
+    """
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    lock_file = open(upload_dir / ".instance.lock", "a+b")
+    try:
+        lock_file.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock_file
+    except (BlockingIOError, OSError):
+        lock_file.close()
+        raise
+
+
+def _release_instance_lock(lock_file: Any) -> None:
+    """Release and close the instance lock file."""
+    if lock_file is None:
+        return
+    try:
+        if hasattr(lock_file, "seek") and hasattr(lock_file, "fileno"):
+            try:
+                lock_file.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
+        try:
+            lock_file.close()
+        except OSError:
+            pass
+
+
 def create_app(
     settings: Optional[Settings] = None,
     engine: Optional[OCREngine] = None,
@@ -94,25 +146,52 @@ def create_app(
     async def lifespan(app_instance: FastAPI):
         # Startup sweep: unlink stale upload files left from previous sessions/crashes
         active_upload_dir = getattr(app_instance.state, "upload_dir", None)
-        if active_upload_dir and Path(active_upload_dir).exists():
-            for f in Path(active_upload_dir).glob("*"):
-                if f.is_file():
-                    try:
-                        f.unlink()
-                    except OSError as e:
-                        logger.warning("Failed to clean up stale upload file %s on startup: %s", f, e)
+        lock_file = None
+        if active_upload_dir:
+            upload_path = Path(active_upload_dir)
+            try:
+                lock_file = _acquire_instance_lock(upload_path)
+                app_instance.state.instance_lock = lock_file
+            except (BlockingIOError, OSError):
+                logger.warning(
+                    "Concurrent web server instance detected; skipping upload directory startup sweep to protect active session files."
+                )
+                app_instance.state.instance_lock = None
+
+            if app_instance.state.instance_lock is not None and upload_path.exists():
+                for f in upload_path.glob("*"):
+                    if f.is_file() and f.name != ".instance.lock":
+                        try:
+                            f.unlink()
+                        except OSError as e:
+                            logger.warning("Failed to clean up stale upload file %s on startup: %s", f, e)
+        else:
+            app_instance.state.instance_lock = None
+
         yield
+
         # Server shutdown cleanup: stop worker thread and unlink session upload files
         if hasattr(app_instance.state, "orchestrator") and app_instance.state.orchestrator:
             app_instance.state.orchestrator.stop()
-        active_upload_dir = getattr(app_instance.state, "upload_dir", None)
-        if active_upload_dir and Path(active_upload_dir).exists():
-            for f in Path(active_upload_dir).glob("*"):
-                if f.is_file():
+        held_lock = getattr(app_instance.state, "instance_lock", None)
+        if held_lock is not None and active_upload_dir and Path(active_upload_dir).exists():
+            upload_path = Path(active_upload_dir)
+            for f in upload_path.glob("*"):
+                if f.is_file() and f.name != ".instance.lock":
                     try:
                         f.unlink()
                     except OSError as e:
                         logger.warning("Failed to cleanup upload file %s: %s", f, e)
+        if held_lock is not None:
+            _release_instance_lock(held_lock)
+            app_instance.state.instance_lock = None
+            if active_upload_dir:
+                lock_path = Path(active_upload_dir) / ".instance.lock"
+                if lock_path.exists():
+                    try:
+                        lock_path.unlink()
+                    except OSError:
+                        pass
 
     app = FastAPI(
         title="AksaraSight Web API",
@@ -137,6 +216,7 @@ def create_app(
     app.state.max_upload_size = max_upload_size
     app.state.allowed_port = target_port
     app.state.dev_mode = dev_mode
+    app.state.instance_lock = None
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:

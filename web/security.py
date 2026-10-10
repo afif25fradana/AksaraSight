@@ -21,7 +21,7 @@ class LoopbackSecurityMiddleware:
         app: Any,
         allowed_port: Optional[int] = None,
         dev_mode: bool = False,
-        allowed_dev_ports: tuple[int, ...] = (5173, 3000),
+        allowed_dev_ports: tuple[int, ...] = (5173,),
     ) -> None:
         self.app = app
         self.allowed_port = allowed_port

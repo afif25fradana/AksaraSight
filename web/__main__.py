@@ -2,11 +2,22 @@
 
 import argparse
 import os
+import socket
 import sys
 
 import uvicorn
 
 from web.app import create_app, enforce_loopback_host
+
+
+def is_port_in_use(host: str, port: int) -> bool:
+    """Check if host:port is already bound by another process."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return False
+        except OSError:
+            return True
 
 
 def main() -> None:
@@ -43,6 +54,10 @@ def main() -> None:
         enforce_loopback_host(args.host)
     except ValueError as e:
         sys.stderr.write(f"Error: {e}\n")
+        sys.exit(1)
+
+    if is_port_in_use(args.host, args.port):
+        sys.stderr.write(f"Error: Port {args.port} is already in use by another process.\n")
         sys.exit(1)
 
     if args.dev:

@@ -586,6 +586,14 @@ def test_dev_mode_permits_vite_dev_server_origin() -> None:
     assert status == 403
     assert body == b"Forbidden"
 
+    # Verify Vite dev server proxy header combination is rejected in production
+    status, _, body = prod_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"host": "127.0.0.1:8000", "origin": "http://localhost:5173"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
     # 2. Dev mode (dev_mode=True) permits Vite dev server origins
     dev_app = create_app(allowed_port=8000, dev_mode=True)
     dev_client = AsgiClient(dev_app)
@@ -601,11 +609,20 @@ def test_dev_mode_permits_vite_dev_server_origin() -> None:
     )
     assert status == 404
 
+    # Verify Vite dev server proxy header combination is accepted in dev mode
     status, _, _ = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"host": "127.0.0.1:8000", "origin": "http://localhost:5173"},
+    )
+    assert status == 404
+
+    # Port 3000 is rejected with 403 even in dev mode (dropped per YAGNI)
+    status, _, body = dev_client.post(
         "/api/documents/nonexistent/cancel",
         headers={"origin": "http://localhost:3000"},
     )
-    assert status == 404
+    assert status == 403
+    assert body == b"Forbidden"
 
     # Non-whitelisted port or external origin still rejected in dev mode
     status, _, body = dev_client.post(
@@ -621,3 +638,47 @@ def test_dev_mode_permits_vite_dev_server_origin() -> None:
     )
     assert status == 403
     assert body == b"Forbidden"
+
+
+def test_concurrent_instance_skips_startup_sweep(tmp_path: Path) -> None:
+    """Verify concurrent app instance skips startup sweep when another holds .instance.lock."""
+    from web.app import _acquire_instance_lock, _release_instance_lock
+
+    active_file = tmp_path / "active_session_file.png"
+    active_file.write_bytes(b"active-content")
+
+    # Primary instance acquires lock
+    lock1 = _acquire_instance_lock(tmp_path)
+    try:
+        app2 = create_app(upload_dir=tmp_path)
+
+        async def _run_second():
+            async with app2.router.lifespan_context(app2):
+                assert app2.state.instance_lock is None
+                assert active_file.exists()
+                assert active_file.read_bytes() == b"active-content"
+
+        asyncio.run(_run_second())
+        assert active_file.exists()
+    finally:
+        _release_instance_lock(lock1)
+        lock_path = tmp_path / ".instance.lock"
+        if lock_path.exists():
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
+
+
+def test_is_port_in_use() -> None:
+    """Verify is_port_in_use correctly detects open vs available ports."""
+    import socket
+    from web.__main__ import is_port_in_use
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        assert is_port_in_use("127.0.0.1", port) is True
+
+    assert is_port_in_use("127.0.0.1", port) is False
+

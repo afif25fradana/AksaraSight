@@ -189,11 +189,15 @@ class WebOrchestrator:
             )
 
             def _on_progress(page_num: int, total: int, page_res: PageResult) -> None:
+                tokens = 0
+                if page_res.raw_json and isinstance(page_res.raw_json, dict):
+                    usage = page_res.raw_json.get("usage") or {}
+                    tokens = usage.get("total_tokens", 0) or 0
                 page_info = {
                     "page_number": page_num,
                     "text": page_res.markdown,
                     "latency": page_res.latency,
-                    "tokens": page_res.tokens,
+                    "tokens": tokens,
                     "truncated": page_res.truncated,
                     "status": page_res.status.value,
                 }
@@ -231,7 +235,7 @@ class WebOrchestrator:
                         {
                             "job_id": job.job_id,
                             "total_pages": job.total_pages,
-                            "duration": res.duration_seconds,
+                            "duration": getattr(res, "total_duration", 0.0),
                         },
                     )
             except Exception as exc:

@@ -429,15 +429,12 @@ def create_app(
         )
 
     @app.get("/api/events", response_class=EventSourceResponse)
-    async def sse_events(request: Request) -> EventSourceResponse:
+    async def sse_events(request: Request):
         """Stream real-time orchestrator queue events over Server-Sent Events."""
-        async def event_generator():
-            async for msg in app_orchestrator.subscribe():
-                if await request.is_disconnected():
-                    break
-                yield ServerSentEvent(event=msg["event"], data=msg["data"])
-
-        return EventSourceResponse(event_generator())
+        async for msg in app_orchestrator.subscribe():
+            if await request.is_disconnected():
+                break
+            yield ServerSentEvent(event=msg["event"], data=msg["data"])
 
     target_static_dir = Path(static_dir) if static_dir else (Path(__file__).parent / "static")
     if target_static_dir.is_dir():

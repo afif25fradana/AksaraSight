@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+import io
+import json
 import logging
 from pathlib import Path
 import sys
 import uuid
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, Optional
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
+import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
+from core.docx_export import export_to_docx_bytes
+from core.models import OCRResult, PageResult
+import core.models as core_models
 from core.pipeline import _PDFIUM_LOCK
 from web.orchestrator import DocumentJob, JobStatus, WebOrchestrator
 from web.security import (
@@ -138,6 +146,54 @@ async def upload_document(file: UploadFile = File(...)) -> Dict[str, Any]:
     }
 
 
+@app.get("/api/documents/{job_id}/pages/{page}/preview")
+async def get_page_preview(job_id: str, page: int) -> Response:
+    """Render and return a PNG image preview for the specified page (1-indexed)."""
+    job = orchestrator.jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    if page < 1 or page > job.total_pages:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid page {page}. Document contains {job.total_pages} pages.",
+        )
+
+    suffix = job.file_path.suffix.lower()
+    try:
+        if suffix == ".pdf":
+            with _PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(str(job.file_path))
+                page_obj = doc[page - 1]
+                pil_img = page_obj.render(scale=1.5).to_pil()
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG")
+                return Response(content=buf.getvalue(), media_type="image/png")
+        else:
+            with Image.open(job.file_path) as img:
+                if hasattr(img, "seek"):
+                    try:
+                        img.seek(page - 1)
+                    except EOFError:
+                        pass
+                if img.mode not in ("RGB", "L", "RGBA"):
+                    pil_img = img.convert("RGB")
+                else:
+                    pil_img = img.copy()
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG")
+                return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as exc:
+        logger.exception(f"Failed to render page preview: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to render page preview: {exc}",
+        )
+
+
 @app.post("/api/documents/{job_id}/extract", status_code=status.HTTP_202_ACCEPTED)
 async def extract_document(job_id: str) -> Dict[str, Any]:
     """Enqueue an uploaded document job for OCR processing."""
@@ -170,3 +226,131 @@ async def cancel_document_extraction(job_id: str) -> Dict[str, Any]:
         "job_id": job_id,
         "status": JobStatus.CANCELLED.value,
     }
+
+
+@app.get("/api/documents/{job_id}/export")
+async def export_document(
+    job_id: str,
+    format: str = Query("docx", pattern="^(docx|md|json)$"),
+) -> Response:
+    """Export extracted document results in DOCX, Markdown, or JSON format."""
+    job = orchestrator.jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    if not job.pages_data and not job.result:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document has not been extracted yet.",
+        )
+
+    base_stem = Path(job.filename).stem
+
+    if format == "docx":
+        if job.result:
+            docx_payload = export_to_docx_bytes(job.result)
+        else:
+            pages = [
+                PageResult(
+                    page_num=p_num,
+                    markdown=p_data.get("text", ""),
+                    status=core_models.JobStatus.SUCCESS,
+                )
+                for p_num, p_data in sorted(job.pages_data.items())
+            ]
+            ocr_res = OCRResult(
+                file_path=str(job.file_path),
+                pages=pages,
+                status=core_models.JobStatus.SUCCESS,
+            )
+            docx_payload = export_to_docx_bytes(ocr_res)
+
+        return Response(
+            content=docx_payload,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_stem}.docx"',
+            },
+        )
+
+    elif format == "md":
+        if job.result:
+            md_payload = job.result.markdown
+        else:
+            md_payload = "\n\n---\n\n".join(
+                p_data.get("text", "") for _, p_data in sorted(job.pages_data.items())
+            )
+        return Response(
+            content=md_payload,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_stem}.md"',
+            },
+        )
+
+    elif format == "json":
+        if job.result:
+            json_payload = job.result.to_json()
+        else:
+            json_payload = json.dumps(
+                {
+                    "job_id": job.job_id,
+                    "filename": job.filename,
+                    "pages": job.pages_data,
+                },
+                indent=2,
+            )
+        return Response(
+            content=json_payload,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_stem}.json"',
+            },
+        )
+
+    raise HTTPException(status_code=400, detail="Invalid format")
+
+
+@app.get("/api/events")
+async def stream_events(request: Request) -> StreamingResponse:
+    """Server-Sent Events (SSE) stream distributing live job lifecycle events."""
+    loop = asyncio.get_running_loop()
+    q = orchestrator.subscribe(loop)
+
+    async def event_generator() -> AsyncIterator[str]:
+        try:
+            # Initial ping to verify stream connection
+            yield "event: ping\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event_data = await asyncio.wait_for(q.get(), timeout=15.0)
+                    evt_name = event_data.get("event", "message")
+                    payload = json.dumps(event_data.get("data", {}))
+                    yield f"event: {evt_name}\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield "event: ping\ndata: {}\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        finally:
+            orchestrator.unsubscribe((loop, q))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# Mount static files directory if present (SPA support)
+static_dir = Path(__file__).resolve().parent / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")

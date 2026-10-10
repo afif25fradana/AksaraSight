@@ -153,7 +153,7 @@ export const INITIAL_SETTINGS: EngineSettings = {
   maxImageSize: 2048,
   maxTokensPerPage: 4096,
   maxPagesPerDoc: '',
-  endpointUrl: 'http://localhost:8080/v1',
+  endpointUrl: 'http://127.0.0.1:8080/v1',
   allowRemote: false,
   timeout: 60,
   retries: 2,

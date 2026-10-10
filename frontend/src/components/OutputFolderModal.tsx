@@ -72,6 +72,13 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
           </button>
         </div>
 
+        {/* Spike Slice Notice */}
+        <div className="px-5 pt-3 shrink-0">
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-mono">
+            Spike Slice Notice: This panel is a visual preview from the mockup and is not connected to live settings/logs in this vertical slice. Deferred to Phase 2.
+          </div>
+        </div>
+
         {/* Local Disk Location Banner & OS Actions */}
         <div className="px-5 py-3 bg-[#F0EEE8] dark:bg-[var(--bg-elevated)] border-b border-[#8A94A6]/25 dark:border-[var(--border)] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 flex-1 min-w-[280px]">

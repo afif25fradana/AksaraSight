@@ -520,6 +520,10 @@ export default function App() {
   };
 
   const handleRemoveDoc = (docId: string) => {
+    fetch(`/api/documents/${docId}`, { method: 'DELETE' }).catch((err) => {
+      console.error('Failed to delete document from backend:', err);
+    });
+
     setDocuments((prev) => {
       const docToRemove = prev.find((d) => d.id === docId);
       if (docToRemove?.previewImageUrl && docToRemove.previewImageUrl.startsWith('blob:')) {

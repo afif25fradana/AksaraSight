@@ -202,6 +202,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           
           {/* Header with Category Tabs */}
           <div className="border-b border-[#8A94A6]/25 dark:border-[var(--border)] px-6 pt-4 pb-0 shrink-0 bg-white dark:bg-[var(--bg-surface)]">
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-mono">
+              Spike Slice Notice: This panel is a visual preview from the mockup and is not connected to live settings/logs in this vertical slice. Deferred to Phase 2.
+            </div>
             <div className="flex items-center justify-between pb-3">
               <div>
                 <h1 className="font-['IBM_Plex_Sans',sans-serif] text-[16px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">

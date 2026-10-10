@@ -67,6 +67,14 @@ class WebOrchestrator:
         with self._lock:
             return self.jobs.get(job_id)
 
+    def remove_job(self, job_id: str) -> Optional[JobState]:
+        """Cancel and remove a job from the registry."""
+        with self._lock:
+            job = self.jobs.pop(job_id, None)
+        if job:
+            job.cancel_event.set()
+        return job
+
     def enqueue(self, job_id: str) -> None:
         """Enqueue an existing job for processing."""
         with self._lock:

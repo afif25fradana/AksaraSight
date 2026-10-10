@@ -21,8 +21,13 @@ from web.orchestrator import JobStatus, WebOrchestrator
 class AsgiClient:
     """Synchronous test client executing raw ASGI requests against FastAPI app."""
 
-    def __init__(self, app: Any) -> None:
+    def __init__(
+        self,
+        app: Any,
+        server: Optional[Tuple[str, Optional[int]]] = None,
+    ) -> None:
         self.app = app
+        self.server = server
 
     def request(
         self,
@@ -33,7 +38,20 @@ class AsgiClient:
         query_string: str = "",
     ) -> Tuple[int, Dict[str, str], bytes]:
         async def _call():
-            req_headers = {"host": "127.0.0.1:8000"}
+            server_host = "127.0.0.1"
+            pinned_port = getattr(getattr(self.app, "state", None), "allowed_port", None)
+            if self.server is not None:
+                server_tuple = self.server
+            elif pinned_port is not None:
+                server_tuple = (server_host, pinned_port)
+            else:
+                server_tuple = (server_host, None)
+
+            effective_port = server_tuple[1] if (server_tuple and len(server_tuple) > 1) else None
+            host_header_val = (
+                f"{server_host}:{effective_port}" if effective_port is not None else "127.0.0.1:8000"
+            )
+            req_headers = {"host": host_header_val}
             if headers:
                 req_headers.update(headers)
 
@@ -53,7 +71,7 @@ class AsgiClient:
                 "query_string": query_string.encode("latin-1"),
                 "headers": headers_list,
                 "client": ("127.0.0.1", 12345),
-                "server": ("127.0.0.1", 8000),
+                "server": server_tuple,
             }
             resp_headers: Dict[str, str] = {}
             resp_status = 200
@@ -91,6 +109,14 @@ class AsgiClient:
         body: bytes = b"",
     ) -> Tuple[int, Dict[str, str], bytes]:
         return self.request("POST", path, headers=headers, body=body)
+
+    def delete(
+        self,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        query_string: str = "",
+    ) -> Tuple[int, Dict[str, str], bytes]:
+        return self.request("DELETE", path, headers=headers, query_string=query_string)
 
 
 def _create_sample_png_bytes(width: int = 100, height: int = 100) -> bytes:
@@ -414,3 +440,113 @@ def test_server_offline_handling(tmp_path: Path) -> None:
     assert "Simulated backend disconnect" in (job.error or "")
 
     orchestrator.stop()
+
+
+def test_loopback_security_middleware_port_pinning(tmp_path: Path) -> None:
+    """Verify port pinning rejects requests from different port origin or host."""
+    app = create_app(upload_dir=tmp_path, allowed_port=8000)
+    client = AsgiClient(app)
+
+    # 1. Mutating requests (POST) from mismatched origin must be rejected with 403
+    status, _, body = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:3000"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    status, _, body = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://127.0.0.1:5173"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    # 2. Mutating requests from matching pinned port origin are accepted past middleware
+    status, _, _ = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://127.0.0.1:8000"},
+    )
+    assert status == 404  # Reached app route
+
+    status, _, _ = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:8000"},
+    )
+    assert status == 404
+
+    # 3. Host header with mismatched port is rejected with 400
+    status, _, body = client.get("/health", headers={"host": "localhost:3000"})
+    assert status == 400
+    assert body == b"Bad Request"
+
+    status, _, body = client.get("/health", headers={"host": "127.0.0.1:9000"})
+    assert status == 400
+    assert body == b"Bad Request"
+
+    # 4. Host header matching pinned port is accepted
+    status, _, _ = client.get("/health", headers={"host": "127.0.0.1:8000"})
+    assert status == 200
+
+    status, _, _ = client.get("/health", headers={"host": "localhost:8000"})
+    assert status == 200
+
+
+def test_delete_document_cleans_up_file(tmp_path: Path) -> None:
+    """Verify DELETE /api/documents/{id} unlinks the uploaded file and removes job."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("delete_me.png", png_bytes, "image/png")}
+    )
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    job_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Verify file was written to disk
+    matching_files = list(tmp_path.glob(f"{job_id}_*"))
+    assert len(matching_files) == 1
+    assert matching_files[0].exists()
+
+    # Call DELETE endpoint
+    del_status, _, del_resp = client.delete(f"/api/documents/{job_id}")
+    assert del_status == 200
+    del_data = json.loads(del_resp.decode("utf-8"))
+    assert del_data["deleted"] is True
+    assert del_data["job_id"] == job_id
+
+    # Verify file is deleted on disk
+    assert not matching_files[0].exists()
+    assert len(list(tmp_path.glob(f"{job_id}_*"))) == 0
+
+    # Calling DELETE on already removed job returns 404
+    del_again_status, _, _ = client.delete(f"/api/documents/{job_id}")
+    assert del_again_status == 404
+
+
+def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
+    """Verify FastAPI lifespan shutdown cleans up all files in upload directory."""
+    app = create_app(upload_dir=tmp_path)
+
+    # Populate upload directory with session files
+    file1 = tmp_path / "session_file1.png"
+    file2 = tmp_path / "session_file2.pdf"
+    file1.write_bytes(b"data1")
+    file2.write_bytes(b"data2")
+    assert file1.exists()
+    assert file2.exists()
+
+    async def _run_lifespan():
+        async with app.router.lifespan_context(app):
+            # During startup/running, files remain
+            assert file1.exists()
+            assert file2.exists()
+
+    asyncio.run(_run_lifespan())
+
+    # On shutdown, all files in upload directory must be deleted
+    assert not file1.exists()
+    assert not file2.exists()
+    assert len(list(tmp_path.iterdir())) == 0

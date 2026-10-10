@@ -1,5 +1,6 @@
 """FastAPI web application factory for AksaraSight."""
 
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -63,11 +64,19 @@ def create_app(
     upload_dir: Optional[Union[str, Path]] = None,
     max_upload_size: int = 104857600,
     static_dir: Optional[Union[str, Path]] = None,
+    allowed_port: Optional[int] = None,
 ) -> FastAPI:
     """Create and configure the FastAPI web application instance."""
     app_settings = settings or Settings()
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
+
+    target_port = allowed_port
+    if target_port is None and "AKSARA_WEB_PORT" in os.environ:
+        try:
+            target_port = int(os.environ["AKSARA_WEB_PORT"])
+        except ValueError:
+            pass
 
     if upload_dir is not None:
         target_upload_dir = Path(upload_dir).resolve()
@@ -78,15 +87,31 @@ def create_app(
 
     target_upload_dir.mkdir(parents=True, exist_ok=True)
 
+    @asynccontextmanager
+    async def lifespan(app_instance: FastAPI):
+        yield
+        # Server shutdown cleanup: stop worker thread and unlink session upload files
+        if hasattr(app_instance.state, "orchestrator") and app_instance.state.orchestrator:
+            app_instance.state.orchestrator.stop()
+        active_upload_dir = getattr(app_instance.state, "upload_dir", None)
+        if active_upload_dir and Path(active_upload_dir).exists():
+            for f in Path(active_upload_dir).glob("*"):
+                if f.is_file():
+                    try:
+                        f.unlink()
+                    except OSError as e:
+                        logger.warning("Failed to cleanup upload file %s: %s", f, e)
+
     app = FastAPI(
         title="AksaraSight Web API",
         version="1.2.1",
         docs_url=None,
         redoc_url=None,
+        lifespan=lifespan,
     )
 
-    # Attach loopback-only security middleware
-    app.add_middleware(LoopbackSecurityMiddleware)
+    # Attach loopback-only security middleware with port pinning
+    app.add_middleware(LoopbackSecurityMiddleware, allowed_port=target_port)
 
     # Store references on app state
     app.state.settings = app_settings
@@ -94,6 +119,7 @@ def create_app(
     app.state.orchestrator = app_orchestrator
     app.state.upload_dir = target_upload_dir
     app.state.max_upload_size = max_upload_size
+    app.state.allowed_port = target_port
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:
@@ -212,7 +238,7 @@ def create_app(
         return {"message": "Extraction queued", "job_id": job_id}
 
     @app.post("/api/documents/{job_id}/cancel")
-    async def cancel_document(job_id: str) -> Dict[str, Any]:
+    async def cancel_document(job_id: str, delete_file: bool = False) -> Dict[str, Any]:
         """Cancel an in-progress or queued document extraction."""
         job = app_orchestrator.get_job(job_id)
         if not job:
@@ -222,7 +248,38 @@ def create_app(
         if not cancelled:
             raise HTTPException(status_code=404, detail="Document job not found")
 
+        if delete_file and job.file_path and job.file_path.exists():
+            try:
+                job.file_path.unlink()
+            except OSError as e:
+                logger.warning("Failed to cleanup file on cancel for job %s: %s", job_id, e)
+
         return {"message": "Extraction cancelled", "job_id": job_id}
+
+    @app.delete("/api/documents/{job_id}")
+    async def delete_document(job_id: str) -> Dict[str, Any]:
+        """Delete an uploaded document, remove from orchestrator, and delete file on disk."""
+        job = app_orchestrator.remove_job(job_id)
+
+        file_deleted = False
+        if job and job.file_path and job.file_path.exists():
+            try:
+                job.file_path.unlink()
+                file_deleted = True
+            except OSError as e:
+                logger.warning("Failed to unlink file for job %s: %s", job_id, e)
+
+        for f in target_upload_dir.glob(f"{job_id}_*"):
+            try:
+                f.unlink()
+                file_deleted = True
+            except OSError as e:
+                logger.warning("Failed to unlink file %s: %s", f, e)
+
+        if not job and not file_deleted:
+            raise HTTPException(status_code=404, detail="Document job not found")
+
+        return {"deleted": True, "job_id": job_id}
 
     @app.get("/api/documents/{job_id}/export")
     async def export_document(

@@ -1,6 +1,8 @@
 """FastAPI web application factory for AksaraSight."""
 
+import asyncio
 from contextlib import asynccontextmanager
+import dataclasses
 import json
 import logging
 import os
@@ -11,6 +13,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -18,6 +21,7 @@ import pypdfium2 as pdfium
 
 from config.settings import Settings
 from core.client import ServerOfflineError
+from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
@@ -107,6 +111,43 @@ def _release_instance_lock(lock_file: Any) -> None:
             lock_file.close()
         except OSError:
             pass
+
+
+MUTABLE_SETTINGS = {
+    "dpi",
+    "max_image_dimension",
+    "max_tokens",
+    "timeout",
+    "max_retries",
+    "auto_start_server",
+}
+
+IMMUTABLE_SETTINGS = {
+    "llama_server_path",
+    "runtime_mode",
+    "model_repo",
+    "allow_remote",
+    "local_endpoint",
+    "backend",
+    "managed_backend_override",
+}
+
+
+def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
+    """Extract a safe dictionary representation of application settings."""
+    return {
+        "backend": settings.backend,
+        "local_endpoint": settings.local_endpoint,
+        "runtime_mode": settings.runtime_mode,
+        "managed_backend_override": settings.managed_backend_override,
+        "dpi": settings.dpi,
+        "max_image_dimension": settings.max_image_dimension,
+        "max_tokens": settings.max_tokens,
+        "timeout": settings.timeout,
+        "max_retries": settings.max_retries,
+        "auto_start_server": settings.auto_start_server,
+        "model_repo": settings.model_repo,
+    }
 
 
 def create_app(
@@ -217,6 +258,7 @@ def create_app(
     app.state.allowed_port = target_port
     app.state.dev_mode = dev_mode
     app.state.instance_lock = None
+    app.state.last_doctor_report = None
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:
@@ -240,6 +282,127 @@ def create_app(
             "endpoint": getattr(app_settings, "local_endpoint", "http://127.0.0.1:8080/v1"),
             "error": err_msg,
         }
+
+    @app.post("/api/doctor")
+    async def post_doctor() -> Dict[str, Any]:
+        """Trigger diagnostic health checks and return structured report."""
+        current_settings = getattr(app.state, "settings", app_settings)
+        report = await asyncio.to_thread(
+            run_diagnostics,
+            settings=current_settings,
+            allow_remote=current_settings.allow_remote,
+        )
+
+        status_str = (
+            getattr(report, "summary", None)
+            or ("HEALTHY" if getattr(report, "failed_checks", 0) == 0 else "UNHEALTHY")
+        )
+        total_checks_count = (
+            getattr(report, "total_checks", None)
+            or len(getattr(report, "checks", []))
+        )
+        report_data = {
+            "status": status_str,
+            "exit_code": report.exit_code,
+            "total_checks": total_checks_count,
+            "failed_checks": report.failed_checks,
+            "checks": [
+                {
+                    "category": getattr(c, "category", getattr(c, "name", "")),
+                    "title": getattr(c, "title", getattr(c, "name", "")),
+                    "status": c.status.value if hasattr(c.status, "value") else str(c.status),
+                    "details": getattr(c, "details", getattr(c, "message", None)),
+                    "remediation": getattr(c, "remediation", None),
+                }
+                for c in report.checks
+            ],
+            "text": report.format_text() if hasattr(report, "format_text") else "",
+        }
+        app.state.last_doctor_report = report_data
+        return report_data
+
+    @app.get("/api/doctor")
+    async def get_doctor() -> Any:
+        """Return the latest cached diagnostic health check report."""
+        report = getattr(app.state, "last_doctor_report", None)
+        if report is None:
+            return JSONResponse(status_code=404, content={"report": None})
+        return report
+
+    @app.get("/api/settings")
+    async def get_settings() -> Dict[str, Any]:
+        """Return current application settings."""
+        current_settings = getattr(app.state, "settings", app_settings)
+        return get_safe_settings_dict(current_settings)
+
+    @app.patch("/api/settings")
+    async def patch_settings(request: Request) -> Dict[str, Any]:
+        """Validate and apply mutable settings updates, persisting to .env."""
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        if not isinstance(body, dict) or not body:
+            raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
+
+        for key in body.keys():
+            if key in IMMUTABLE_SETTINGS:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Modification of setting '{key}' is forbidden via web API.",
+                )
+            if key not in MUTABLE_SETTINGS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown or non-mutable setting '{key}'.",
+                )
+
+        updates: Dict[str, Any] = {}
+        for key, val in body.items():
+            if key == "dpi":
+                if isinstance(val, bool) or not isinstance(val, int) or not (50 <= val <= 600):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = int(val)
+            elif key == "max_image_dimension":
+                if isinstance(val, bool) or not isinstance(val, int) or not (256 <= val <= 8192):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = int(val)
+            elif key == "max_tokens":
+                if isinstance(val, bool) or not isinstance(val, int) or not (128 <= val <= 16384):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = int(val)
+            elif key == "timeout":
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or not (1.0 <= float(val) <= 600.0):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = float(val)
+            elif key == "max_retries":
+                if isinstance(val, bool) or not isinstance(val, int) or not (0 <= val <= 10):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = int(val)
+            elif key == "auto_start_server":
+                if not isinstance(val, bool):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = bool(val)
+
+        current_settings = getattr(app.state, "settings", app_settings)
+        try:
+            new_settings = dataclasses.replace(current_settings, **updates)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to update settings: {e}")
+
+        try:
+            new_settings.save_to_env()
+        except Exception as e:
+            logger.warning("Failed to save settings to .env: %s", e)
+
+        app.state.settings = new_settings
+        if hasattr(app.state, "engine") and app.state.engine:
+            app.state.engine.settings = new_settings
+            if hasattr(app.state.engine, "client") and app.state.engine.client:
+                app.state.engine.client.settings = new_settings
+
+        return {"updated": True, "settings": get_safe_settings_dict(new_settings)}
 
     @app.get("/api/documents")
     async def list_documents() -> List[Dict[str, Any]]:

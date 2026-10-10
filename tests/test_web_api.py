@@ -1004,3 +1004,124 @@ def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
     assert doc_entry["pagesData"] == {}
 
     orchestrator.stop()
+
+
+def test_doctor_endpoint_execution_and_schema(tmp_path: Path) -> None:
+    """Verify POST /api/doctor runs diagnostics and GET /api/doctor returns the cached report."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # Before POST, GET /api/doctor returns 404 with report: None
+    status, _, resp = client.get("/api/doctor")
+    assert status == 404
+    data = json.loads(resp.decode("utf-8"))
+    assert data["report"] is None
+
+    # POST /api/doctor executes diagnostics
+    status, _, resp = client.post("/api/doctor")
+    assert status == 200
+    post_data = json.loads(resp.decode("utf-8"))
+    assert "status" in post_data
+    assert "exit_code" in post_data
+    assert "total_checks" in post_data
+    assert "failed_checks" in post_data
+    assert "checks" in post_data
+    assert isinstance(post_data["checks"], list)
+    if post_data["checks"]:
+        first_check = post_data["checks"][0]
+        assert "category" in first_check
+        assert "title" in first_check
+        assert "status" in first_check
+        assert "details" in first_check
+        assert "remediation" in first_check
+    assert "text" in post_data
+    assert isinstance(post_data["text"], str)
+
+    # GET /api/doctor returns cached report
+    status, _, resp = client.get("/api/doctor")
+    assert status == 200
+    get_data = json.loads(resp.decode("utf-8"))
+    assert get_data == post_data
+
+
+def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify settings querying, valid patch persistence, and strict security rejecting immutable/malformed keys."""
+    env_file = tmp_path / ".env"
+    monkeypatch.chdir(tmp_path)
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. GET /api/settings
+    status, _, resp = client.get("/api/settings")
+    assert status == 200
+    settings_data = json.loads(resp.decode("utf-8"))
+    assert "dpi" in settings_data
+    assert "timeout" in settings_data
+    assert "backend" in settings_data
+    assert "auto_start_server" in settings_data
+
+    # 2. PATCH /api/settings valid updates
+    patch_body = json.dumps({"dpi": 150, "timeout": 45.0}).encode("utf-8")
+    status, _, resp = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=patch_body,
+    )
+    assert status == 200
+    res = json.loads(resp.decode("utf-8"))
+    assert res["updated"] is True
+    assert res["settings"]["dpi"] == 150
+    assert res["settings"]["timeout"] == 45.0
+    assert app.state.settings.dpi == 150
+    assert app.state.settings.timeout == 45.0
+    assert env_file.exists()
+    saved_env = env_file.read_text(encoding="utf-8")
+    assert "150" in saved_env
+
+    # 3. PATCH immutable keys (must return 403 Forbidden)
+    for immutable_key, immutable_val in [
+        ("backend", "ollama"),
+        ("llama_server_path", "/bin/sh"),
+        ("allow_remote", True),
+        ("runtime_mode", "custom"),
+        ("local_endpoint", "http://remote:8080/v1"),
+        ("model_repo", "evil/repo"),
+        ("managed_backend_override", "cuda"),
+    ]:
+        body_bytes = json.dumps({immutable_key: immutable_val}).encode("utf-8")
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=body_bytes,
+        )
+        assert status == 403, f"Expected 403 for {immutable_key}, got {status}"
+
+    # 4. PATCH unknown keys (must return 400 Bad Request)
+    body_bytes = json.dumps({"unknown_key": "val"}).encode("utf-8")
+    status, _, _ = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=body_bytes,
+    )
+    assert status == 400
+
+    # 5. PATCH invalid types and ranges (must return 400 Bad Request)
+    for invalid_payload in [
+        {"dpi": "not_an_int"},
+        {"dpi": -5},
+        {"dpi": 1000},
+        {"timeout": "slow"},
+        {"timeout": 0.5},
+        {"max_retries": -1},
+        {"max_retries": 15},
+        {"auto_start_server": "yes"},
+    ]:
+        body_bytes = json.dumps(invalid_payload).encode("utf-8")
+        status, _, _ = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=body_bytes,
+        )
+        assert status == 400
+

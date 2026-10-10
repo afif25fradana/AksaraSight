@@ -293,7 +293,7 @@ def create_app(
             job_id=job_id,
             filename=file.filename,
             file_path=target_path,
-            status=JobStatus.QUEUED,
+            status=JobStatus.UPLOADED,
             page_count=pages,
         )
         app_orchestrator.register_job(job)

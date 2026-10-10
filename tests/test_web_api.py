@@ -858,3 +858,57 @@ def test_get_documents_snapshot_rehydration(tmp_path: Path) -> None:
     orchestrator.stop()
 
 
+def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path: Path) -> None:
+    """Verify newly uploaded docs remain 'Not extracted' even when another job is processing."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. Upload Doc 1
+    png1_bytes = _create_sample_png_bytes(50, 50)
+    body1, ct1 = urllib3.encode_multipart_formdata(
+        {"file": ("doc1.png", png1_bytes, "image/png")}
+    )
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct1}, body=body1)
+    assert status == 200
+    doc1_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Enqueue Doc 1 and simulate PROCESSING
+    status, _, _ = client.post(f"/api/documents/{doc1_id}/extract")
+    assert status == 202
+    with orchestrator._lock:
+        job1 = orchestrator.jobs[doc1_id]
+        job1.status = JobStatus.PROCESSING
+
+    # 2. Upload Doc 2 (do NOT enqueue, remains UPLOADED)
+    png2_bytes = _create_sample_png_bytes(50, 50)
+    body2, ct2 = urllib3.encode_multipart_formdata(
+        {"file": ("doc2.png", png2_bytes, "image/png")}
+    )
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct2}, body=body2)
+    assert status == 200
+    doc2_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # 3. Call GET /api/documents
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    doc_map = {d["id"]: d for d in docs}
+
+    assert doc1_id in doc_map
+    assert doc2_id in doc_map
+    assert doc_map[doc1_id]["status"] == "Processing"
+    assert doc_map[doc2_id]["status"] == "Not extracted"
+    assert doc_map[doc2_id]["status"] != "Waiting"
+    assert doc_map[doc2_id]["statusNote"] == "Ready to extract"
+
+    # 4. Cleanup / Delete both docs
+    status, _, _ = client.delete(f"/api/documents/{doc1_id}")
+    assert status == 200
+    status, _, _ = client.delete(f"/api/documents/{doc2_id}")
+    assert status == 200
+
+    orchestrator.stop()
+
+

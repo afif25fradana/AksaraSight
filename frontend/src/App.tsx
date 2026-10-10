@@ -84,7 +84,33 @@ export default function App() {
         if (res.ok) {
           const serverDocs: DocumentItem[] = await res.json();
           if (serverDocs && serverDocs.length > 0) {
-            setDocuments(serverDocs);
+            setDocuments((prevDocs) => {
+              if (!serverDocs || serverDocs.length === 0) return prevDocs;
+              return serverDocs.map((sDoc) => {
+                const existing = prevDocs.find((d) => d.id === sDoc.id);
+                if (!existing) return sDoc;
+
+                const mergedPagesData = { ...(sDoc.pagesData || {}), ...(existing.pagesData || {}) };
+                const sortedKeys = Object.keys(mergedPagesData).map(Number).sort((a, b) => a - b);
+                const fullText = sortedKeys.map((k) => mergedPagesData[k]?.text || '').join('\n\n---\n\n');
+
+                const existingPagesCount = Object.keys(existing.pagesData || {}).length;
+                const serverPagesCount = Object.keys(sDoc.pagesData || {}).length;
+
+                const processedPages = Math.max(existing.processedPages || 0, sDoc.processedPages || 0);
+                const isCurrentlyProcessing =
+                  (existing.status === 'Processing' || sDoc.status === 'Processing') && sDoc.status !== 'Done';
+
+                return {
+                  ...sDoc,
+                  status: isCurrentlyProcessing ? 'Processing' : (existing.status === 'Done' ? 'Done' : sDoc.status),
+                  processedPages: processedPages,
+                  pagesData: mergedPagesData,
+                  extractedText:
+                    (existingPagesCount > serverPagesCount ? existing.extractedText : fullText) || sDoc.extractedText,
+                };
+              });
+            });
             setSelectedDocId((prev) => {
               if (prev && serverDocs.some((d) => d.id === prev)) return prev;
               return serverDocs[0].id;
@@ -109,6 +135,11 @@ export default function App() {
       .catch(() => setEngineSettings((s) => ({ ...s, status: 'offline' })));
 
     const eventSource = new EventSource('/api/events');
+
+    if (typeof window !== 'undefined') {
+      (window as any).__eventSource = eventSource;
+      (window as any).__rehydrateDocuments = rehydrateDocuments;
+    }
 
     eventSource.onopen = () => {
       rehydrateDocuments();
@@ -227,6 +258,10 @@ export default function App() {
 
     return () => {
       eventSource.close();
+      if (typeof window !== 'undefined') {
+        delete (window as any).__eventSource;
+        delete (window as any).__rehydrateDocuments;
+      }
     };
   }, []);
 

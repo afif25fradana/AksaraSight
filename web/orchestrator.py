@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class JobStatus(str, Enum):
     """Job status lifecycle states in web orchestrator."""
 
+    UPLOADED = "UPLOADED"
     QUEUED = "QUEUED"
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
@@ -33,7 +34,7 @@ class JobState:
     job_id: str
     filename: str
     file_path: Path
-    status: JobStatus = JobStatus.QUEUED
+    status: JobStatus = JobStatus.UPLOADED
     page_count: int = 0
     current_page: int = 0
     pages_data: Dict[int, Dict[str, Any]] = field(default_factory=dict)
@@ -65,7 +66,14 @@ class WebOrchestrator:
     def get_jobs_snapshot(self) -> List[Dict[str, Any]]:
         """Return an in-memory snapshot of all active documents in frontend DocumentItem format."""
         with self._lock:
-            busy = self.is_processing()
+            status_map = {
+                JobStatus.UPLOADED: "Not extracted",
+                JobStatus.QUEUED: "Waiting",
+                JobStatus.PROCESSING: "Processing",
+                JobStatus.SUCCESS: "Done",
+                JobStatus.FAILED: "Failed",
+                JobStatus.CANCELLED: "Waiting",
+            }
             snapshot: List[Dict[str, Any]] = []
 
             for job in self.jobs.values():
@@ -76,24 +84,18 @@ class WebOrchestrator:
                     else ""
                 )
 
-                if job.status == JobStatus.QUEUED:
-                    doc_status = "Waiting" if busy else "Not extracted"
-                elif job.status == JobStatus.PROCESSING:
-                    doc_status = "Processing"
-                elif job.status == JobStatus.SUCCESS:
-                    doc_status = (
-                        "Truncated"
-                        if any(p.get("truncated", False) for p in job.pages_data.values())
-                        else "Done"
-                    )
-                elif job.status == JobStatus.FAILED:
-                    doc_status = "Failed"
-                elif job.status == JobStatus.CANCELLED:
-                    doc_status = "Waiting"
-                else:
-                    doc_status = "Waiting"
+                doc_status = status_map.get(job.status, "Waiting")
+                if job.status == JobStatus.SUCCESS and any(
+                    p.get("truncated", False) for p in job.pages_data.values()
+                ):
+                    doc_status = "Truncated"
 
-                status_note = "Job cancelled" if job.status == JobStatus.CANCELLED else job.error
+                if job.status == JobStatus.UPLOADED:
+                    status_note = "Ready to extract"
+                elif job.status == JobStatus.CANCELLED:
+                    status_note = "Job cancelled"
+                else:
+                    status_note = job.error
 
                 pages_data: Dict[int, Dict[str, Any]] = {}
                 for p_num, p in sorted_page_items:
@@ -175,7 +177,7 @@ class WebOrchestrator:
             if not job:
                 return False
             job.cancel_event.set()
-            if job.status == JobStatus.QUEUED:
+            if job.status in (JobStatus.QUEUED, JobStatus.UPLOADED):
                 job.status = JobStatus.CANCELLED
                 self.broadcast("cancelled", {"job_id": job.job_id})
             return True

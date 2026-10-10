@@ -297,7 +297,7 @@ export default function App() {
             pages: pageCount,
             processedPages: 0,
             size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-            status: 'Waiting',
+            status: 'Not extracted',
             statusNote: 'Ready to extract',
             currentPage: 1,
             docType: 'custom-image',

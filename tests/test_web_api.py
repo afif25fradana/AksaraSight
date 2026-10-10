@@ -682,3 +682,77 @@ def test_is_port_in_use() -> None:
 
     assert is_port_in_use("127.0.0.1", port) is False
 
+
+def test_sse_events_streaming_route(tmp_path: Path) -> None:
+    """Verify /api/events SSE route streams broadcast events without coroutine iteration errors."""
+    mock_engine = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    app = create_app(engine=mock_engine, orchestrator=orchestrator, upload_dir=tmp_path)  # type: ignore[arg-type]
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events",
+        "raw_path": b"/api/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    resp_headers: Dict[str, str] = {}
+    resp_status = 0
+    resp_body_chunks = []
+    event_received = asyncio.Event()
+
+    async def receive() -> Dict[str, Any]:
+        await event_received.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        nonlocal resp_status, resp_headers
+        if message["type"] == "http.response.start":
+            resp_status = message["status"]
+            for k, v in message.get("headers", []):
+                resp_headers[k.decode("latin-1").lower()] = v.decode("latin-1")
+        elif message["type"] == "http.response.body":
+            body = message.get("body", b"")
+            resp_body_chunks.append(body)
+            if b"test_event" in body:
+                event_received.set()
+
+    async def _run() -> None:
+        app_task = asyncio.create_task(app(scope, receive, send))
+
+        for _ in range(50):
+            with orchestrator._lock:
+                if len(orchestrator._subscribers) > 0:
+                    break
+            await asyncio.sleep(0.02)
+
+        orchestrator.broadcast("test_event", {"status": "ok"})
+
+        try:
+            await asyncio.wait_for(event_received.wait(), timeout=3.0)
+        finally:
+            orchestrator.stop()
+            app_task.cancel()
+            try:
+                await app_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    try:
+        asyncio.run(_run())
+    finally:
+        orchestrator.stop()
+
+    assert resp_status == 200
+    assert "text/event-stream" in resp_headers.get("content-type", "")
+    full_body = b"".join(resp_body_chunks).decode("utf-8")
+    assert "event: test_event" in full_body
+    assert 'data: {"status": "ok"}' in full_body
+

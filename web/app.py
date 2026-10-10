@@ -1,6 +1,5 @@
 """FastAPI web application factory for AksaraSight."""
 
-import io
 import json
 import logging
 import os
@@ -11,7 +10,6 @@ from typing import Any, Dict, Literal, Optional, Union
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
-from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from PIL import Image

@@ -12,11 +12,10 @@ import urllib3
 from PIL import Image
 import pytest
 
-from config.settings import Settings
 from core.client import ServerOfflineError
 from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
 from web.app import create_app, enforce_loopback_host
-from web.orchestrator import JobState, JobStatus, WebOrchestrator
+from web.orchestrator import JobStatus, WebOrchestrator
 
 
 class AsgiClient:

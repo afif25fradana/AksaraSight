@@ -400,7 +400,13 @@ class ServerManager:
     def _diagnose_failure(self) -> str:
         """Analyze recent log buffer lines to diagnose the root cause of startup failure."""
         recent_text = "\n".join(list(self._log_buffer)[-25:]).lower()
-        if "address already in use" in recent_text or "10048" in recent_text or "failed to bind socket" in recent_text:
+        if (
+            "address already in use" in recent_text
+            or "10048" in recent_text
+            or "failed to bind socket" in recent_text
+            or "couldn't bind" in recent_text
+            or "could not bind" in recent_text
+        ):
             return "Port already in use by another process"
         if "failed to initialize cuda" in recent_text or "cuda driver version" in recent_text:
             return "CUDA/GPU acceleration initialization failed"
@@ -429,6 +435,11 @@ class ServerManager:
         """
         callback: Optional[Callable[[], None]] = None
         with self._lifecycle_lock:
+            with self._lock:
+                existing_proc = self._process
+            if existing_proc is not None and existing_proc.poll() is None:
+                raise RuntimeError("A managed server process is already running.")
+
             # Check if a compatible server is already running
             active_ep = endpoint or self.settings.local_endpoint
             cur_status, cur_msg = probe_server_health(active_ep, timeout=1.5, session=self._session)
@@ -484,11 +495,6 @@ class ServerManager:
                     self._last_message = f"Connected to existing server ({model_detail})"
                     callback = self.on_lifecycle_change
             else:
-                with self._lock:
-                    existing_proc = self._process
-                if existing_proc is not None and existing_proc.poll() is None:
-                    raise RuntimeError("A managed server process is already running.")
-
                 # Resolve executable path (uses effective_llama_server_path to support managed runtime)
                 candidate_path = server_path or self.settings.effective_llama_server_path
                 if not candidate_path:

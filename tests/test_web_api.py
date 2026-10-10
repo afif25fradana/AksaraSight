@@ -12,8 +12,10 @@ import urllib3
 from PIL import Image
 import pytest
 
+from config.settings import Settings
 from core.client import ServerOfflineError
 from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
+from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from web.app import create_app, enforce_loopback_host
 from web.orchestrator import JobStatus, WebOrchestrator
 
@@ -1124,4 +1126,227 @@ def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: p
             body=body_bytes,
         )
         assert status == 400
+
+
+class MockServerManager:
+    """Mock ServerManager for web API testing."""
+
+    def __init__(
+        self,
+        status: ServerStatus = ServerStatus.OFFLINE,
+        ownership: ServerOwnership = ServerOwnership.NONE,
+        message: str = "Offline",
+        settings: Optional[Settings] = None,
+    ) -> None:
+        self.settings = settings or Settings()
+        self._status = status
+        self._ownership = ownership
+        self._last_message = message
+        self._process = None
+        self._log_buffer = ["Log line 1", "Log line 2"]
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.shutdown_calls = 0
+
+    @property
+    def status(self) -> ServerStatus:
+        return self._status
+
+    @property
+    def ownership(self) -> ServerOwnership:
+        return self._ownership
+
+    def get_status_info(self) -> ServerStatusInfo:
+        return ServerStatusInfo(
+            status=self._status,
+            ownership=self._ownership,
+            message=self._last_message,
+            endpoint=self.settings.local_endpoint,
+            recent_logs=list(self._log_buffer),
+        )
+
+    def poll_status(self) -> ServerStatusInfo:
+        return self.get_status_info()
+
+    def start(self, **kwargs: Any) -> None:
+        self.start_calls += 1
+        self._status = ServerStatus.READY
+        self._ownership = ServerOwnership.MANAGED
+        self._last_message = "Server started"
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self._status = ServerStatus.OFFLINE
+        self._ownership = ServerOwnership.NONE
+        self._last_message = "Server stopped"
+
+    def shutdown(self, timeout: Optional[float] = 2.0) -> None:
+        self.shutdown_calls += 1
+        self.stop()
+
+
+def test_server_status_endpoint(tmp_path: Path) -> None:
+    """Verify GET /api/server/status returns current server execution and ownership state."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Active managed backend",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    status_code, _, body = client.get("/api/server/status")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["status"] == "READY"
+    assert data["ownership"] == "MANAGED"
+    assert data["managed_by_web"] is False
+    assert data["message"] == "Active managed backend"
+    assert data["endpoint"] == mock_mgr.settings.local_endpoint
+    assert data["pid"] is None
+    assert len(data["recent_logs"]) == 2
+
+
+def test_server_start_endpoint(tmp_path: Path) -> None:
+    """Verify POST /api/server/start initiates managed server and tracks ownership."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+        message="Offline",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # First start: boots the server
+    status_code, _, body = client.post("/api/server/start")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["started"] is True
+    assert data["status"] == "READY"
+    assert data["ownership"] == "MANAGED"
+    assert mock_mgr.start_calls == 1
+    assert app.state.server_managed is True
+
+    # Subsequent start while running: idempotent no-op with started=False
+    status_code, _, body = client.post("/api/server/start")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["started"] is False
+    assert "Server is already running" in data["message"]
+    assert mock_mgr.start_calls == 1
+
+
+def test_server_stop_endpoint_rejects_external(tmp_path: Path) -> None:
+    """Verify POST /api/server/stop returns 400 when server is externally managed."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.EXTERNAL,
+        message="External llama-server",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 400
+    data = json.loads(body.decode("utf-8"))
+    assert "Cannot stop external server" in data["detail"]
+    assert mock_mgr.stop_calls == 0
+
+
+def test_server_stop_endpoint_stops_managed(tmp_path: Path) -> None:
+    """Verify POST /api/server/stop stops managed server and clears server_managed state."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Managed server running",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["stopped"] is True
+    assert data["status"] == "OFFLINE"
+    assert data["ownership"] == "NONE"
+    assert mock_mgr.stop_calls == 1
+    assert app.state.server_managed is False
+
+    # Second stop while already offline: idempotent return stopped=False
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["stopped"] is False
+    assert "Server is not running" in data["message"]
+
+
+def test_server_stop_rejected_during_job_processing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify server stop and start return 409 Conflict if orchestrator is processing."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    monkeypatch.setattr(app.state.orchestrator, "is_processing", lambda: True)
+
+    # Stop rejected
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "extraction job is currently in progress" in data["detail"]
+    assert mock_mgr.stop_calls == 0
+
+    # Start rejected if offline
+    mock_mgr._status = ServerStatus.OFFLINE
+    mock_mgr._ownership = ServerOwnership.NONE
+    status_code, _, body = client.post("/api/server/start")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "extraction job is in progress" in data["detail"]
+    assert mock_mgr.start_calls == 0
+
+
+def test_patch_settings_updates_server_manager_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify PATCH /api/settings updates server_manager.settings instance."""
+    monkeypatch.chdir(tmp_path)
+    mock_mgr = MockServerManager()
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    patch_body = json.dumps({"dpi": 240, "max_tokens": 4096}).encode("utf-8")
+    status_code, _, body = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=patch_body,
+    )
+    assert status_code == 200
+    assert mock_mgr.settings.dpi == 240
+    assert mock_mgr.settings.max_tokens == 4096
+
+
+def test_server_mutating_routes_require_loopback_origin(tmp_path: Path) -> None:
+    """Verify POST /api/server/start and POST /api/server/stop reject non-loopback Origin with 403."""
+    mock_mgr = MockServerManager()
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # Non-loopback Origin rejected with 403
+    for path in ("/api/server/start", "/api/server/stop"):
+        status_code, _, _ = client.post(
+            path,
+            headers={"origin": "http://malicious-website.com"},
+        )
+        assert status_code == 403, f"Expected 403 for {path} with evil origin, got {status_code}"
+
+    # Loopback Origin accepted
+    status_code, _, _ = client.post(
+        "/api/server/start",
+        headers={"origin": "http://127.0.0.1:8000"},
+    )
+    assert status_code == 200
+
 

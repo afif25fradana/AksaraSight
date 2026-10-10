@@ -25,6 +25,12 @@ from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
+from core.server_manager import (
+    ServerManager,
+    ServerOwnership,
+    ServerStatus,
+    probe_server_health,
+)
 from web.orchestrator import JobState, JobStatus, WebOrchestrator
 from web.security import LoopbackSecurityMiddleware
 
@@ -154,6 +160,7 @@ def create_app(
     settings: Optional[Settings] = None,
     engine: Optional[OCREngine] = None,
     orchestrator: Optional[WebOrchestrator] = None,
+    server_manager: Optional[ServerManager] = None,
     upload_dir: Optional[Union[str, Path]] = None,
     max_upload_size: int = 104857600,
     static_dir: Optional[Union[str, Path]] = None,
@@ -164,6 +171,7 @@ def create_app(
     app_settings = settings or Settings()
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
+    app_server_manager = server_manager or ServerManager(settings=app_settings)
 
     dev_mode = dev_mode or os.environ.get("AKSARA_WEB_DEV_MODE", "").lower() in ("1", "true")
 
@@ -185,6 +193,25 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
+        # Server startup check & auto-start
+        if app_settings.auto_start_server:
+            cur_status, _ = probe_server_health(app_settings.local_endpoint)
+            if cur_status == ServerStatus.OFFLINE:
+                try:
+                    app_server_manager.start()
+                    if app_server_manager.ownership == ServerOwnership.MANAGED:
+                        app_instance.state.server_managed = True
+                        logger.info("Managed llama-server started and owned by web application.")
+                except Exception as exc:
+                    logger.warning("Failed to auto-start managed server on web startup: %s", exc)
+            else:
+                app_server_manager.poll_status()
+                app_instance.state.server_managed = False
+                logger.info("Existing server detected on %s; adopted as external.", app_settings.local_endpoint)
+        else:
+            app_server_manager.poll_status()
+            app_instance.state.server_managed = False
+
         # Startup sweep: unlink stale upload files left from previous sessions/crashes
         active_upload_dir = getattr(app_instance.state, "upload_dir", None)
         lock_file = None
@@ -214,6 +241,13 @@ def create_app(
         # Server shutdown cleanup: stop worker thread and unlink session upload files
         if hasattr(app_instance.state, "orchestrator") and app_instance.state.orchestrator:
             app_instance.state.orchestrator.stop()
+
+        if getattr(app_instance.state, "server_managed", False):
+            logger.info("Web application shutting down; stopping owned managed server.")
+            app_server_manager.shutdown()
+        else:
+            logger.info("Web application shutting down; external server left untouched.")
+
         held_lock = getattr(app_instance.state, "instance_lock", None)
         if held_lock is not None and active_upload_dir and Path(active_upload_dir).exists():
             upload_path = Path(active_upload_dir)
@@ -253,6 +287,8 @@ def create_app(
     app.state.settings = app_settings
     app.state.engine = app_engine
     app.state.orchestrator = app_orchestrator
+    app.state.server_manager = app_server_manager
+    app.state.server_managed = False
     app.state.upload_dir = target_upload_dir
     app.state.max_upload_size = max_upload_size
     app.state.allowed_port = target_port
@@ -329,6 +365,81 @@ def create_app(
             return JSONResponse(status_code=404, content={"report": None})
         return report
 
+    @app.get("/api/server/status")
+    async def get_server_status() -> Dict[str, Any]:
+        """Return execution and ownership status of backend inference server."""
+        info = app_server_manager.get_status_info()
+        pid = None
+        if app_server_manager._process and app_server_manager._process.poll() is None:
+            pid = app_server_manager._process.pid
+        return {
+            "status": info.status.value,
+            "ownership": info.ownership.value,
+            "managed_by_web": bool(getattr(app.state, "server_managed", False)),
+            "message": info.message,
+            "endpoint": info.endpoint,
+            "pid": pid,
+            "recent_logs": info.recent_logs[-15:],
+        }
+
+    @app.post("/api/server/start")
+    async def post_server_start() -> Dict[str, Any]:
+        """Start managed backend server if offline or stopped."""
+        if app_server_manager.status in (ServerStatus.READY, ServerStatus.STARTING):
+            return {
+                "started": False,
+                "message": f"Server is already running ({app_server_manager.ownership.value})",
+                "status": app_server_manager.status.value,
+                "ownership": app_server_manager.ownership.value,
+            }
+        if app_orchestrator.is_processing():
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot start server while extraction job is in progress",
+            )
+        try:
+            app_server_manager.start()
+            if app_server_manager.ownership == ServerOwnership.MANAGED:
+                app.state.server_managed = True
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to start server: {exc}")
+        new_info = app_server_manager.get_status_info()
+        return {
+            "started": True,
+            "status": new_info.status.value,
+            "ownership": new_info.ownership.value,
+            "message": new_info.message,
+        }
+
+    @app.post("/api/server/stop")
+    async def post_server_stop() -> Dict[str, Any]:
+        """Stop managed backend server if running and managed."""
+        info = app_server_manager.get_status_info()
+        if info.ownership == ServerOwnership.EXTERNAL:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot stop external server; server is not managed by this application.",
+            )
+        if not getattr(app.state, "server_managed", False) and info.ownership != ServerOwnership.MANAGED:
+            return {
+                "stopped": False,
+                "message": "Server is not running or not managed",
+                "status": ServerStatus.OFFLINE.value,
+            }
+        if app_orchestrator.is_processing():
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot stop backend server while an extraction job is currently in progress.",
+            )
+        app_server_manager.stop()
+        app.state.server_managed = False
+        return {
+            "stopped": True,
+            "status": ServerStatus.OFFLINE.value,
+            "ownership": ServerOwnership.NONE.value,
+            "message": "Managed server stopped successfully",
+        }
+
     @app.get("/api/settings")
     async def get_settings() -> Dict[str, Any]:
         """Return current application settings."""
@@ -401,6 +512,8 @@ def create_app(
             app.state.engine.settings = new_settings
             if hasattr(app.state.engine, "client") and app.state.engine.client:
                 app.state.engine.client.settings = new_settings
+        if hasattr(app.state, "server_manager") and app.state.server_manager:
+            app.state.server_manager.settings = new_settings
 
         return {"updated": True, "settings": get_safe_settings_dict(new_settings)}
 

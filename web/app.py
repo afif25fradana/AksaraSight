@@ -168,7 +168,7 @@ def create_app(
     dev_mode: bool = False,
 ) -> FastAPI:
     """Create and configure the FastAPI web application instance."""
-    app_settings = settings or Settings()
+    app_settings = settings or Settings.from_env()
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
     app_server_manager = server_manager or ServerManager(settings=app_settings)
@@ -368,7 +368,7 @@ def create_app(
     @app.get("/api/server/status")
     async def get_server_status() -> Dict[str, Any]:
         """Return execution and ownership status of backend inference server."""
-        info = app_server_manager.get_status_info()
+        info = app_server_manager.poll_status()
         pid = None
         if app_server_manager._process and app_server_manager._process.poll() is None:
             pid = app_server_manager._process.pid
@@ -448,7 +448,12 @@ def create_app(
 
     @app.patch("/api/settings")
     async def patch_settings(request: Request) -> Dict[str, Any]:
-        """Validate and apply mutable settings updates, persisting to .env."""
+        """Validate and apply mutable settings updates, persisting to .env.
+
+        Note: 'auto_start_server' is a startup-only configuration evaluated during
+        application lifespan startup; patching it updates memory and persists to .env,
+        but never starts or stops a server at runtime.
+        """
         try:
             body = await request.json()
         except Exception:

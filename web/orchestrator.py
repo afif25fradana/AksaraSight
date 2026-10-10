@@ -1,6 +1,7 @@
 """Headless queue orchestrator for the AksaraSight Web UI spike."""
 
 import asyncio
+import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
@@ -12,7 +13,7 @@ import uuid
 
 from core.client import ServerOfflineError
 from core.engine import OCREngine
-from core.models import JobStatus as CoreJobStatus, OCRResult, PageResult
+from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
 
 logger = logging.getLogger(__name__)
 
@@ -294,9 +295,20 @@ class WebOrchestrator:
                     },
                 )
 
+            doc_settings = getattr(self.engine, "settings", None)
+            if doc_settings is not None:
+                doc_settings = copy.deepcopy(doc_settings)
+                cfg = JobConfig(
+                    dpi=getattr(doc_settings, "dpi", 100),
+                    max_image_dimension=getattr(doc_settings, "max_image_dimension", 2048),
+                )
+            else:
+                cfg = JobConfig()
+
             try:
                 result = self.engine.process_document(
                     source=job.file_path,
+                    config=cfg,
                     cancel_token=job.cancel_event,
                     progress_callback=on_progress,
                 )

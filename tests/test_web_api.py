@@ -1383,3 +1383,57 @@ def test_server_mutating_routes_require_loopback_origin(tmp_path: Path) -> None:
     assert status_code == 200
 
 
+def test_settings_patch_mid_document_does_not_mutate_inflight_document_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that patching settings while a document is extracting does not mutate the in-flight job's JobConfig."""
+    monkeypatch.chdir(tmp_path)
+    started = threading.Event()
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
+    mock_eng.settings = Settings(dpi=150, max_image_dimension=1024)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(50, 50)
+    body, ct = urllib3.encode_multipart_formdata({"file": ("snapshot_test.png", png_bytes, "image/png")})
+    status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+    assert status == 200
+    doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+    # Start extraction
+    status, _, _ = client.post(f"/api/documents/{doc_id}/extract")
+    assert status == 202
+    assert started.wait(timeout=5.0), "Processing did not start within timeout"
+
+    # Document is now in-flight with initial snapshot settings (dpi=150, max_image_dimension=1024)
+    # Patch settings mid-flight to new values
+    patch_body = json.dumps({"dpi": 300, "max_image_dimension": 4096}).encode("utf-8")
+    status, _, resp = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=patch_body,
+    )
+    assert status == 200
+
+    # Release gate so extraction completes
+    gate.set()
+
+    for _ in range(50):
+        job = orchestrator.get_job(doc_id)
+        if job and job.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+
+    assert job is not None
+    assert job.status == JobStatus.SUCCESS
+
+    # The in-flight job must have executed with the pre-patch snapshot config
+    assert mock_eng.last_config is not None
+    assert mock_eng.last_config.dpi == 150
+    assert mock_eng.last_config.max_image_dimension == 1024
+
+    orchestrator.stop()
+
+

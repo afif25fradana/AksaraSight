@@ -70,6 +70,8 @@ class Settings:
         allow_remote: Explicit opt-in flag to permit non-loopback / remote endpoints.
         runtime_mode: Binary management mode ('managed' for auto-download, 'custom' for manual path).
         managed_backend_override: Acceleration backend override for managed runtime ('auto', 'cuda', 'vulkan', 'cpu').
+        auto_start_server: Whether to automatically launch the managed server on application startup.
+            Note: startup-only configuration; updating it at runtime persists to .env but does not start or stop a server.
     """
 
     backend: str = "llama-cpp"

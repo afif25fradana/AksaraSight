@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" class="bg-[#EFEDE6] dark:bg-[#111214]">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#EFEDE6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
+    <!-- Pre-render Frame-0 theme bootstrap (prevents white flash on refresh) -->
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('aksarasight_theme');
+          var isDark = t === 'dark' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <title>AksaraSight - Document Workspace & Local OCR</title>
+    <meta name="description" content="Archival document digitization workspace with local engine OCR processing, source document inspection, and structured text export." />
+    <meta property="og:title" content="AksaraSight - Document Workspace & Local OCR" />
+    <meta property="og:description" content="Archival document digitization workspace with local engine OCR processing, source document inspection, and structured text export." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="module" crossorigin src="/assets/index-C_dcBwSs.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C20trE14.css">
+  </head>
+  <body class="bg-[#EFEDE6] dark:bg-[#111214] text-[#14213D] dark:text-[#f0f1f3] antialiased min-h-screen">
+    <div id="root"></div>
+  </body>
+</html>
+

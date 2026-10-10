@@ -78,6 +78,30 @@ export default function App() {
 
   // Real Server-Sent Events (SSE) listener and loopback health probe
   useEffect(() => {
+    const rehydrateDocuments = async () => {
+      try {
+        const res = await fetch('/api/documents');
+        if (res.ok) {
+          const serverDocs: DocumentItem[] = await res.json();
+          if (serverDocs && serverDocs.length > 0) {
+            setDocuments(serverDocs);
+            setSelectedDocId((prev) => {
+              if (prev && serverDocs.some((d) => d.id === prev)) return prev;
+              return serverDocs[0].id;
+            });
+            const running = serverDocs.find((d) => d.status === 'Processing');
+            if (running) {
+              setRunningJobDocId(running.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to rehydrate documents from server:', err);
+      }
+    };
+
+    rehydrateDocuments();
+
     fetch('/health')
       .then((res) => {
         if (res.ok) setEngineSettings((s) => ({ ...s, status: 'running' }));
@@ -85,6 +109,14 @@ export default function App() {
       .catch(() => setEngineSettings((s) => ({ ...s, status: 'offline' })));
 
     const eventSource = new EventSource('/api/events');
+
+    eventSource.onopen = () => {
+      rehydrateDocuments();
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn('SSE connection interrupted, keeping local state:', err);
+    };
 
     eventSource.addEventListener('started', (e: MessageEvent) => {
       try {

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
@@ -240,6 +240,11 @@ def create_app(
             "endpoint": getattr(app_settings, "local_endpoint", "http://127.0.0.1:8080/v1"),
             "error": err_msg,
         }
+
+    @app.get("/api/documents")
+    async def list_documents() -> List[Dict[str, Any]]:
+        """Return in-memory snapshot of all active documents in orchestrator."""
+        return app_orchestrator.get_jobs_snapshot()
 
     @app.post("/api/documents")
     async def upload_document(file: UploadFile = File(...)) -> Dict[str, Any]:

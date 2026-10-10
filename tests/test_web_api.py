@@ -756,3 +756,105 @@ def test_sse_events_streaming_route(tmp_path: Path) -> None:
     assert "event: test_event" in full_body
     assert 'data: {"status": "ok"}' in full_body
 
+
+def test_get_documents_snapshot_rehydration(tmp_path: Path) -> None:
+    """Verify in-memory document state snapshot endpoint (/api/documents) across lifecycle."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. Initially empty
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert docs == []
+
+    # 2. Upload document -> verify in snapshot with "Not extracted" status
+    png_bytes = _create_sample_png_bytes(80, 80)
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("snapshot_test.png", png_bytes, "image/png")}
+    )
+    status, _, resp = client.post(
+        "/api/documents", headers={"content-type": ct}, body=body
+    )
+    assert status == 200
+    job_id = json.loads(resp.decode("utf-8"))["id"]
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc["id"] == job_id
+    assert doc["name"] == "snapshot_test.png"
+    assert doc["status"] == "Not extracted"
+    assert doc["pages"] == 1
+    assert doc["processedPages"] == 0
+    assert doc["extractedText"] == ""
+    assert doc["pagesData"] == {}
+    assert doc["docType"] == "custom-image"
+    assert doc["previewImageUrl"] == f"/api/documents/{job_id}/pages/1/preview"
+
+    # 3. Simulate progress on orchestrator -> verify Processing state, processedPages, pagesData, extractedText
+    with orchestrator._lock:
+        job = orchestrator.jobs[job_id]
+        job.status = JobStatus.PROCESSING
+        job.current_page = 1
+        job.pages_data[1] = {
+            "text": "Extracted text for page 1",
+            "latency": 0.35,
+            "tokens": 42,
+            "truncated": False,
+        }
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc["status"] == "Processing"
+    assert doc["processedPages"] == 1
+    assert doc["extractedText"] == "Extracted text for page 1"
+    assert "1" in doc["pagesData"]
+    page_1_data = doc["pagesData"]["1"]
+    assert page_1_data["pageNumber"] == 1
+    assert page_1_data["text"] == "Extracted text for page 1"
+    assert page_1_data["latency"] == 0.35
+    assert page_1_data["tokens"] == 42
+    assert page_1_data["isTruncated"] is False
+
+    # 4. Simulate completion -> verify Done status
+    with orchestrator._lock:
+        job = orchestrator.jobs[job_id]
+        job.status = JobStatus.SUCCESS
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert len(docs) == 1
+    assert docs[0]["status"] == "Done"
+    assert docs[0]["processedPages"] == 1
+
+    # 5. Simulate truncated completion -> verify Truncated status
+    with orchestrator._lock:
+        job = orchestrator.jobs[job_id]
+        job.pages_data[1]["truncated"] = True
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert docs[0]["status"] == "Truncated"
+
+    # 6. Delete document -> verify snapshot is empty
+    status, _, resp = client.delete(f"/api/documents/{job_id}")
+    assert status == 200
+
+    status, _, resp = client.get("/api/documents")
+    assert status == 200
+    docs = json.loads(resp.decode("utf-8"))
+    assert docs == []
+
+    orchestrator.stop()
+
+

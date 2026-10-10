@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 import queue
 import threading
-from typing import Any, AsyncIterator, Dict, Optional, Set, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Set, Tuple
 
 from core.client import ServerOfflineError
 from core.engine import OCREngine
@@ -49,13 +49,97 @@ class WebOrchestrator:
         self.engine = engine
         self.jobs: Dict[str, JobState] = {}
         self._queue: queue.Queue[str] = queue.Queue()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._subscribers: Set[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = set()
         self._stop_event = threading.Event()
         self._worker_thread = threading.Thread(
             target=self._worker_loop, daemon=True, name="AksaraSight-WebWorker"
         )
         self._worker_thread.start()
+
+    def is_processing(self) -> bool:
+        """Return True if any job in the orchestrator registry is currently processing."""
+        with self._lock:
+            return any(job.status == JobStatus.PROCESSING for job in self.jobs.values())
+
+    def get_jobs_snapshot(self) -> List[Dict[str, Any]]:
+        """Return an in-memory snapshot of all active documents in frontend DocumentItem format."""
+        with self._lock:
+            busy = self.is_processing()
+            snapshot: List[Dict[str, Any]] = []
+
+            for job in self.jobs.values():
+                sorted_page_items = sorted(job.pages_data.items(), key=lambda kv: kv[0])
+                full_text = (
+                    "\n\n---\n\n".join(p.get("text", "") for _, p in sorted_page_items)
+                    if sorted_page_items
+                    else ""
+                )
+
+                if job.status == JobStatus.QUEUED:
+                    doc_status = "Waiting" if busy else "Not extracted"
+                elif job.status == JobStatus.PROCESSING:
+                    doc_status = "Processing"
+                elif job.status == JobStatus.SUCCESS:
+                    doc_status = (
+                        "Truncated"
+                        if any(p.get("truncated", False) for p in job.pages_data.values())
+                        else "Done"
+                    )
+                elif job.status == JobStatus.FAILED:
+                    doc_status = "Failed"
+                elif job.status == JobStatus.CANCELLED:
+                    doc_status = "Waiting"
+                else:
+                    doc_status = "Waiting"
+
+                status_note = "Job cancelled" if job.status == JobStatus.CANCELLED else job.error
+
+                pages_data: Dict[int, Dict[str, Any]] = {}
+                for p_num, p in sorted_page_items:
+                    pages_data[p_num] = {
+                        "pageNumber": p_num,
+                        "text": p.get("text", ""),
+                        "latency": p.get("latency", 0.0),
+                        "tokens": p.get("tokens", 0),
+                        "isTruncated": p.get("truncated", False),
+                    }
+
+                file_size_str = "0.0 MB"
+                if job.file_path and job.file_path.exists():
+                    try:
+                        size_bytes = job.file_path.stat().st_size
+                        if size_bytes >= 1024 * 1024:
+                            file_size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                        else:
+                            file_size_str = f"{size_bytes / 1024:.1f} KB"
+                    except OSError:
+                        file_size_str = "0.0 MB"
+
+                processed_pages = (
+                    job.current_page
+                    if job.status == JobStatus.PROCESSING
+                    else len(job.pages_data)
+                )
+
+                snapshot.append(
+                    {
+                        "id": job.job_id,
+                        "name": job.filename,
+                        "pages": job.page_count,
+                        "processedPages": processed_pages,
+                        "size": file_size_str,
+                        "status": doc_status,
+                        "statusNote": status_note,
+                        "currentPage": 1,
+                        "docType": "custom-image",
+                        "previewImageUrl": f"/api/documents/{job.job_id}/pages/1/preview",
+                        "extractedText": full_text,
+                        "pagesData": pages_data,
+                    }
+                )
+
+            return snapshot
 
     def register_job(self, job: JobState) -> None:
         """Register a newly uploaded job in the orchestrator registry."""

@@ -147,10 +147,19 @@ def _create_sample_png_bytes(width: int = 100, height: int = 100) -> bytes:
 class MockEngine:
     """Mock OCR engine for controlled end-to-end web testing."""
 
-    def __init__(self, failure_mode: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        failure_mode: Optional[str] = None,
+        process_gate: Optional[threading.Event] = None,
+        processing_started: Optional[threading.Event] = None,
+    ) -> None:
         self.failure_mode = failure_mode
         self.last_cancel_token: Optional[threading.Event] = None
         self.process_delay: float = 0.0
+        self.process_gate = process_gate
+        self.processing_started = processing_started
+        self.settings: Settings = Settings()
+        self.last_config: Optional[JobConfig] = None
 
     def verify_backend(self, force: bool = False) -> None:
         if self.failure_mode == "offline":
@@ -164,6 +173,12 @@ class MockEngine:
         progress_callback: Optional[Any] = None,
     ) -> OCRResult:
         self.last_cancel_token = cancel_token
+        self.last_config = config
+        if self.processing_started:
+            self.processing_started.set()
+        if self.process_gate:
+            self.process_gate.wait()
+
         if self.failure_mode == "offline":
             raise ServerOfflineError("Simulated backend disconnect during process")
 
@@ -391,8 +406,9 @@ def test_document_lifecycle_and_exports(tmp_path: Path) -> None:
 
 def test_cancellation_mid_run(tmp_path: Path) -> None:
     """Verify cooperative cancellation sets CANCELLED status."""
-    mock_eng = MockEngine()
-    mock_eng.process_delay = 0.2  # Simulate delay to allow cancel signal
+    started = threading.Event()
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
     orchestrator = WebOrchestrator(engine=mock_eng)
     app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
     client = AsgiClient(app)
@@ -406,10 +422,16 @@ def test_cancellation_mid_run(tmp_path: Path) -> None:
     )
     job_id = json.loads(resp.decode("utf-8"))["id"]
 
-    # Start extract then immediately cancel
+    # Start extract and wait until processing is guaranteed in-flight
     client.post(f"/api/documents/{job_id}/extract")
+    assert started.wait(timeout=5.0), "Processing did not start within timeout"
+
+    # Send cancel precisely while processing is in-flight
     status, _, _ = client.post(f"/api/documents/{job_id}/cancel")
     assert status == 200
+
+    # Release gate so process_document resumes and observes cancellation
+    gate.set()
 
     # Wait for status resolution
     for _ in range(50):
@@ -878,7 +900,9 @@ def test_get_documents_snapshot_rehydration(tmp_path: Path) -> None:
 
 def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path: Path) -> None:
     """Verify newly uploaded docs remain 'Not extracted' even when another job is processing."""
-    mock_eng = MockEngine()
+    gate = threading.Event()
+    started = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
     orchestrator = WebOrchestrator(engine=mock_eng)
     app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
     client = AsgiClient(app)
@@ -892,12 +916,10 @@ def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path
     assert status == 200
     doc1_id = json.loads(resp.decode("utf-8"))["id"]
 
-    # Enqueue Doc 1 and simulate PROCESSING
+    # Trigger extract on doc1, wait for worker to pick up and start processing
     status, _, _ = client.post(f"/api/documents/{doc1_id}/extract")
     assert status == 202
-    with orchestrator._lock:
-        job1 = orchestrator.jobs[doc1_id]
-        job1.status = JobStatus.PROCESSING
+    assert started.wait(timeout=5.0), "MockEngine processing did not start within timeout"
 
     # 2. Upload Doc 2 (do NOT enqueue, remains UPLOADED)
     png2_bytes = _create_sample_png_bytes(50, 50)
@@ -908,7 +930,7 @@ def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path
     assert status == 200
     doc2_id = json.loads(resp.decode("utf-8"))["id"]
 
-    # 3. Call GET /api/documents
+    # 3. Call GET /api/documents while doc1 is actively processing (gated)
     status, _, resp = client.get("/api/documents")
     assert status == 200
     docs = json.loads(resp.decode("utf-8"))
@@ -920,6 +942,16 @@ def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path
     assert doc_map[doc2_id]["status"] == "Not extracted"
     assert doc_map[doc2_id]["status"] != "Waiting"
     assert doc_map[doc2_id]["statusNote"] == "Ready to extract"
+
+    # Release gate so doc1 finishes cleanly
+    gate.set()
+
+    # Wait for doc1 to complete before cleaning up
+    for _ in range(50):
+        j1 = orchestrator.get_job(doc1_id)
+        if j1 and j1.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
 
     # 4. Cleanup / Delete both docs
     status, _, _ = client.delete(f"/api/documents/{doc1_id}")
@@ -951,8 +983,8 @@ def test_origin_check_covers_all_non_safe_methods(tmp_path: Path) -> None:
 
 def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
     """Verify re-extracting a document creates a new run_id and wipes previous pagesData and progress."""
-    mock_eng = MockEngine()
-    mock_eng.process_delay = 1.0
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate)
     orchestrator = WebOrchestrator(engine=mock_eng)
     app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
     client = AsgiClient(app)
@@ -1005,6 +1037,7 @@ def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
     assert doc_entry["processedPages"] == 0
     assert doc_entry["pagesData"] == {}
 
+    gate.set()
     orchestrator.stop()
 
 

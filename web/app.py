@@ -65,11 +65,14 @@ def create_app(
     max_upload_size: int = 104857600,
     static_dir: Optional[Union[str, Path]] = None,
     allowed_port: Optional[int] = None,
+    dev_mode: bool = False,
 ) -> FastAPI:
     """Create and configure the FastAPI web application instance."""
     app_settings = settings or Settings()
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
+
+    dev_mode = dev_mode or os.environ.get("AKSARA_WEB_DEV_MODE", "").lower() in ("1", "true")
 
     target_port = allowed_port
     if target_port is None and "AKSARA_WEB_PORT" in os.environ:
@@ -89,6 +92,15 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
+        # Startup sweep: unlink stale upload files left from previous sessions/crashes
+        active_upload_dir = getattr(app_instance.state, "upload_dir", None)
+        if active_upload_dir and Path(active_upload_dir).exists():
+            for f in Path(active_upload_dir).glob("*"):
+                if f.is_file():
+                    try:
+                        f.unlink()
+                    except OSError as e:
+                        logger.warning("Failed to clean up stale upload file %s on startup: %s", f, e)
         yield
         # Server shutdown cleanup: stop worker thread and unlink session upload files
         if hasattr(app_instance.state, "orchestrator") and app_instance.state.orchestrator:
@@ -111,7 +123,11 @@ def create_app(
     )
 
     # Attach loopback-only security middleware with port pinning
-    app.add_middleware(LoopbackSecurityMiddleware, allowed_port=target_port)
+    app.add_middleware(
+        LoopbackSecurityMiddleware,
+        allowed_port=target_port,
+        dev_mode=dev_mode,
+    )
 
     # Store references on app state
     app.state.settings = app_settings
@@ -120,6 +136,7 @@ def create_app(
     app.state.upload_dir = target_upload_dir
     app.state.max_upload_size = max_upload_size
     app.state.allowed_port = target_port
+    app.state.dev_mode = dev_mode
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:

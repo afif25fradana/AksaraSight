@@ -526,27 +526,98 @@ def test_delete_document_cleans_up_file(tmp_path: Path) -> None:
     assert del_again_status == 404
 
 
+def test_startup_sweep_cleans_up_stale_uploads(tmp_path: Path) -> None:
+    """Verify startup sweep unlinks stale upload files left from previous sessions."""
+    stale1 = tmp_path / "stale1.png"
+    stale2 = tmp_path / "stale2.pdf"
+    stale1.write_bytes(b"stale-data-1")
+    stale2.write_bytes(b"stale-data-2")
+    assert stale1.exists()
+    assert stale2.exists()
+
+    app = create_app(upload_dir=tmp_path)
+
+    async def _run():
+        async with app.router.lifespan_context(app):
+            # After startup sweep, stale files should be unlinked immediately
+            assert not stale1.exists()
+            assert not stale2.exists()
+
+    asyncio.run(_run())
+    assert len(list(tmp_path.iterdir())) == 0
+
+
 def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
     """Verify FastAPI lifespan shutdown cleans up all files in upload directory."""
     app = create_app(upload_dir=tmp_path)
 
-    # Populate upload directory with session files
-    file1 = tmp_path / "session_file1.png"
-    file2 = tmp_path / "session_file2.pdf"
-    file1.write_bytes(b"data1")
-    file2.write_bytes(b"data2")
-    assert file1.exists()
-    assert file2.exists()
-
     async def _run_lifespan():
         async with app.router.lifespan_context(app):
-            # During startup/running, files remain
+            # Populate upload directory with session files during active lifecycle
+            file1 = tmp_path / "session_file1.png"
+            file2 = tmp_path / "session_file2.pdf"
+            file1.write_bytes(b"data1")
+            file2.write_bytes(b"data2")
             assert file1.exists()
             assert file2.exists()
 
     asyncio.run(_run_lifespan())
 
     # On shutdown, all files in upload directory must be deleted
-    assert not file1.exists()
-    assert not file2.exists()
     assert len(list(tmp_path.iterdir())) == 0
+
+
+def test_dev_mode_permits_vite_dev_server_origin() -> None:
+    """Verify dev_mode allows Vite/React dev origins while production blocks them."""
+    # 1. Production mode (dev_mode=False) rejects dev server origins with 403
+    prod_app = create_app(allowed_port=8000, dev_mode=False)
+    prod_client = AsgiClient(prod_app)
+    status, _, body = prod_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:5173"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    status, _, body = prod_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://127.0.0.1:5173"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    # 2. Dev mode (dev_mode=True) permits Vite dev server origins
+    dev_app = create_app(allowed_port=8000, dev_mode=True)
+    dev_client = AsgiClient(dev_app)
+    status, _, _ = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:5173"},
+    )
+    assert status == 404  # Passes middleware and reaches route handler
+
+    status, _, _ = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://127.0.0.1:5173"},
+    )
+    assert status == 404
+
+    status, _, _ = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:3000"},
+    )
+    assert status == 404
+
+    # Non-whitelisted port or external origin still rejected in dev mode
+    status, _, body = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://localhost:9999"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    status, _, body = dev_client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://attacker.com:5173"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"

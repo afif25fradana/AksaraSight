@@ -16,9 +16,23 @@ class LoopbackSecurityMiddleware:
     Does not buffer responses or interfere with SSE streaming.
     """
 
-    def __init__(self, app: Any, allowed_port: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        app: Any,
+        allowed_port: Optional[int] = None,
+        dev_mode: bool = False,
+        allowed_dev_ports: tuple[int, ...] = (5173, 3000),
+    ) -> None:
         self.app = app
         self.allowed_port = allowed_port
+        self.dev_mode = dev_mode
+        self.allowed_dev_ports = allowed_dev_ports
+
+    def _is_dev_mode(self, scope: dict[str, Any]) -> bool:
+        if self.dev_mode:
+            return True
+        app = scope.get("app") or self.app
+        return bool(getattr(getattr(app, "state", None), "dev_mode", False))
 
     def _resolve_allowed_port(self, scope: dict[str, Any]) -> Optional[int]:
         if self.allowed_port is not None:
@@ -73,7 +87,16 @@ class LoopbackSecurityMiddleware:
             if raw_origin is not None:
                 origin_str = raw_origin.decode("latin-1")
                 netloc = urlsplit(origin_str).netloc
-                if not netloc or not pattern.fullmatch(netloc):
+                origin_allowed = bool(netloc and pattern.fullmatch(netloc))
+                if not origin_allowed and self._is_dev_mode(scope) and netloc:
+                    dev_parsed = urlsplit(origin_str)
+                    if (
+                        dev_parsed.hostname in ("127.0.0.1", "localhost")
+                        and dev_parsed.port in self.allowed_dev_ports
+                    ):
+                        origin_allowed = True
+
+                if not origin_allowed:
                     await send({
                         "type": "http.response.start",
                         "status": 403,

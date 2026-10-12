@@ -463,8 +463,8 @@ def create_app(
 
             try:
                 loop.call_soon_threadsafe(_put)
-            except RuntimeError:
-                pass
+            except RuntimeError as loop_exc:
+                logger.debug("Event loop unavailable for log listener: %s", loop_exc)
 
         app_server_manager.add_log_listener(listener_callback)
 

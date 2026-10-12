@@ -668,8 +668,8 @@ class ServerManager:
                                     for l in listeners:
                                         try:
                                             l(cleaned)
-                                        except Exception:
-                                            pass
+                                        except Exception as listener_exc:
+                                            logger.debug("Error in log listener callback: %s", listener_exc)
                         except Exception as exc:
                             logger.debug("stdout reader stopped: %s", exc)
 

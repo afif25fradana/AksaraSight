@@ -31,6 +31,7 @@ from core.job_object import (
     _close_job_handle,
     _create_kill_on_close_job,
 )
+from core.model_manager import PINNED_MODEL_REPO, get_local_model_paths
 
 
 class ServerStatus(str, Enum):
@@ -572,18 +573,44 @@ class ServerManager:
                     logger.debug("VRAM pre-flight check skipped: %s", hw_exc)
 
                 # Verified optimal hardware arguments
-                cmd = [
-                    resolved_path,
-                    model_flag, repo,
-                    "--host", "127.0.0.1",
-                    "--port", str(port),
-                    "-ngl", "99",
-                    "-c", "8192",
-                    "--parallel", "1",
-                ]
+                if model_flag != "-m":
+                    local_paths = get_local_model_paths(repo)
+                    if local_paths is not None:
+                        model_path, mmproj_path = local_paths
+                        cmd = [
+                            resolved_path,
+                            "-m", str(model_path),
+                            "--mmproj", str(mmproj_path),
+                            "--host", "127.0.0.1",
+                            "--port", str(port),
+                            "-ngl", "99",
+                            "-c", "8192",
+                            "--parallel", "1",
+                        ]
+                        logger.info("Using local pinned model weights: %s", model_path.name)
+                    else:
+                        cmd = [
+                            resolved_path,
+                            "-hf", repo,
+                            "--host", "127.0.0.1",
+                            "--port", str(port),
+                            "-ngl", "99",
+                            "-c", "8192",
+                            "--parallel", "1",
+                        ]
+                        logger.info("Local model weights not found; falling back to -hf %s", repo)
+                else:
+                    cmd = [
+                        resolved_path,
+                        "-m", repo,
+                        "--host", "127.0.0.1",
+                        "--port", str(port),
+                        "-ngl", "99",
+                        "-c", "8192",
+                        "--parallel", "1",
+                    ]
 
-                # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
-                if model_flag == "-m":
+                    # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
                     model_path = Path(repo).resolve()
                     mmproj_candidates: List[Path] = []
                     if model_path.parent.is_dir():

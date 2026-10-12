@@ -172,6 +172,7 @@ def create_app(
     static_dir: Optional[Union[str, Path]] = None,
     allowed_port: Optional[int] = None,
     dev_mode: bool = False,
+    env_path: Optional[Union[str, Path]] = None,
 ) -> FastAPI:
     """Create and configure the FastAPI web application instance."""
     app_settings = settings or Settings.from_env()
@@ -301,6 +302,7 @@ def create_app(
     app.state.dev_mode = dev_mode
     app.state.instance_lock = None
     app.state.last_doctor_report = None
+    app.state.env_path = Path(env_path).resolve() if env_path is not None else None
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:
@@ -514,7 +516,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"Failed to update settings: {e}")
 
         try:
-            new_settings.save_to_env()
+            new_settings.save_to_env(env_path=getattr(app.state, "env_path", None))
         except Exception as e:
             logger.warning("Failed to save settings to .env: %s", e)
 

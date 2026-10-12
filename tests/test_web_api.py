@@ -160,6 +160,7 @@ class MockEngine:
         self.processing_started = processing_started
         self.settings: Settings = Settings()
         self.last_config: Optional[JobConfig] = None
+        self.executed_configs: list[Optional[JobConfig]] = []
 
     def verify_backend(self, force: bool = False) -> None:
         if self.failure_mode == "offline":
@@ -174,6 +175,7 @@ class MockEngine:
     ) -> OCRResult:
         self.last_cancel_token = cancel_token
         self.last_config = config
+        self.executed_configs.append(config)
         if self.processing_started:
             self.processing_started.set()
         if self.process_gate:
@@ -1084,7 +1086,7 @@ def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: p
     env_file = tmp_path / ".env"
     monkeypatch.chdir(tmp_path)
 
-    app = create_app(upload_dir=tmp_path)
+    app = create_app(upload_dir=tmp_path, env_path=env_file)
     client = AsgiClient(app)
 
     # 1. GET /api/settings
@@ -1347,7 +1349,7 @@ def test_patch_settings_updates_server_manager_settings(tmp_path: Path, monkeypa
     """Verify PATCH /api/settings updates server_manager.settings instance."""
     monkeypatch.chdir(tmp_path)
     mock_mgr = MockServerManager()
-    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path, env_path=tmp_path / ".env")
     client = AsgiClient(app)
 
     patch_body = json.dumps({"dpi": 240, "max_tokens": 4096}).encode("utf-8")
@@ -1393,7 +1395,7 @@ def test_settings_patch_mid_document_does_not_mutate_inflight_document_snapshot(
     mock_eng = MockEngine(process_gate=gate, processing_started=started)
     mock_eng.settings = Settings(dpi=150, max_image_dimension=1024)
     orchestrator = WebOrchestrator(engine=mock_eng)
-    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path, env_path=tmp_path / ".env")
     client = AsgiClient(app)
 
     png_bytes = _create_sample_png_bytes(50, 50)
@@ -1596,6 +1598,83 @@ def test_extract_endpoint_invalid_prompt_mode(tmp_path: Path) -> None:
     assert job.status == JobStatus.UPLOADED
 
     orchestrator.stop()
+
+
+def test_in_flight_patch_settings_isolation(tmp_path: Path) -> None:
+    """Verify in-flight extraction retains initial settings snapshot while next job uses patched settings."""
+    env_file = tmp_path / ".env"
+    repo_env = Path(__file__).resolve().parent.parent / ".env"
+    repo_pre = repo_env.read_bytes() if repo_env.exists() else None
+
+    started = threading.Event()
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
+    mock_eng.settings = Settings(dpi=100, max_tokens=1024)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path, env_path=env_file)
+    client = AsgiClient(app)
+
+    png1 = _create_sample_png_bytes(50, 50)
+    body1, ct1 = urllib3.encode_multipart_formdata({"file": ("inflight_1.png", png1, "image/png")})
+    status, _, resp1 = client.post("/api/documents", headers={"content-type": ct1}, body=body1)
+    assert status == 200
+    doc1_id = json.loads(resp1.decode("utf-8"))["id"]
+
+    client.post(f"/api/documents/{doc1_id}/extract")
+    assert started.wait(timeout=5.0), "Document 1 processing did not start"
+
+    patch_body = json.dumps({"dpi": 250, "max_tokens": 2048}).encode("utf-8")
+    status, _, resp_patch = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=patch_body,
+    )
+    assert status == 200
+    assert json.loads(resp_patch.decode("utf-8"))["updated"] is True
+
+    gate.set()
+    for _ in range(50):
+        j1 = orchestrator.get_job(doc1_id)
+        if j1 and j1.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+    assert j1 is not None and j1.status == JobStatus.SUCCESS
+
+    assert len(mock_eng.executed_configs) >= 1
+    assert mock_eng.executed_configs[0] is not None
+    assert mock_eng.executed_configs[0].dpi == 100
+
+    mock_eng.process_gate = None
+    mock_eng.processing_started = None
+    png2 = _create_sample_png_bytes(60, 60)
+    body2, ct2 = urllib3.encode_multipart_formdata({"file": ("subsequent_2.png", png2, "image/png")})
+    status, _, resp2 = client.post("/api/documents", headers={"content-type": ct2}, body=body2)
+    assert status == 200
+    doc2_id = json.loads(resp2.decode("utf-8"))["id"]
+
+    client.post(f"/api/documents/{doc2_id}/extract")
+    for _ in range(50):
+        j2 = orchestrator.get_job(doc2_id)
+        if j2 and j2.status == JobStatus.SUCCESS:
+            break
+        time.sleep(0.05)
+    assert j2 is not None and j2.status == JobStatus.SUCCESS
+
+    assert len(mock_eng.executed_configs) >= 2
+    assert mock_eng.executed_configs[1] is not None
+    assert mock_eng.executed_configs[1].dpi == 250
+    assert mock_eng.settings.max_tokens == 2048
+
+    assert env_file.exists()
+    env_text = env_file.read_text(encoding="utf-8")
+    assert "OCR_DPI='250'" in env_text
+    assert "OCR_MAX_TOKENS='2048'" in env_text
+
+    repo_post = repo_env.read_bytes() if repo_env.exists() else None
+    assert repo_post == repo_pre
+
+    orchestrator.stop()
+
 
 
 

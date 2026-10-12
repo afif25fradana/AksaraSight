@@ -262,6 +262,8 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     const elements: React.ReactNode[] = [];
     let tableBuffer: string[] = [];
     let inTable = false;
+    let htmlTableBuffer: string[] = [];
+    let inHtmlTable = false;
 
     const flushTable = (key: string) => {
       if (tableBuffer.length === 0) return;
@@ -306,8 +308,149 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       inTable = false;
     };
 
+    const flushHtmlTable = (key: string) => {
+      if (htmlTableBuffer.length === 0) {
+        inHtmlTable = false;
+        return;
+      }
+      const htmlSnippet = htmlTableBuffer.join('\n');
+      htmlTableBuffer = [];
+      inHtmlTable = false;
+
+      if (typeof DOMParser === 'undefined') return;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlSnippet, 'text/html');
+      const tableEl = doc.querySelector('table');
+      if (!tableEl) return;
+
+      const trEls = Array.from(tableEl.querySelectorAll('tr'));
+      if (trEls.length === 0) return;
+
+      const parsedRows = trEls.map((tr) => {
+        const isHeaderRow = tr.closest('thead') !== null || tr.querySelector('th') !== null;
+        const cellEls = Array.from(tr.querySelectorAll('th, td'));
+        const cells = cellEls.map((cell) => {
+          const isTh = cell.tagName.toLowerCase() === 'th';
+          const colSpanVal = (cell as HTMLTableCellElement).colSpan || parseInt(cell.getAttribute('colspan') || cell.getAttribute('colSpan') || '1', 10);
+          const colSpan = colSpanVal > 1 ? colSpanVal : undefined;
+
+          const rowSpanVal = (cell as HTMLTableCellElement).rowSpan || parseInt(cell.getAttribute('rowspan') || cell.getAttribute('rowSpan') || '1', 10);
+          const rowSpan = rowSpanVal > 1 ? rowSpanVal : undefined;
+
+          let textAlign: 'left' | 'center' | 'right' | undefined;
+          const alignAttr = (cell.getAttribute('align') || '').toLowerCase().trim();
+          const styleAttr = cell.getAttribute('style') || '';
+
+          if (alignAttr === 'center' || /text-align\s*:\s*center/i.test(styleAttr)) {
+            textAlign = 'center';
+          } else if (alignAttr === 'right' || /text-align\s*:\s*right/i.test(styleAttr)) {
+            textAlign = 'right';
+          } else if (alignAttr === 'left' || /text-align\s*:\s*left/i.test(styleAttr)) {
+            textAlign = 'left';
+          }
+
+          const alignClass = textAlign === 'center' ? 'text-center' : textAlign === 'right' ? 'text-right' : 'text-left';
+          const text = (cell.textContent || '').trim();
+
+          return {
+            text,
+            isHeader: isTh,
+            colSpan,
+            rowSpan,
+            alignClass,
+            textAlign,
+          };
+        });
+
+        return {
+          isHeader: isHeaderRow,
+          cells,
+        };
+      }).filter((row) => row.cells.length > 0);
+
+      if (parsedRows.length === 0) return;
+
+      const headerRows: typeof parsedRows = [];
+      const bodyRows: typeof parsedRows = [];
+
+      parsedRows.forEach((row) => {
+        if (row.isHeader && bodyRows.length === 0) {
+          headerRows.push(row);
+        } else {
+          bodyRows.push(row);
+        }
+      });
+
+      elements.push(
+        <div key={key} className="my-3 overflow-x-auto rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] shadow-2xs bg-white dark:bg-[var(--bg-surface)]">
+          <table className="w-full text-left border-collapse text-[12px]">
+            {headerRows.length > 0 && (
+              <thead>
+                {headerRows.map((row, rIdx) => (
+                  <tr
+                    key={`hrow-${rIdx}`}
+                    className="bg-[#F2EFE9] dark:bg-[var(--bg-elevated)] border-b border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] font-semibold"
+                  >
+                    {row.cells.map((cell, cIdx) => (
+                      <th
+                        key={`hcell-${cIdx}`}
+                        colSpan={cell.colSpan}
+                        rowSpan={cell.rowSpan}
+                        style={cell.textAlign ? { textAlign: cell.textAlign } : undefined}
+                        className={`px-3 py-2 border-r border-[#8A94A6]/20 dark:border-[var(--border)] last:border-r-0 ${cell.alignClass}`}
+                      >
+                        {cell.text}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+            )}
+            {bodyRows.length > 0 && (
+              <tbody className="divide-y divide-[#8A94A6]/20 dark:divide-[var(--border)]">
+                {bodyRows.map((row, rIdx) => (
+                  <tr
+                    key={`brow-${rIdx}`}
+                    className={rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'}
+                  >
+                    {row.cells.map((cell, cIdx) => {
+                      const CellTag = cell.isHeader ? 'th' : 'td';
+                      return (
+                        <CellTag
+                          key={`bcell-${cIdx}`}
+                          colSpan={cell.colSpan}
+                          rowSpan={cell.rowSpan}
+                          style={cell.textAlign ? { textAlign: cell.textAlign } : undefined}
+                          className={`px-3 py-2 border-r border-[#8A94A6]/15 dark:border-[var(--border)] last:border-r-0 text-[#14213D] dark:text-[var(--text-1)] ${cell.isHeader ? 'font-semibold' : ''} ${cell.alignClass}`}
+                        >
+                          {cell.text}
+                        </CellTag>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            )}
+          </table>
+        </div>
+      );
+    };
+
     lines.forEach((line, index) => {
       const trimmed = line.trim();
+
+      // HTML table line
+      if (trimmed.toLowerCase().includes('<table') || inHtmlTable) {
+        if (inTable) {
+          flushTable(`table-${index}`);
+        }
+        inHtmlTable = true;
+        htmlTableBuffer.push(line);
+        if (trimmed.toLowerCase().includes('</table>')) {
+          flushHtmlTable(`html-table-${index}`);
+        }
+        return;
+      }
 
       // Table line
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
@@ -373,6 +516,9 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
 
     if (inTable) {
       flushTable(`table-end`);
+    }
+    if (inHtmlTable || htmlTableBuffer.length > 0) {
+      flushHtmlTable(`html-table-end`);
     }
 
     return elements;

@@ -256,6 +256,7 @@ class ServerManager:
         self._last_message: str = "Offline"
         self._stopping: bool = False
         self._log_buffer: deque[str] = deque(maxlen=200)
+        self._log_listeners: list[Callable[[str], None]] = []
         self._reader_thread: Optional[threading.Thread] = None
         self._vram_check_thread: Optional[threading.Thread] = None
         # _lock guards state only and is held briefly. It is never held across
@@ -298,6 +299,26 @@ class ServerManager:
         with self._lock:
             all_logs = list(self._log_buffer)
             return all_logs[-max_lines:] if max_lines > 0 else all_logs
+
+    def add_log_listener(self, listener: Callable[[str], None]) -> None:
+        """Register a callback listener for new log lines.
+
+        Args:
+            listener: Callable accepting a single log line string.
+        """
+        with self._lock:
+            if listener not in self._log_listeners:
+                self._log_listeners.append(listener)
+
+    def remove_log_listener(self, listener: Callable[[str], None]) -> None:
+        """Unregister a log line callback listener.
+
+        Args:
+            listener: Callable to remove from active listeners.
+        """
+        with self._lock:
+            if listener in self._log_listeners:
+                self._log_listeners.remove(listener)
 
     def poll_status(self) -> ServerStatusInfo:
         """Query server health and process status, updating internal state.
@@ -639,8 +660,16 @@ class ServerManager:
                             for line in p.stdout:
                                 cleaned = line.rstrip("\r\n")
                                 if cleaned:
+                                    if len(cleaned) > 1024:
+                                        cleaned = cleaned[:1024] + " ... [truncated]"
                                     with self._lock:
                                         self._log_buffer.append(cleaned)
+                                        listeners = list(self._log_listeners)
+                                    for l in listeners:
+                                        try:
+                                            l(cleaned)
+                                        except Exception:
+                                            pass
                         except Exception as exc:
                             logger.debug("stdout reader stopped: %s", exc)
 

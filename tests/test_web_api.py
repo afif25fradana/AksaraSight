@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import urllib3
 
 from PIL import Image
@@ -964,23 +964,26 @@ def test_unextracted_upload_distinguished_from_queued_during_processing(tmp_path
     orchestrator.stop()
 
 
-def test_origin_check_covers_all_non_safe_methods(tmp_path: Path) -> None:
-    """Verify that all non-safe methods (standard mutating and custom verbs) enforce loopback Origin check, while safe methods pass."""
+def test_origin_check_covers_all_methods_with_origin(tmp_path: Path) -> None:
+    """Verify that any request (mutating or safe) with untrusted Origin is rejected with 403, while requests without Origin pass."""
     app = create_app(upload_dir=tmp_path)
     client = AsgiClient(app)
     bad_origin = {"origin": "http://evil.com"}
 
-    # Non-safe methods must be rejected with 403
-    for method in ("POST", "PUT", "DELETE", "PATCH", "CUSTOMVERB"):
+    # All methods supplying an untrusted Origin must be rejected with 403
+    for method in ("POST", "PUT", "DELETE", "PATCH", "GET", "HEAD", "CUSTOMVERB"):
         status, _, _ = client.request(method, "/api/documents", headers=bad_origin)
         assert status == 403, f"Method {method} with evil origin expected 403 but got {status}"
 
-    # Safe methods must pass Origin validation (not 403)
-    status_get, _, _ = client.request("GET", "/api/documents", headers=bad_origin)
+    # Requests without Origin header succeed for safe methods
+    status_get, _, _ = client.request("GET", "/api/documents")
     assert status_get == 200
 
-    status_head, _, _ = client.request("HEAD", "/api/documents", headers=bad_origin)
+    status_head, _, _ = client.request("HEAD", "/api/documents")
     assert status_head != 403
+
+
+test_origin_check_covers_all_non_safe_methods = test_origin_check_covers_all_methods_with_origin
 
 
 def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
@@ -1179,6 +1182,7 @@ class MockServerManager:
         self._last_message = message
         self._process = None
         self._log_buffer = ["Log line 1", "Log line 2"]
+        self._log_listeners: List[Callable[[str], None]] = []
         self.start_calls = 0
         self.stop_calls = 0
         self.shutdown_calls = 0
@@ -1199,6 +1203,25 @@ class MockServerManager:
             endpoint=self.settings.local_endpoint,
             recent_logs=list(self._log_buffer),
         )
+
+    def get_recent_logs(self, max_lines: int = 50) -> List[str]:
+        return list(self._log_buffer[-max_lines:]) if max_lines > 0 else list(self._log_buffer)
+
+    def add_log_listener(self, listener: Callable[[str], None]) -> None:
+        if listener not in self._log_listeners:
+            self._log_listeners.append(listener)
+
+    def remove_log_listener(self, listener: Callable[[str], None]) -> None:
+        if listener in self._log_listeners:
+            self._log_listeners.remove(listener)
+
+    def broadcast_log(self, line: str) -> None:
+        self._log_buffer.append(line)
+        for l in list(self._log_listeners):
+            try:
+                l(line)
+            except Exception:
+                pass
 
     def poll_status(self) -> ServerStatusInfo:
         return self.get_status_info()
@@ -1674,6 +1697,223 @@ def test_in_flight_patch_settings_isolation(tmp_path: Path) -> None:
     assert repo_post == repo_pre
 
     orchestrator.stop()
+
+
+def test_server_stop_external_returns_400(tmp_path: Path) -> None:
+    """Verify POST /api/server/stop returns 400 when ownership is external."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.EXTERNAL,
+        message="External llama-server",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 400
+    data = json.loads(body.decode("utf-8"))
+    assert "Cannot stop external server" in data["detail"]
+    assert mock_mgr.stop_calls == 0
+
+
+def test_server_stop_while_processing_returns_409(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify POST /api/server/stop returns 409 when extraction is active."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    monkeypatch.setattr(app.state.orchestrator, "is_processing", lambda: True)
+
+    status_code, _, body = client.post("/api/server/stop")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "extraction job is currently in progress" in data["detail"]
+    assert mock_mgr.stop_calls == 0
+
+
+def test_server_start_while_processing_returns_409(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify POST /api/server/start returns 409 when extraction is active."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.OFFLINE,
+        ownership=ServerOwnership.NONE,
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    monkeypatch.setattr(app.state.orchestrator, "is_processing", lambda: True)
+
+    status_code, _, body = client.post("/api/server/start")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "extraction job is in progress" in data["detail"]
+    assert mock_mgr.start_calls == 0
+
+
+def test_server_logs_stream_origin_security(tmp_path: Path) -> None:
+    """Verify GET /api/server/logs/stream rejects foreign Origin with 403, and allows matching or no Origin."""
+    mock_mgr = MockServerManager()
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path, allowed_port=8000)
+    client = AsgiClient(app)
+
+    # 1. Foreign origin returns 403 Forbidden
+    status_code, _, body = client.get(
+        "/api/server/logs/stream",
+        headers={"origin": "http://evil.com"},
+    )
+    assert status_code == 403
+    assert body == b"Forbidden"
+
+    # 2. Matching origin connects (200 status_code and text/event-stream)
+    scope_valid = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/server/logs/stream",
+        "raw_path": b"/api/server/logs/stream",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"127.0.0.1:8000"),
+            (b"origin", b"http://127.0.0.1:8000"),
+        ],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+    resp_status = 0
+    connected = asyncio.Event()
+
+    async def receive_valid():
+        await connected.wait()
+        return {"type": "http.disconnect"}
+
+    async def send_valid(message):
+        nonlocal resp_status
+        if message["type"] == "http.response.start":
+            resp_status = message["status"]
+            connected.set()
+
+    async def _run_valid():
+        task = asyncio.create_task(app(scope_valid, receive_valid, send_valid))
+        try:
+            await asyncio.wait_for(connected.wait(), timeout=3.0)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    asyncio.run(_run_valid())
+    assert resp_status == 200
+
+    # 3. No Origin header connects
+    scope_no_origin = dict(scope_valid)
+    scope_no_origin["headers"] = [(b"host", b"127.0.0.1:8000")]
+    resp_status_no_origin = 0
+    connected_no_origin = asyncio.Event()
+
+    async def receive_no_origin():
+        await connected_no_origin.wait()
+        return {"type": "http.disconnect"}
+
+    async def send_no_origin(message):
+        nonlocal resp_status_no_origin
+        if message["type"] == "http.response.start":
+            resp_status_no_origin = message["status"]
+            connected_no_origin.set()
+
+    async def _run_no_origin():
+        task = asyncio.create_task(app(scope_no_origin, receive_no_origin, send_no_origin))
+        try:
+            await asyncio.wait_for(connected_no_origin.wait(), timeout=3.0)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    asyncio.run(_run_no_origin())
+    assert resp_status_no_origin == 200
+
+
+def test_server_logs_stream_receives_lines(tmp_path: Path) -> None:
+    """Verify GET /api/server/logs/stream yields both historical and live log lines."""
+    mock_mgr = MockServerManager()
+    mock_mgr._log_buffer = ["Historical line 1", "Historical line 2"]
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/server/logs/stream",
+        "raw_path": b"/api/server/logs/stream",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    resp_headers: Dict[str, str] = {}
+    resp_status = 0
+    resp_body_chunks = []
+    live_received = asyncio.Event()
+
+    async def receive() -> Dict[str, Any]:
+        await live_received.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        nonlocal resp_status, resp_headers
+        if message["type"] == "http.response.start":
+            resp_status = message["status"]
+            for k, v in message.get("headers", []):
+                resp_headers[k.decode("latin-1").lower()] = v.decode("latin-1")
+        elif message["type"] == "http.response.body":
+            body = message.get("body", b"")
+            resp_body_chunks.append(body)
+            if b"Live line from worker" in body:
+                live_received.set()
+
+    async def _run() -> None:
+        app_task = asyncio.create_task(app(scope, receive, send))
+
+        # Wait until listener is registered
+        for _ in range(50):
+            if len(mock_mgr._log_listeners) > 0:
+                break
+            await asyncio.sleep(0.02)
+
+        # Broadcast live line
+        mock_mgr.broadcast_log("Live line from worker")
+
+        try:
+            await asyncio.wait_for(live_received.wait(), timeout=3.0)
+        finally:
+            app_task.cancel()
+            try:
+                await app_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    asyncio.run(_run())
+
+    assert resp_status == 200
+    assert "text/event-stream" in resp_headers.get("content-type", "")
+    full_body = b"".join(resp_body_chunks).decode("utf-8")
+    assert "Historical line 1" in full_body
+    assert '\\"historical\\": true' in full_body.lower() or '"historical": true' in full_body.lower()
+    assert "Live line from worker" in full_body
+    assert '\\"historical\\": false' in full_body.lower() or '"historical": false' in full_body.lower()
+    assert len(mock_mgr._log_listeners) == 0
 
 
 

@@ -448,6 +448,51 @@ def create_app(
             "message": "Managed server stopped successfully",
         }
 
+    @app.get("/api/server/logs/stream", response_class=EventSourceResponse)
+    async def stream_server_logs(request: Request):
+        """Stream historical and real-time backend inference logs via Server-Sent Events."""
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=200)
+
+        def listener_callback(line: str) -> None:
+            def _put() -> None:
+                try:
+                    queue.put_nowait(line)
+                except asyncio.QueueFull:
+                    pass
+
+            try:
+                loop.call_soon_threadsafe(_put)
+            except RuntimeError:
+                pass
+
+        app_server_manager.add_log_listener(listener_callback)
+
+        try:
+            # Replay initial recent logs
+            for line in app_server_manager.get_recent_logs(50):
+                if await request.is_disconnected():
+                    return
+                yield ServerSentEvent(
+                    event="log",
+                    data=json.dumps({"line": line, "historical": True}),
+                )
+
+            # Stream live log lines with keepalive ping
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    line = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield ServerSentEvent(
+                        event="log",
+                        data=json.dumps({"line": line, "historical": False}),
+                    )
+                except (asyncio.TimeoutError, TimeoutError):
+                    yield ServerSentEvent(comment="ping")
+        finally:
+            app_server_manager.remove_log_listener(listener_callback)
+
     @app.get("/api/settings")
     async def get_settings() -> Dict[str, Any]:
         """Return current application settings."""

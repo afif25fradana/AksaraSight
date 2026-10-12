@@ -81,35 +81,33 @@ class LoopbackSecurityMiddleware:
             })
             return
 
-        # 2. Origin header validation for non-safe methods
-        method = scope.get("method", "").upper()
-        if method not in SAFE_METHODS:
-            raw_origin = headers.get(b"origin")
-            if raw_origin is not None:
-                origin_str = raw_origin.decode("latin-1")
-                netloc = urlsplit(origin_str).netloc
-                origin_allowed = bool(netloc and pattern.fullmatch(netloc))
-                if not origin_allowed and self._is_dev_mode(scope) and netloc:
-                    dev_parsed = urlsplit(origin_str)
-                    if (
-                        dev_parsed.hostname in ("127.0.0.1", "localhost")
-                        and dev_parsed.port in self.allowed_dev_ports
-                    ):
-                        origin_allowed = True
+        # 2. Origin header validation for any request supplying an Origin header
+        raw_origin = headers.get(b"origin")
+        if raw_origin is not None:
+            origin_str = raw_origin.decode("latin-1")
+            netloc = urlsplit(origin_str).netloc
+            origin_allowed = bool(netloc and pattern.fullmatch(netloc))
+            if not origin_allowed and self._is_dev_mode(scope) and netloc:
+                dev_parsed = urlsplit(origin_str)
+                if (
+                    dev_parsed.hostname in ("127.0.0.1", "localhost")
+                    and dev_parsed.port in self.allowed_dev_ports
+                ):
+                    origin_allowed = True
 
-                if not origin_allowed:
-                    await send({
-                        "type": "http.response.start",
-                        "status": 403,
-                        "headers": [
-                            (b"content-type", b"text/plain; charset=utf-8"),
-                            (b"content-length", b"9"),
-                        ],
-                    })
-                    await send({
-                        "type": "http.response.body",
-                        "body": b"Forbidden",
-                    })
-                    return
+            if not origin_allowed:
+                await send({
+                    "type": "http.response.start",
+                    "status": 403,
+                    "headers": [
+                        (b"content-type", b"text/plain; charset=utf-8"),
+                        (b"content-length", b"9"),
+                    ],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b"Forbidden",
+                })
+                return
 
         await self.app(scope, receive, send)

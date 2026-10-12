@@ -638,3 +638,161 @@ def test_image_node_renders_as_placeholder() -> None:
     assert "diagram of process" not in stripped, (
         f"Alt text leaked as bare prose outside the placeholder: {para_text!r}"
     )
+
+
+# HTML Table Export Tests
+
+def test_html_table_synthetic_fixtures(tmp_path: Path) -> None:
+    """Verify receipt fixture and wide table fixture render as single Word table with matching rows, cols, and text."""
+    receipt_html = (
+        "<table>\n"
+        "<thead>\n"
+        '<tr><th>Item</th><th style="text-align: right">Price</th></tr>\n'
+        "</thead>\n"
+        "<tbody>\n"
+        '<tr><td>Espresso</td><td style="text-align: right">$3.50</td></tr>\n'
+        '<tr><td>Croissant</td><td style="text-align: right">$4.00</td></tr>\n'
+        "</tbody>\n"
+        "</table>"
+    )
+    result_receipt = OCRResult(
+        file_path="receipt.pdf",
+        pages=[PageResult(page_num=1, markdown=receipt_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_receipt = build_docx(result_receipt)
+    assert len(doc_receipt.tables) == 1
+    t_receipt = doc_receipt.tables[0]
+    assert len(t_receipt.rows) == 3
+    assert len(t_receipt.columns) == 2
+    assert t_receipt.rows[0].cells[0].text == "Item"
+    assert t_receipt.rows[0].cells[1].text == "Price"
+    assert t_receipt.rows[1].cells[0].text == "Espresso"
+    assert t_receipt.rows[1].cells[1].text == "$3.50"
+    assert t_receipt.rows[2].cells[0].text == "Croissant"
+    assert t_receipt.rows[2].cells[1].text == "$4.00"
+
+    wide_html = (
+        '<table class="table table-bordered">\n'
+        "<thead>\n"
+        "<tr><th>ID</th><th>First Name</th><th>Last Name</th><th>Role</th><th>Status</th></tr>\n"
+        "</thead>\n"
+        "<tbody>\n"
+        "<tr><td>001</td><td>Alice</td><td>Smith</td><td>Admin</td><td>Active</td></tr>\n"
+        "<tr><td>002</td><td>Bob</td><td>Jones</td><td>User</td><td>Inactive</td></tr>\n"
+        "</tbody>\n"
+        "</table>"
+    )
+    result_wide = OCRResult(
+        file_path="wide.pdf",
+        pages=[PageResult(page_num=1, markdown=wide_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_wide = build_docx(result_wide)
+    assert len(doc_wide.tables) == 1
+    t_wide = doc_wide.tables[0]
+    assert len(t_wide.rows) == 3
+    assert len(t_wide.columns) == 5
+    assert [c.text for c in t_wide.rows[0].cells] == ["ID", "First Name", "Last Name", "Role", "Status"]
+    assert [c.text for c in t_wide.rows[1].cells] == ["001", "Alice", "Smith", "Admin", "Active"]
+    assert [c.text for c in t_wide.rows[2].cells] == ["002", "Bob", "Jones", "User", "Inactive"]
+
+
+def test_html_table_with_blank_lines() -> None:
+    """Verify HTML table with empty lines between rows renders as single Word table with all rows preserved."""
+    md = (
+        "<table>\n\n"
+        "<thead>\n"
+        "<tr><th>Region</th><th>Target</th></tr>\n"
+        "</thead>\n\n"
+        "<tbody>\n\n"
+        "<tr><td>North</td><td>100</td></tr>\n\n"
+        "<tr><td>South</td><td>200</td></tr>\n\n"
+        "</tbody>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="blank_lines.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert len(table.columns) == 2
+    assert table.rows[0].cells[0].text == "Region"
+    assert table.rows[1].cells[0].text == "North"
+    assert table.rows[2].cells[0].text == "South"
+
+
+def test_html_table_truncated_unclosed() -> None:
+    """Verify truncated HTML table ending mid-cell/row does not crash and preserves parsed rows."""
+    truncated_md = (
+        "<table>\n"
+        "<tr><th>Header 1</th><th>Header 2</th></tr>\n"
+        "<tr><td>Row 1 Cell 1</td><td>Row 1 Cell 2</td></tr>\n"
+        "<tr><td>Truncated Cell"
+    )
+    result = OCRResult(
+        file_path="truncated.pdf",
+        pages=[PageResult(page_num=1, markdown=truncated_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert table.rows[0].cells[0].text == "Header 1"
+    assert table.rows[1].cells[0].text == "Row 1 Cell 1"
+    assert table.rows[2].cells[0].text == "Truncated Cell"
+
+
+def test_html_table_entities_and_merged_cells() -> None:
+    """Verify character entities (&amp;, &gt;) unescape and colspan/rowspan apply Word table merges."""
+    table_md = (
+        "<table>\n"
+        '<tr><th colspan="2">Q1 &amp; Q2 Summary</th><th>Notes &gt; Remarks</th></tr>\n'
+        '<tr><td rowspan="2">Group A</td><td>Metric 1</td><td>Pass</td></tr>\n'
+        '<tr><td>Metric 2</td><td>Pass</td></tr>\n'
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="merged.pdf",
+        pages=[PageResult(page_num=1, markdown=table_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert len(table.columns) == 3
+
+    # Unescaped entities & colspan merge
+    assert table.rows[0].cells[0].text == "Q1 & Q2 Summary"
+    assert table.rows[0].cells[1].text == "Q1 & Q2 Summary"
+    assert table.rows[0].cells[2].text == "Notes > Remarks"
+
+    # Rowspan merge
+    assert table.rows[1].cells[0].text == "Group A"
+    assert table.rows[2].cells[0].text == "Group A"
+    assert table.rows[1].cells[1].text == "Metric 1"
+    assert table.rows[2].cells[1].text == "Metric 2"
+
+
+def test_html_block_non_table_text_preservation() -> None:
+    """Verify non-table text around HTML tables is preserved as paragraphs alongside the table."""
+    md = (
+        "<table>\n"
+        "<tr><td>Row 1</td></tr>\n"
+        "</table>\n"
+        "Footnote: text after table"
+    )
+    result = OCRResult(
+        file_path="footnote.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert any("Footnote: text after table" in p.text for p in doc.paragraphs)

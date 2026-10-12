@@ -1,7 +1,8 @@
 """DOCX document generation and serialization from OCR markdown AST."""
 
+from html.parser import HTMLParser
 import io
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Tuple
 
 import docx
 from docx import Document
@@ -202,6 +203,212 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
     p_after.paragraph_format.space_after = Pt(6)
 
 
+class _HTMLTableExtractor(HTMLParser):
+    """HTML parser extracting table grids and non-table text with charref decoding."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tables: List[List[List[dict]]] = []
+        self.non_table_text: List[str] = []
+        self.sequence: List[Tuple[str, Any]] = []
+        self._current_table: List[List[dict]] = []
+        self._current_row: List[dict] = []
+        self._cell_text: List[str] = []
+        self._in_table = False
+        self._in_tr = False
+        self._in_cell = False
+        self._cell_is_header = False
+        self._cell_colspan = 1
+        self._cell_rowspan = 1
+        self._cell_align = WD_ALIGN_PARAGRAPH.LEFT
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        tag = tag.lower()
+        attrs_dict = {k.lower(): v for k, v in attrs if v is not None}
+
+        if tag == "table":
+            if self._in_cell:
+                self._flush_cell()
+            if self._in_tr:
+                self._flush_row()
+            if self._in_table:
+                self._flush_table()
+            self._in_table = True
+            self._current_table = []
+            self._in_tr = False
+            self._in_cell = False
+        elif tag == "tr":
+            if self._in_cell:
+                self._flush_cell()
+            if self._in_tr:
+                self._flush_row()
+            self._in_tr = True
+            self._current_row = []
+        elif tag in ("th", "td"):
+            if self._in_cell:
+                self._flush_cell()
+            if not self._in_tr:
+                self._in_tr = True
+                self._current_row = []
+            self._in_cell = True
+            self._cell_is_header = (tag == "th")
+            try:
+                self._cell_colspan = max(1, int(attrs_dict.get("colspan", "1")))
+            except (ValueError, TypeError):
+                self._cell_colspan = 1
+            try:
+                self._cell_rowspan = max(1, int(attrs_dict.get("rowspan", "1")))
+            except (ValueError, TypeError):
+                self._cell_rowspan = 1
+            align_attr = (attrs_dict.get("align") or "").lower()
+            style_attr = (attrs_dict.get("style") or "").lower()
+            if align_attr == "center" or "text-align:center" in style_attr or "text-align: center" in style_attr:
+                self._cell_align = WD_ALIGN_PARAGRAPH.CENTER
+            elif align_attr == "right" or "text-align:right" in style_attr or "text-align: right" in style_attr:
+                self._cell_align = WD_ALIGN_PARAGRAPH.RIGHT
+            elif align_attr == "justify" or "text-align:justify" in style_attr:
+                self._cell_align = WD_ALIGN_PARAGRAPH.JUSTIFY
+            else:
+                self._cell_align = WD_ALIGN_PARAGRAPH.LEFT
+            self._cell_text = []
+        elif tag == "br":
+            if self._in_cell:
+                self._cell_text.append("\n")
+            elif not self._in_table:
+                self._append_non_table_text("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in ("th", "td"):
+            if self._in_cell:
+                self._flush_cell()
+        elif tag == "tr":
+            if self._in_cell:
+                self._flush_cell()
+            if self._in_tr:
+                self._flush_row()
+        elif tag == "table":
+            if self._in_cell:
+                self._flush_cell()
+            if self._in_tr:
+                self._flush_row()
+            if self._in_table:
+                self._flush_table()
+
+    def handle_data(self, data: str) -> None:
+        if self._in_cell:
+            self._cell_text.append(data)
+        elif not self._in_table:
+            self._append_non_table_text(data)
+
+    def _append_non_table_text(self, data: str) -> None:
+        self.non_table_text.append(data)
+        if self.sequence and self.sequence[-1][0] == "text":
+            self.sequence[-1] = ("text", self.sequence[-1][1] + data)
+        else:
+            self.sequence.append(("text", data))
+
+    def _flush_cell(self) -> None:
+        if not self._in_cell:
+            return
+        text = "".join(self._cell_text).strip()
+        cell_dict = {
+            "is_header": self._cell_is_header,
+            "colspan": self._cell_colspan,
+            "rowspan": self._cell_rowspan,
+            "align": self._cell_align,
+            "text": text,
+        }
+        self._current_row.append(cell_dict)
+        self._cell_text = []
+        self._in_cell = False
+
+    def _flush_row(self) -> None:
+        if self._current_row:
+            self._current_table.append(self._current_row)
+            self._current_row = []
+        self._in_tr = False
+
+    def _flush_table(self) -> None:
+        if self._current_table:
+            self.tables.append(self._current_table)
+            self.sequence.append(("table", self._current_table))
+            self._current_table = []
+        self._in_table = False
+
+    def close(self) -> None:
+        super().close()
+        if self._in_cell:
+            self._flush_cell()
+        if self._in_tr:
+            self._flush_row()
+        if self._in_table:
+            self._flush_table()
+
+
+def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List[dict]]) -> None:
+    """Render a parsed HTML table into the Document with merge and OOXML attributes."""
+    if not table_data:
+        return
+
+    occupied: set[Tuple[int, int]] = set()
+    placements: List[Tuple[int, int, dict, int, int]] = []
+
+    for r, row in enumerate(table_data):
+        col = 0
+        for cell_dict in row:
+            while (r, col) in occupied:
+                col += 1
+            colspan = max(1, int(cell_dict.get("colspan", 1)))
+            rowspan = max(1, int(cell_dict.get("rowspan", 1)))
+            for dr in range(rowspan):
+                for dc in range(colspan):
+                    occupied.add((r + dr, col + dc))
+            placements.append((r, col, cell_dict, rowspan, colspan))
+            col += colspan
+
+    if not placements:
+        return
+
+    total_rows = max(r + rowspan for r, col, cell, rowspan, colspan in placements)
+    max_cols = max(col + colspan for r, col, cell, rowspan, colspan in placements)
+
+    if total_rows == 0 or max_cols == 0:
+        return
+
+    table = doc.add_table(rows=total_rows, cols=max_cols)
+    table.style = "Table Grid"
+
+    for r, col, cell_dict, rowspan, colspan in placements:
+        if rowspan > 1 or colspan > 1:
+            target_cell = table.cell(r, col).merge(
+                table.cell(r + rowspan - 1, col + colspan - 1)
+            )
+        else:
+            target_cell = table.cell(r, col)
+
+        p = target_cell.paragraphs[0] if target_cell.paragraphs else target_cell.add_paragraph()
+        p.alignment = cell_dict.get("align", WD_ALIGN_PARAGRAPH.LEFT)
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(2)
+
+        text = cell_dict.get("text", "")
+        if text:
+            run = p.add_run(text)
+            if cell_dict.get("is_header"):
+                run.bold = True
+            run.font.size = Pt(9.5)
+
+    for row_idx, row in enumerate(table.rows):
+        trPr = row._tr.get_or_add_trPr()
+        trPr.append(OxmlElement("w:cantSplit"))
+        if row_idx < len(table_data) and any(c.get("is_header") for c in table_data[row_idx]):
+            trPr.append(OxmlElement("w:tblHeader"))
+
+    p_after = doc.add_paragraph()
+    p_after.paragraph_format.space_before = Pt(0)
+    p_after.paragraph_format.space_after = Pt(6)
+
 def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode, depth: int = 0) -> None:
     """Render an individual top-level block node into the Document."""
     if node.type == "heading":
@@ -309,8 +516,40 @@ def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser
     md_parser = parser or _create_markdown_parser()
     tokens = md_parser.parse(markdown_text)
     root = SyntaxTreeNode(tokens)
-    for block_node in root.children:
-        _render_ast_node(doc, block_node)
+    children = root.children
+    idx = 0
+    while idx < len(children):
+        node = children[idx]
+        if node.type == "html_block" and "<table" in node.content.lower():
+            accumulated_html = [node.content]
+            while (
+                idx + 1 < len(children)
+                and children[idx + 1].type == "html_block"
+                and "</table>" not in "".join(accumulated_html).lower()
+            ):
+                idx += 1
+                accumulated_html.append(children[idx].content)
+
+            html_str = "\n".join(accumulated_html)
+            extractor = _HTMLTableExtractor()
+            extractor.feed(html_str)
+            extractor.close()
+
+            for item_type, item_data in extractor.sequence:
+                if item_type == "table":
+                    _render_parsed_html_table(doc, item_data)
+                elif item_type == "text":
+                    for line in item_data.splitlines():
+                        stripped = line.strip()
+                        if stripped:
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_before = Pt(0)
+                            p.paragraph_format.space_after = Pt(6)
+                            p.add_run(stripped)
+            idx += 1
+        else:
+            _render_ast_node(doc, node)
+            idx += 1
 
 
 def build_docx(result: OCRResult) -> docx.document.Document:

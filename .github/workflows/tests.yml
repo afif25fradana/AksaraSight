@@ -43,7 +43,13 @@ jobs:
         run: |
           cd frontend
           npm run build
-          test -z "$(git status --porcelain ../web/static)"
+          if [ -n "$(git status --porcelain ../web/static)" ]; then
+            echo "::error::Static bundle out of sync with frontend build:"
+            git status --porcelain ../web/static
+            git diff ../web/static
+            exit 1
+          fi
+
 
   test-windows:
     name: Windows Python ${{ matrix.python-version }} (Full Test Suite)

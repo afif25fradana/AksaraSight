@@ -7,7 +7,7 @@ import { ExtractedTextPanel } from './components/ExtractedTextPanel';
 import { SettingsView } from './components/SettingsView';
 import { OutputFolderModal } from './components/OutputFolderModal';
 import { ServerLogsModal } from './components/ServerLogsModal';
-import { DocumentItem, EngineSettings, ExportedFile, OutputFormatType, PromptMode } from './types';
+import { DocumentItem, EngineSettings, ExportedFile, OutputFormatType, PromptMode, ServerStatusInfo } from './types';
 import { INITIAL_DOCUMENTS, INITIAL_SETTINGS } from './data/mockDocuments';
 
 export default function App() {
@@ -75,6 +75,34 @@ export default function App() {
 
   // Track which document owns the running job
   const [runningJobDocId, setRunningJobDocId] = useState<string | null>(null);
+
+  // Server management status and transitioning state
+  const [serverStatus, setServerStatus] = useState<ServerStatusInfo | null>(null);
+  const [isServerTransitioning, setIsServerTransitioning] = useState<boolean>(false);
+
+  const fetchServerStatus = async () => {
+    try {
+      const res = await fetch('/api/server/status');
+      if (res.ok) {
+        const data: ServerStatusInfo = await res.json();
+        if (data && data.status) {
+          setServerStatus(data);
+          setEngineSettings((prev) => ({
+            ...prev,
+            status: data.status === 'ready' ? 'running' : 'offline',
+          }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch server status:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchServerStatus();
+    const interval = setInterval(fetchServerStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Real Server-Sent Events (SSE) listener and loopback health probe
   useEffect(() => {
@@ -665,11 +693,25 @@ export default function App() {
     setExportedFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleToggleServer = () => {
-    setEngineSettings((prev) => ({
-      ...prev,
-      status: prev.status === 'running' ? 'offline' : 'running',
-    }));
+  const handleToggleServer = async () => {
+    if (isServerTransitioning) return;
+    const isRunning = serverStatus ? serverStatus.status === 'ready' : engineSettings.status === 'running';
+    if (isRunning) {
+      if (serverStatus?.ownership === 'external' || runningJobDocId !== null) return;
+    }
+    setIsServerTransitioning(true);
+    try {
+      if (isRunning) {
+        await fetch('/api/server/stop', { method: 'POST' });
+      } else {
+        await fetch('/api/server/start', { method: 'POST' });
+      }
+      await fetchServerStatus();
+    } catch (err) {
+      console.error('Failed to toggle server state:', err);
+    } finally {
+      setIsServerTransitioning(false);
+    }
   };
 
   const handleToggleTheme = (event?: React.SyntheticEvent) => {
@@ -732,6 +774,9 @@ export default function App() {
         onOpenOutputFolder={() => setIsOutputFolderOpen(true)}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        serverStatus={serverStatus}
+        isExtracting={runningJobDocId !== null}
+        isTransitioning={isServerTransitioning}
       />
 
       {/* Main Workspace 3-Pane Layout */}
@@ -808,7 +853,8 @@ export default function App() {
       <ServerLogsModal
         isOpen={isServerLogsOpen}
         onClose={() => setIsServerLogsOpen(false)}
-        isEngineRunning={engineSettings.status === 'running'}
+        serverStatus={serverStatus}
+        onToggleServer={handleToggleServer}
       />
     </div>
   );

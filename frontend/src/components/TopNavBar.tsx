@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderOpen, Play, Square, Terminal } from 'lucide-react';
-import { EngineSettings } from '../types';
+import { EngineSettings, ServerStatusInfo } from '../types';
 
 interface TopNavBarProps {
   currentTab: 'workspace' | 'settings';
@@ -11,6 +11,9 @@ interface TopNavBarProps {
   onOpenOutputFolder: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: (e?: React.SyntheticEvent) => void;
+  serverStatus: ServerStatusInfo | null;
+  isExtracting: boolean;
+  isTransitioning?: boolean;
 }
 
 export const TopNavBar: React.FC<TopNavBarProps> = ({
@@ -22,8 +25,87 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   onOpenOutputFolder,
   theme,
   onToggleTheme,
+  serverStatus,
+  isExtracting,
+  isTransitioning = false,
 }) => {
-  const isRunning = engineSettings.status === 'running';
+  const currentStatus: 'offline' | 'starting' | 'ready' | 'error' =
+    serverStatus?.status || (engineSettings.status === 'running' ? 'ready' : 'offline');
+
+  const isServerRunning = currentStatus === 'ready';
+
+  const statusConfig = {
+    ready: {
+      label: 'Local Engine Ready',
+      wrapperClass:
+        'bg-[#15803D]/10 dark:bg-[var(--success)]/10 border-[#15803D]/25 dark:border-[var(--success)]/25 text-[#14532D] dark:text-[var(--success)]',
+      dotClass: 'bg-[#15803D] dark:bg-[var(--success)]',
+    },
+    starting: {
+      label: 'Engine Starting...',
+      wrapperClass:
+        'bg-amber-500/10 dark:bg-amber-500/10 border-amber-500/25 dark:border-amber-500/25 text-amber-600 dark:text-amber-400',
+      dotClass: 'bg-amber-500 dark:bg-amber-400 animate-pulse',
+    },
+    error: {
+      label: 'Engine Error',
+      wrapperClass:
+        'bg-red-500/10 dark:bg-[var(--danger)]/10 border-red-500/25 dark:border-[var(--danger)]/25 text-red-700 dark:text-[var(--danger)]',
+      dotClass: 'bg-red-500 dark:bg-[var(--danger)]',
+    },
+    offline: {
+      label: 'Engine Offline',
+      wrapperClass:
+        'bg-[#DC2626]/10 dark:bg-[var(--danger)]/10 border-[#DC2626]/25 dark:border-[var(--danger)]/25 text-[#991B1B] dark:text-[var(--danger)]',
+      dotClass: 'bg-[#DC2626] dark:bg-[var(--danger)]',
+    },
+  }[currentStatus];
+
+  let buttonDisabled = false;
+  let buttonTitle = '';
+  let buttonAriaLabel = '';
+  let buttonText = 'Stop Server';
+
+  if (isServerRunning) {
+    if (serverStatus?.ownership === 'external') {
+      buttonDisabled = true;
+      buttonTitle = `Server managed externally (PID ${serverStatus.pid || 'external'})`;
+      buttonAriaLabel = 'Stop Server (Disabled - External Server)';
+      buttonText = 'Stop Server';
+    } else if (isExtracting) {
+      buttonDisabled = true;
+      buttonTitle = 'Extraction in progress';
+      buttonAriaLabel = 'Stop Server (Disabled - Extraction in progress)';
+      buttonText = 'Stop Server';
+    } else if (isTransitioning) {
+      buttonDisabled = true;
+      buttonTitle = 'Stopping Server';
+      buttonAriaLabel = 'Stopping Server';
+      buttonText = 'Stopping...';
+    } else {
+      buttonDisabled = false;
+      buttonTitle = 'Stop running llama-server instance';
+      buttonAriaLabel = 'Stop Server';
+      buttonText = 'Stop Server';
+    }
+  } else {
+    if (isTransitioning) {
+      buttonDisabled = true;
+      buttonTitle = 'Starting Server';
+      buttonAriaLabel = 'Starting Server';
+      buttonText = 'Starting...';
+    } else if (isExtracting) {
+      buttonDisabled = true;
+      buttonTitle = 'Extraction in progress';
+      buttonAriaLabel = 'Start Server';
+      buttonText = 'Start Server';
+    } else {
+      buttonDisabled = false;
+      buttonTitle = 'Start local llama-server backend';
+      buttonAriaLabel = 'Start Server';
+      buttonText = 'Start Server';
+    }
+  }
 
   return (
     <header className="h-12 w-full bg-[#F6F4EE] dark:bg-[var(--bg-surface)] border-b border-[#8A94A6]/30 dark:border-[var(--border)] flex items-center justify-between px-4 select-none shrink-0 z-20 transition-colors">
@@ -73,26 +155,23 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       <div className="flex items-center gap-2 sm:gap-2.5">
         {/* Engine status indicator with high contrast and text label */}
         <div
-          className={`flex items-center gap-2 px-2.5 h-8 rounded-lg border select-none transition-colors ${
-            isRunning
-              ? 'bg-[#15803D]/10 dark:bg-[var(--success)]/10 border-[#15803D]/25 dark:border-[var(--success)]/25 text-[#14532D] dark:text-[var(--success)]'
-              : 'bg-[#DC2626]/10 dark:bg-[var(--danger)]/10 border-[#DC2626]/25 dark:border-[var(--danger)]/25 text-[#991B1B] dark:text-[var(--danger)]'
-          }`}
+          className={`flex items-center gap-2 px-2.5 h-8 rounded-lg border select-none transition-colors ${statusConfig.wrapperClass}`}
           role="status"
           aria-live="polite"
         >
           <span
-            className={`inline-block w-2 h-2 rounded-full ${
-              isRunning 
-                ? 'bg-[#15803D] dark:bg-[var(--success)]' 
-                : 'bg-[#DC2626] dark:bg-[var(--danger)]'
-            }`}
+            className={`inline-block w-2 h-2 rounded-full ${statusConfig.dotClass}`}
             aria-hidden="true"
           />
           <span className="font-semibold text-[12px] whitespace-nowrap tracking-tight">
-            {isRunning ? 'Local Engine Ready' : 'Engine Offline'}
+            {statusConfig.label}
           </span>
-          {isRunning && (
+          {serverStatus?.pid != null && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-medium">
+              PID {serverStatus.pid}
+            </span>
+          )}
+          {isServerRunning && (
             <span className="text-[11px] text-[#0F766E] dark:text-[var(--text-2)] font-medium hidden md:inline">
               · GLM-OCR
             </span>
@@ -100,27 +179,37 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
         </div>
 
         {/* Start / Stop Server Toggle Button */}
-        {isRunning ? (
+        {isServerRunning ? (
           <button
             type="button"
-            onClick={onToggleServer}
-            className="h-8 w-8 sm:w-[108px] rounded-lg border border-[var(--danger)]/30 hover:border-[var(--danger)]/60 bg-[var(--danger)]/8 hover:bg-[var(--danger)]/15 text-[var(--danger)] flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out cursor-pointer shadow-2xs focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none shrink-0"
-            aria-label="Stop Server"
-            title="Stop running llama-server instance"
+            onClick={buttonDisabled ? undefined : onToggleServer}
+            disabled={buttonDisabled}
+            className={`h-8 w-8 sm:w-[108px] rounded-lg border border-[var(--danger)]/30 text-[var(--danger)] flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out shadow-2xs focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none shrink-0 ${
+              buttonDisabled
+                ? 'cursor-not-allowed opacity-50'
+                : 'hover:border-[var(--danger)]/60 bg-[var(--danger)]/8 hover:bg-[var(--danger)]/15 cursor-pointer'
+            }`}
+            aria-label={buttonAriaLabel}
+            title={buttonTitle}
           >
             <Square className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline whitespace-nowrap">Stop Server</span>
+            <span className="hidden sm:inline whitespace-nowrap">{buttonText}</span>
           </button>
         ) : (
           <button
             type="button"
-            onClick={onToggleServer}
-            className="h-8 w-8 sm:w-[108px] rounded-lg bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none shrink-0"
-            aria-label="Start Server"
-            title="Start local llama-server backend"
+            onClick={buttonDisabled ? undefined : onToggleServer}
+            disabled={buttonDisabled}
+            className={`h-8 w-8 sm:w-[108px] rounded-lg bg-[#0F766E] text-white flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out shadow-xs focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none shrink-0 ${
+              buttonDisabled
+                ? 'cursor-not-allowed opacity-50'
+                : 'hover:bg-[#115E59] active:bg-[#0d4f4b] cursor-pointer'
+            }`}
+            aria-label={buttonAriaLabel}
+            title={buttonTitle}
           >
             <Play className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline whitespace-nowrap">Start Server</span>
+            <span className="hidden sm:inline whitespace-nowrap">{buttonText}</span>
           </button>
         )}
 

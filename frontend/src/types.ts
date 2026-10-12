@@ -108,3 +108,14 @@ export interface ExportedFile {
   localPath?: string;
 }
 
+export interface ServerStatusInfo {
+  status: 'offline' | 'starting' | 'ready' | 'error';
+  ownership: 'none' | 'managed' | 'external';
+  managed_by_web: boolean;
+  message: string;
+  endpoint: string;
+  pid: number | null;
+  recent_logs: string[];
+}
+
+

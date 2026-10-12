@@ -174,8 +174,8 @@ def create_app(
     dev_mode: bool = False,
     env_path: Optional[Union[str, Path]] = None,
 ) -> FastAPI:
-    """Create and configure the FastAPI web application instance."""
-    app_settings = settings or Settings.from_env()
+    env_path = env_path or os.environ.get("AKSARA_ENV_FILE")
+    app_settings = settings or Settings.from_env(env_path=env_path)
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
     app_server_manager = server_manager or ServerManager(settings=app_settings)

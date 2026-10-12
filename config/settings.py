@@ -20,9 +20,13 @@ LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 def _resolve_default_env_path() -> Path:
     """Resolve the default .env path based on whether running frozen or from source.
 
+    If AKSARA_ENV_FILE is set and non-empty, returns Path(AKSARA_ENV_FILE).
     If frozen (PyInstaller executable), defaults to '.env' adjacent to the executable.
     If running from source, defaults to '.env' in the current working directory.
     """
+    env_override = os.environ.get("AKSARA_ENV_FILE")
+    if env_override:
+        return Path(env_override)
     if getattr(sys, "frozen", False):
         exe_env = Path(sys.executable).parent / ".env"
         return exe_env
@@ -261,14 +265,12 @@ class Settings:
         """
         if env_path is not None:
             load_dotenv(dotenv_path=env_path)
-        elif getattr(sys, "frozen", False):
+        else:
             default_env = _resolve_default_env_path()
             if default_env.is_file():
                 load_dotenv(dotenv_path=default_env)
             else:
                 load_dotenv()
-        else:
-            load_dotenv()
 
         backend = _get_env_with_fallback("OCR_BACKEND", "BACKEND", "llama-cpp")
         endpoint = _get_env_with_fallback("OCR_ENDPOINT", "LOCAL_ENDPOINT", "http://localhost:8080/v1")

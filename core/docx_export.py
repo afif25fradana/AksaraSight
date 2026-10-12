@@ -123,6 +123,59 @@ def _extract_alignment(style_str: str) -> WD_ALIGN_PARAGRAPH:
     return WD_ALIGN_PARAGRAPH.LEFT
 
 
+MAX_WORD_TABLE_COLUMNS = 63
+"""Maximum table column count supported by Microsoft Word.
+
+While the ISO/IEC 29500-1 schema does not theoretically bound tblGrid column counts,
+Microsoft Word enforces a hard application-level limit of 63 columns per table
+as documented in Microsoft Learn and [MS-OODF3] Section 9.1.6 (Operating parameter limitations).
+Tables exceeding this column count cannot be rendered or opened reliably in Word.
+"""
+
+MAX_HTML_TABLE_ROWS = 1000
+"""Maximum table row count rendered before truncation to avoid memory and performance degradation."""
+
+
+def _append_table_truncation_note(
+    doc: docx.document.Document,
+    truncated_rows: int = 0,
+    truncated_cols: int = 0,
+) -> None:
+    """Append a visible italic notice or spacer paragraph after a table.
+
+    Formats:
+    - Both: "[Table truncated: {truncated_rows} rows and {truncated_cols} columns omitted to fit document limits]"
+    - Rows only: "[Table truncated: {truncated_rows} rows omitted to fit document limits]"
+    - Columns only: "[Table truncated: {truncated_cols} columns omitted to fit document limits]"
+
+    Style: Italic, Pt(8.5), paragraph space_before=0, space_after=6.
+    """
+    if truncated_rows <= 0 and truncated_cols <= 0:
+        p_after = doc.add_paragraph()
+        p_after.paragraph_format.space_before = Pt(0)
+        p_after.paragraph_format.space_after = Pt(6)
+        return
+
+    if truncated_rows > 0 and truncated_cols > 0:
+        msg = f"[Table truncated: {truncated_rows} rows and {truncated_cols} columns omitted to fit document limits]"
+    elif truncated_rows > 0:
+        msg = f"[Table truncated: {truncated_rows} rows omitted to fit document limits]"
+    else:
+        msg = f"[Table truncated: {truncated_cols} columns omitted to fit document limits]"
+
+    logger.warning(
+        "Table truncated: %d rows, %d columns omitted to fit document limits",
+        truncated_rows,
+        truncated_cols,
+    )
+    p_note = doc.add_paragraph()
+    p_note.paragraph_format.space_before = Pt(0)
+    p_note.paragraph_format.space_after = Pt(6)
+    run = p_note.add_run(msg)
+    run.italic = True
+    run.font.size = Pt(8.5)
+
+
 def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) -> None:
     """Render a GFM pipe table node with ragged row padding and OOXML attributes.
 
@@ -131,6 +184,7 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
     - Table Grid style with bold header row.
     - Raw OOXML w:tblHeader and w:cantSplit attributes on header row.
     - Raw OOXML w:cantSplit attributes on all data rows.
+    - Clamped to MAX_WORD_TABLE_COLUMNS (63) and MAX_HTML_TABLE_ROWS (1000) with visible truncation note.
     - Verbatim preservation of numeric formatting (decimals, commas, negative values).
     """
     rows_data: List[List[dict]] = []
@@ -153,21 +207,35 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
     if not rows_data:
         return
 
+    truncated_rows = 0
+    if len(rows_data) > MAX_HTML_TABLE_ROWS:
+        truncated_rows = len(rows_data) - MAX_HTML_TABLE_ROWS
+        rows_data = rows_data[:MAX_HTML_TABLE_ROWS]
+
     # Calculate max columns across all rows to pad ragged rows
     max_cols = max(len(r) for r in rows_data)
     if max_cols == 0:
         return
 
-    # Normalize ragged rows by padding with empty cells
+    truncated_cols = 0
+    if max_cols > MAX_WORD_TABLE_COLUMNS:
+        truncated_cols = max_cols - MAX_WORD_TABLE_COLUMNS
+        cols_to_render = MAX_WORD_TABLE_COLUMNS
+    else:
+        cols_to_render = max_cols
+
+    # Normalize ragged rows by clamping or padding to cols_to_render
     for r in rows_data:
-        while len(r) < max_cols:
+        if len(r) > cols_to_render:
+            r[:] = r[:cols_to_render]
+        while len(r) < cols_to_render:
             r.append({
                 "is_header": False,
                 "align": WD_ALIGN_PARAGRAPH.LEFT,
                 "inline_node": None,
             })
 
-    table = doc.add_table(rows=len(rows_data), cols=max_cols)
+    table = doc.add_table(rows=len(rows_data), cols=cols_to_render)
     table.style = "Table Grid"
 
     for row_idx, row_cells in enumerate(rows_data):
@@ -200,14 +268,11 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
                 run = p.add_run(inline.content)
                 run.bold = is_header_row
 
-    # Add spacing after table
-    p_after = doc.add_paragraph()
-    p_after.paragraph_format.space_before = Pt(0)
-    p_after.paragraph_format.space_after = Pt(6)
-
-
-MAX_WORD_TABLE_COLUMNS = 63
-MAX_HTML_TABLE_ROWS = 1000
+    _append_table_truncation_note(
+        doc,
+        truncated_rows=truncated_rows,
+        truncated_cols=truncated_cols,
+    )
 
 
 class _HTMLTableExtractor(HTMLParser):
@@ -229,6 +294,7 @@ class _HTMLTableExtractor(HTMLParser):
         self._current_truncated_rows = 0
         self._in_table = False
         self._table_depth = 0
+        self._nested_table_rows = 0
         self._in_tr = False
         self._in_cell = False
         self._cell_is_header = False
@@ -243,6 +309,7 @@ class _HTMLTableExtractor(HTMLParser):
         if tag == "table":
             self._table_depth += 1
             if self._table_depth > 1:
+                self._nested_table_rows = 0
                 return
             if self._in_cell:
                 self._flush_cell()
@@ -257,7 +324,14 @@ class _HTMLTableExtractor(HTMLParser):
             return
 
         if self._table_depth > 1:
-            if tag in ("tr", "th", "td"):
+            if tag == "tr":
+                if self._nested_table_rows > 0 and self._cell_text and not self._cell_text[-1].endswith("\n"):
+                    self._cell_text.append("\n")
+                self._nested_table_rows += 1
+                return
+            if tag in ("td", "th"):
+                if self._cell_text and not self._cell_text[-1].endswith((" ", "\n")):
+                    self._cell_text.append(" ")
                 return
 
         if tag == "tr":
@@ -281,7 +355,7 @@ class _HTMLTableExtractor(HTMLParser):
             self._in_cell = True
             self._cell_is_header = (tag == "th")
             try:
-                self._cell_colspan = min(max(1, int(attrs_dict.get("colspan", "1"))), MAX_WORD_TABLE_COLUMNS)
+                self._cell_colspan = min(max(1, int(attrs_dict.get("colspan", "1"))), 1000)
             except (ValueError, TypeError):
                 self._cell_colspan = 1
             try:
@@ -313,6 +387,7 @@ class _HTMLTableExtractor(HTMLParser):
         if tag == "table":
             self._table_depth = max(0, self._table_depth - 1)
             if self._table_depth > 0:
+                self._nested_table_rows = 0
                 return
             if self._in_cell:
                 self._flush_cell()
@@ -362,6 +437,7 @@ class _HTMLTableExtractor(HTMLParser):
         self._current_row.append(cell_dict)
         self._cell_text = []
         self._in_cell = False
+        self._nested_table_rows = 0
 
     def _flush_row(self) -> None:
         if self._current_row:
@@ -378,6 +454,7 @@ class _HTMLTableExtractor(HTMLParser):
         self._current_truncated_rows = 0
         self._in_table = False
         self._table_depth = 0
+        self._nested_table_rows = 0
 
     def close(self) -> None:
         super().close()
@@ -388,6 +465,7 @@ class _HTMLTableExtractor(HTMLParser):
         if self._in_table:
             self._flush_table()
         self._table_depth = 0
+        self._nested_table_rows = 0
 
 
 def _render_parsed_html_table(
@@ -398,33 +476,43 @@ def _render_parsed_html_table(
     """Render a parsed HTML table into the Document with merge and OOXML attributes.
 
     Clamped to 63 columns to adhere to Microsoft Word's application table column limit
-    (documented in Microsoft Word operating parameter limitations).
+    (documented in Microsoft Learn / [MS-OODF3] Section 9.1.6).
     """
     if not table_data:
         return
 
     occupied: set[Tuple[int, int]] = set()
     placements: List[Tuple[int, int, dict, int, int]] = []
+    max_attempted_cols = 0
 
     for r, row in enumerate(table_data):
         col = 0
         for cell_dict in row:
             while (r, col) in occupied:
                 col += 1
-            if col >= MAX_WORD_TABLE_COLUMNS:
+            raw_colspan = max(1, int(cell_dict.get("colspan", 1)))
+            raw_rowspan = max(1, int(cell_dict.get("rowspan", 1)))
+            attempted_end_col = col + raw_colspan
+            if attempted_end_col > max_attempted_cols:
+                max_attempted_cols = attempted_end_col
+
+            for dr in range(raw_rowspan):
+                for dc in range(raw_colspan):
+                    occupied.add((r + dr, col + dc))
+
+            if col < MAX_WORD_TABLE_COLUMNS:
+                colspan = min(raw_colspan, MAX_WORD_TABLE_COLUMNS - col)
+                rowspan = min(raw_rowspan, max(1, len(table_data) - r))
+                placements.append((r, col, cell_dict, rowspan, colspan))
+            else:
                 logger.warning(
-                    "HTML table row %d exceeded column limit %d; trailing cells omitted",
+                    "HTML table row %d column %d exceeded column limit %d; cell omitted",
                     r,
+                    col,
                     MAX_WORD_TABLE_COLUMNS,
                 )
-                break
-            colspan = min(max(1, int(cell_dict.get("colspan", 1))), MAX_WORD_TABLE_COLUMNS - col)
-            rowspan = min(max(1, int(cell_dict.get("rowspan", 1))), max(1, len(table_data) - r))
-            for dr in range(rowspan):
-                for dc in range(colspan):
-                    occupied.add((r + dr, col + dc))
-            placements.append((r, col, cell_dict, rowspan, colspan))
-            col += colspan
+
+            col += raw_colspan
 
     if not placements:
         return
@@ -464,22 +552,12 @@ def _render_parsed_html_table(
         if row_idx < len(table_data) and any(c.get("is_header") for c in table_data[row_idx]):
             trPr.append(OxmlElement("w:tblHeader"))
 
-    if truncated_rows > 0:
-        logger.warning(
-            "HTML table truncated: %d rows omitted exceeding limit of %d",
-            truncated_rows,
-            len(table_data),
-        )
-        p_note = doc.add_paragraph()
-        p_note.paragraph_format.space_before = Pt(0)
-        p_note.paragraph_format.space_after = Pt(6)
-        run = p_note.add_run(f"[Table truncated: {truncated_rows} rows omitted to fit document limits]")
-        run.italic = True
-        run.font.size = Pt(8.5)
-    else:
-        p_after = doc.add_paragraph()
-        p_after.paragraph_format.space_before = Pt(0)
-        p_after.paragraph_format.space_after = Pt(6)
+    truncated_cols = max(0, max_attempted_cols - MAX_WORD_TABLE_COLUMNS)
+    _append_table_truncation_note(
+        doc,
+        truncated_rows=truncated_rows,
+        truncated_cols=truncated_cols,
+    )
 
 def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode, depth: int = 0) -> None:
     """Render an individual top-level block node into the Document."""

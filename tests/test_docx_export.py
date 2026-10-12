@@ -14,7 +14,9 @@ from markdown_it.tree import SyntaxTreeNode
 
 from core.docx_export import (
     _HTMLTableExtractor,
+    _append_table_truncation_note,
     _render_ast_node,
+    _render_parsed_html_table,
     _render_table_node,
     build_docx,
     export_to_docx_bytes,
@@ -1009,5 +1011,95 @@ def test_html_table_nested_table_in_cell_safety() -> None:
     assert len(doc.tables[0].rows) == 1
     assert len(doc.tables[0].columns) == 1
     assert doc.tables[0].rows[0].cells[0].text == "Outer Cell Inner Cell More Outer"
+
+
+def test_html_table_column_clamping_visible_notice() -> None:
+    """Verify HTML table exceeding 63 columns clamps to 63 and emits visible truncation notice."""
+    cells = "".join(f"<td>C{i}</td>" for i in range(65))
+    html = f"<table><tr>{cells}</tr></table>"
+    doc = Document()
+    render_markdown_page(doc, html)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_gfm_table_column_clamping_visible_notice() -> None:
+    """Verify GFM pipe table with 65 columns clamps to 63 and emits visible truncation notice."""
+    header = "| " + " | ".join(f"Col{i}" for i in range(65)) + " |"
+    delimiter = "| " + " | ".join("---" for _ in range(65)) + " |"
+    row = "| " + " | ".join(f"Val{i}" for i in range(65)) + " |"
+    table_md = f"{header}\n{delimiter}\n{row}\n"
+    doc = Document()
+    render_markdown_page(doc, table_md)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_html_table_colspan_crossing_column_limit() -> None:
+    """Verify cell at col 60 with colspan 6 (total 66) clamps grid to 63 and reports 3 omitted cols."""
+    first_60 = "".join(f"<td>C{i}</td>" for i in range(60))
+    wide_cell = '<td colspan="6">Wide</td>'
+    html = f"<table><tr>{first_60}{wide_cell}</tr></table>"
+    doc = Document()
+    render_markdown_page(doc, html)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 3 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_row_cap_boundary_1000_vs_1001() -> None:
+    """Verify boundary at exactly 1000 rows (0 omitted) vs 1001 rows (1 row omitted with notice)."""
+    # 1000 rows boundary
+    ext_1000 = _HTMLTableExtractor(max_rows=1000)
+    ext_1000.feed("<table>" + "".join(f"<tr><td>R{i}</td></tr>" for i in range(1000)) + "</table>")
+    ext_1000.close()
+    assert len(ext_1000.tables[0]) == 1000
+    assert ext_1000.sequence[0][2] == 0
+
+    doc_1000 = Document()
+    _render_parsed_html_table(doc_1000, [[{"text": f"R{i}"}] for i in range(5)], truncated_rows=ext_1000.sequence[0][2])
+    assert not any("[Table truncated" in p.text for p in doc_1000.paragraphs)
+
+    # 1001 rows boundary
+    ext_1001 = _HTMLTableExtractor(max_rows=1000)
+    ext_1001.feed("<table>" + "".join(f"<tr><td>R{i}</td></tr>" for i in range(1001)) + "</table>")
+    ext_1001.close()
+    assert len(ext_1001.tables[0]) == 1000
+    assert ext_1001.sequence[0][2] == 1
+
+    doc_1001 = Document()
+    _render_parsed_html_table(doc_1001, [[{"text": f"R{i}"}] for i in range(5)], truncated_rows=ext_1001.sequence[0][2])
+    assert any("[Table truncated: 1 rows omitted to fit document limits]" in p.text for p in doc_1001.paragraphs)
+
+
+def test_html_table_nested_table_text_separator() -> None:
+    """Verify nested table with multiple cells and rows separates cell texts with spaces and rows with newlines."""
+    html = (
+        "<table><tr><td>"
+        "Outer "
+        "<table>"
+        "<tr><td>Inner1</td><td>Inner2</td></tr>"
+        "<tr><td>Inner3</td><td>Inner4</td></tr>"
+        "</table>"
+        "</td></tr></table>"
+    )
+    result = OCRResult(
+        file_path="nested_multi.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert doc.tables[0].rows[0].cells[0].text == "Outer Inner1 Inner2\nInner3 Inner4"
+
+
+def test_table_both_rows_and_cols_truncated_notice() -> None:
+    """Verify notice phrasing when both rows and columns exceed document limits."""
+    doc = Document()
+    _append_table_truncation_note(doc, truncated_rows=5, truncated_cols=2)
+    assert any("[Table truncated: 5 rows and 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
 
 

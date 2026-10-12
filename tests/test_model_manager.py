@@ -1,8 +1,6 @@
 """Tests for core.model_manager and server_manager model path integration."""
 
 import hashlib
-import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +12,6 @@ from core.model_manager import (
     TOTAL_MODEL_BYTES,
     ModelDownloader,
     get_local_model_paths,
-    get_models_dir,
 )
 from core.server_manager import ServerManager, ServerStatus
 

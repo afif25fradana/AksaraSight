@@ -31,7 +31,7 @@ from core.job_object import (
     _close_job_handle,
     _create_kill_on_close_job,
 )
-from core.model_manager import PINNED_MODEL_REPO, get_local_model_paths
+from core.model_manager import get_local_model_paths
 
 
 class ServerStatus(str, Enum):

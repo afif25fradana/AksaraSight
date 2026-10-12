@@ -35,22 +35,65 @@ export interface DocumentItem {
 
 export type ExtractionMode = 'text' | 'table' | 'formula';
 
-export interface EngineSettings {
-  status: 'running' | 'offline';
-  backend: 'llama-cpp' | 'ollama' | 'vllm';
-  runtimeSource: 'managed' | 'custom';
-  customLlamaServerPath?: string;
-  targetBackend: 'auto' | 'cuda' | 'vulkan' | 'cpu';
-  autoStart: boolean;
-  renderDpi: number; // 72, 100, 150, 200
-  maxImageSize: number;
-  maxTokensPerPage: number;
-  maxPagesPerDoc: string;
-  endpointUrl: string;
-  allowRemote: boolean;
+export interface BackendSettings {
+  backend: string;
+  local_endpoint: string;
+  runtime_mode: string;
+  managed_backend_override?: string | null;
+  dpi: number;
+  max_image_dimension: number;
+  max_tokens: number;
   timeout: number;
-  retries: number;
-  modelRepo: string;
+  max_retries: number;
+  auto_start_server: boolean;
+  model_repo: string;
+  allow_remote?: boolean;
+  llama_server_path?: string | null;
+}
+
+export interface EngineSettings extends Partial<BackendSettings> {
+  status: 'running' | 'offline';
+  backend: string;
+  runtimeSource?: 'managed' | 'custom';
+  customLlamaServerPath?: string;
+  targetBackend?: 'auto' | 'cuda' | 'vulkan' | 'cpu';
+  autoStart?: boolean;
+  renderDpi?: number; // 72, 100, 150, 200
+  maxImageSize?: number;
+  maxTokensPerPage?: number;
+  maxPagesPerDoc?: string;
+  endpointUrl?: string;
+  allowRemote?: boolean;
+  timeout?: number;
+  retries?: number;
+  modelRepo?: string;
+  // Backend canonical fields
+  dpi?: number;
+  max_image_dimension?: number;
+  max_tokens?: number;
+  max_retries?: number;
+  auto_start_server?: boolean;
+  local_endpoint?: string;
+  runtime_mode?: string;
+  managed_backend_override?: string | null;
+  model_repo?: string;
+}
+
+export interface DoctorCheckItem {
+  category: string;
+  title: string;
+  status: 'PASS' | 'WARN' | 'FAIL' | string;
+  details?: string | string[] | null;
+  remediation?: string | null;
+}
+
+export interface DoctorReport {
+  status: string;
+  exit_code: number;
+  total_checks: number;
+  failed_checks: number;
+  checks: DoctorCheckItem[];
+  text?: string;
 }
 
 export type OutputFormatType = 'docx' | 'md' | 'json' | 'both';

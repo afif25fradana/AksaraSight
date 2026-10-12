@@ -786,7 +786,10 @@ export default function App() {
           <SettingsView
             settings={engineSettings}
             onSave={(newSettings) => {
-              setEngineSettings(newSettings);
+              setEngineSettings((prev) => ({
+                ...prev,
+                ...newSettings,
+              }));
             }}
             onCancel={() => setCurrentTab('workspace')}
           />

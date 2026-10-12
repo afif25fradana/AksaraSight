@@ -12,6 +12,10 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, 'src'),
       },
     },
+    build: {
+      outDir: path.resolve(import.meta.dirname, '../web/static'),
+      emptyOutDir: true,
+    },
     test: {
       globals: true,
       environment: 'jsdom',

@@ -2,10 +2,13 @@
 
 import io
 from pathlib import Path
-from docx import Document
-from docx.shared import Pt
+import xml.etree.ElementTree as ET
+import zipfile
 
+import docx
+from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 from markdown_it.token import Token
 from markdown_it.tree import SyntaxTreeNode
 
@@ -915,4 +918,92 @@ def test_html_table_cell_paragraphs() -> None:
     assert len(doc.tables) == 1
     cell_text = doc.tables[0].rows[0].cells[0].text
     assert cell_text == "First paragraph\nSecond paragraph"
+
+
+def test_html_table_docx_roundtrip_disk_reopen_and_ooxml_structure(tmp_path: Path) -> None:
+    """Verify clamped table DOCX disk round-trip and inspect raw OOXML elements."""
+    html = (
+        "<table>\n"
+        '<tr><td colspan="100" rowspan="5">Clamped Spans Cell</td><td>Col 2</td></tr>\n'
+        "<tr><td>Row 2</td></tr>\n"
+        "<tr><td>Row 3</td></tr>\n"
+        "<tr><td>Row 4</td></tr>\n"
+        "<tr><td>Row 5</td></tr>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="clamped.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    file_path = tmp_path / "clamped.docx"
+    doc.save(str(file_path))
+
+    # Re-open with docx.Document
+    reopened = docx.Document(str(file_path))
+    assert len(reopened.tables) == 1
+    table = reopened.tables[0]
+    assert len(table.columns) <= 63
+    assert table.rows[0].cells[0].text == "Clamped Spans Cell"
+
+    # Unzip clamped.docx and parse word/document.xml
+    with zipfile.ZipFile(str(file_path)) as z:
+        xml_content = z.read("word/document.xml")
+    root = ET.fromstring(xml_content)
+
+    # Asserts XML root tag
+    assert root.tag.endswith("document")
+
+    # Asserts w:tbl and w:tblGrid exist
+    tbls = [el for el in root.iter() if el.tag.endswith("tbl")]
+    assert len(tbls) >= 1
+    tbl_grids = [el for el in root.iter() if el.tag.endswith("tblGrid")]
+    assert len(tbl_grids) >= 1
+
+    # Asserts w:gridCol count <= 63
+    grid_cols = [el for el in root.iter() if el.tag.endswith("gridCol")]
+    assert 0 < len(grid_cols) <= 63
+
+    # Asserts w:hMerge (w:gridSpan) and w:vMerge OOXML tags exist on merged cells
+    has_h_merge = any(
+        el.tag.endswith(("gridSpan", "hMerge")) or "gridSpan" in el.tag or "hMerge" in el.tag
+        for el in root.iter()
+    )
+    has_v_merge = any(
+        el.tag.endswith("vMerge") or "vMerge" in el.tag
+        for el in root.iter()
+    )
+    assert has_h_merge, "Expected horizontal merge tag (w:gridSpan or w:hMerge) in OOXML"
+    assert has_v_merge, "Expected vertical merge tag (w:vMerge) in OOXML"
+
+
+def test_html_table_row_count_clamping() -> None:
+    """Verify HTML tables exceeding MAX_HTML_TABLE_ROWS are clamped to 1000 rows."""
+    rows_html = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(1500))
+    html = f"<table>\n{rows_html}</table>"
+    result = OCRResult(
+        file_path="large_table.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 1000
+
+
+def test_html_table_nested_table_in_cell_safety() -> None:
+    """Verify parser safely flattens nested tables without crash and preserves cell text."""
+    html = "<table><tr><td>Outer Cell <table><tr><td>Inner Cell</td></tr></table> More Outer</td></tr></table>"
+    result = OCRResult(
+        file_path="nested_table.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 1
+    assert len(doc.tables[0].columns) == 1
+    assert doc.tables[0].rows[0].cells[0].text == "Outer Cell Inner Cell More Outer"
+
 

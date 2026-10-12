@@ -203,8 +203,16 @@ def _render_table_node(doc: docx.document.Document, table_node: SyntaxTreeNode) 
     p_after.paragraph_format.space_after = Pt(6)
 
 
+MAX_WORD_TABLE_COLUMNS = 63
+MAX_HTML_TABLE_ROWS = 1000
+
+
 class _HTMLTableExtractor(HTMLParser):
-    """HTML parser extracting table grids and non-table text with charref decoding."""
+    """HTML parser extracting table grids and non-table text with charref decoding.
+
+    Clamped to 63 columns to adhere to Microsoft Word's application table column limit
+    (documented in Microsoft Word operating parameter limitations).
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -215,6 +223,7 @@ class _HTMLTableExtractor(HTMLParser):
         self._current_row: List[dict] = []
         self._cell_text: List[str] = []
         self._in_table = False
+        self._table_depth = 0
         self._in_tr = False
         self._in_cell = False
         self._cell_is_header = False
@@ -227,6 +236,9 @@ class _HTMLTableExtractor(HTMLParser):
         attrs_dict = {k.lower(): v for k, v in attrs if v is not None}
 
         if tag == "table":
+            self._table_depth += 1
+            if self._table_depth > 1:
+                return
             if self._in_cell:
                 self._flush_cell()
             if self._in_tr:
@@ -237,14 +249,24 @@ class _HTMLTableExtractor(HTMLParser):
             self._current_table = []
             self._in_tr = False
             self._in_cell = False
-        elif tag == "tr":
+            return
+
+        if self._table_depth > 1:
+            if tag in ("tr", "th", "td"):
+                return
+
+        if tag == "tr":
             if self._in_cell:
                 self._flush_cell()
             if self._in_tr:
                 self._flush_row()
+            if len(self._current_table) >= MAX_HTML_TABLE_ROWS:
+                return
             self._in_tr = True
             self._current_row = []
         elif tag in ("th", "td"):
+            if len(self._current_table) >= MAX_HTML_TABLE_ROWS:
+                return
             if self._in_cell:
                 self._flush_cell()
             if not self._in_tr:
@@ -253,11 +275,11 @@ class _HTMLTableExtractor(HTMLParser):
             self._in_cell = True
             self._cell_is_header = (tag == "th")
             try:
-                self._cell_colspan = min(max(1, int(attrs_dict.get("colspan", "1"))), 63)
+                self._cell_colspan = min(max(1, int(attrs_dict.get("colspan", "1"))), MAX_WORD_TABLE_COLUMNS)
             except (ValueError, TypeError):
                 self._cell_colspan = 1
             try:
-                self._cell_rowspan = min(max(1, int(attrs_dict.get("rowspan", "1"))), 1000)
+                self._cell_rowspan = min(max(1, int(attrs_dict.get("rowspan", "1"))), MAX_HTML_TABLE_ROWS)
             except (ValueError, TypeError):
                 self._cell_rowspan = 1
             align_attr = (attrs_dict.get("align") or "").lower()
@@ -282,6 +304,22 @@ class _HTMLTableExtractor(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if tag == "table":
+            self._table_depth = max(0, self._table_depth - 1)
+            if self._table_depth > 0:
+                return
+            if self._in_cell:
+                self._flush_cell()
+            if self._in_tr:
+                self._flush_row()
+            if self._in_table:
+                self._flush_table()
+            return
+
+        if self._table_depth > 1:
+            if tag in ("th", "td", "tr"):
+                return
+
         if tag in ("th", "td"):
             if self._in_cell:
                 self._flush_cell()
@@ -290,13 +328,6 @@ class _HTMLTableExtractor(HTMLParser):
                 self._flush_cell()
             if self._in_tr:
                 self._flush_row()
-        elif tag == "table":
-            if self._in_cell:
-                self._flush_cell()
-            if self._in_tr:
-                self._flush_row()
-            if self._in_table:
-                self._flush_table()
 
     def handle_data(self, data: str) -> None:
         if self._in_cell:
@@ -328,7 +359,8 @@ class _HTMLTableExtractor(HTMLParser):
 
     def _flush_row(self) -> None:
         if self._current_row:
-            self._current_table.append(self._current_row)
+            if len(self._current_table) < MAX_HTML_TABLE_ROWS:
+                self._current_table.append(self._current_row)
             self._current_row = []
         self._in_tr = False
 
@@ -338,6 +370,7 @@ class _HTMLTableExtractor(HTMLParser):
             self.sequence.append(("table", self._current_table))
             self._current_table = []
         self._in_table = False
+        self._table_depth = 0
 
     def close(self) -> None:
         super().close()
@@ -347,10 +380,15 @@ class _HTMLTableExtractor(HTMLParser):
             self._flush_row()
         if self._in_table:
             self._flush_table()
+        self._table_depth = 0
 
 
 def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List[dict]]) -> None:
-    """Render a parsed HTML table into the Document with merge and OOXML attributes."""
+    """Render a parsed HTML table into the Document with merge and OOXML attributes.
+
+    Clamped to 63 columns to adhere to Microsoft Word's application table column limit
+    (documented in Microsoft Word operating parameter limitations).
+    """
     if not table_data:
         return
 
@@ -362,9 +400,9 @@ def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List
         for cell_dict in row:
             while (r, col) in occupied:
                 col += 1
-            if col >= 63:
+            if col >= MAX_WORD_TABLE_COLUMNS:
                 break
-            colspan = min(max(1, int(cell_dict.get("colspan", 1))), 63 - col)
+            colspan = min(max(1, int(cell_dict.get("colspan", 1))), MAX_WORD_TABLE_COLUMNS - col)
             rowspan = min(max(1, int(cell_dict.get("rowspan", 1))), max(1, len(table_data) - r))
             for dr in range(rowspan):
                 for dc in range(colspan):

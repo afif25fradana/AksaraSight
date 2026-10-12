@@ -7,7 +7,7 @@ import { ExtractedTextPanel } from './components/ExtractedTextPanel';
 import { SettingsView } from './components/SettingsView';
 import { OutputFolderModal } from './components/OutputFolderModal';
 import { ServerLogsModal } from './components/ServerLogsModal';
-import { DocumentItem, EngineSettings, ExportedFile, OutputFormatType, PromptMode, ServerStatusInfo } from './types';
+import { DocumentItem, EngineSettings, ExportedFile, ModelStatusInfo, OutputFormatType, PromptMode, ServerStatusInfo } from './types';
 import { INITIAL_DOCUMENTS, INITIAL_SETTINGS } from './data/mockDocuments';
 
 export default function App() {
@@ -103,6 +103,48 @@ export default function App() {
     const interval = setInterval(fetchServerStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Model weights status state and actions
+  const [modelStatus, setModelStatus] = useState<ModelStatusInfo | null>(null);
+
+  const fetchModelStatus = async () => {
+    try {
+      const res = await fetch('/api/model/status');
+      if (res.ok) {
+        const data: ModelStatusInfo = await res.json();
+        setModelStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch model status:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchModelStatus();
+  }, []);
+
+  const handleDownloadModel = async () => {
+    try {
+      setModelStatus((prev) => (prev ? { ...prev, is_downloading: true, error: null } : null));
+      const res = await fetch('/api/model/download', { method: 'POST' });
+      if (res.ok) {
+        await fetchModelStatus();
+      }
+    } catch (err) {
+      console.error('Failed to start model download:', err);
+    }
+  };
+
+  const handleCancelModelDownload = async () => {
+    try {
+      const res = await fetch('/api/model/download/cancel', { method: 'POST' });
+      if (res.ok) {
+        await fetchModelStatus();
+      }
+    } catch (err) {
+      console.error('Failed to cancel model download:', err);
+    }
+  };
 
   // Real Server-Sent Events (SSE) listener and loopback health probe
   useEffect(() => {
@@ -294,6 +336,28 @@ export default function App() {
       } catch (err) {
         console.error('Error handling failed event', err);
       }
+    });
+
+    eventSource.addEventListener('model_download_progress', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        setModelStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                is_downloading: data.is_downloading ?? true,
+                bytes_downloaded: data.bytes_downloaded ?? prev.bytes_downloaded,
+                percent: data.percent ?? prev.percent,
+                active_file: data.active_file ?? prev.active_file,
+                downloaded: data.status === 'completed' ? true : prev.downloaded,
+                error: data.error ?? null,
+              }
+            : null
+        );
+        if (data.status === 'completed') {
+          fetchModelStatus();
+        }
+      } catch {}
     });
 
     return () => {
@@ -837,6 +901,9 @@ export default function App() {
               }));
             }}
             onCancel={() => setCurrentTab('workspace')}
+            modelStatus={modelStatus}
+            onDownloadModel={handleDownloadModel}
+            onCancelModelDownload={handleCancelModelDownload}
           />
         </div>
       )}

@@ -118,4 +118,19 @@ export interface ServerStatusInfo {
   recent_logs: string[];
 }
 
+export interface ModelStatusInfo {
+  repo: string;
+  revision: string;
+  downloaded: boolean;
+  model_path: string | null;
+  mmproj_path: string | null;
+  total_bytes: number;
+  is_downloading: boolean;
+  bytes_downloaded: number;
+  percent: number;
+  active_file: string | null;
+  error: string | null;
+}
+
+
 

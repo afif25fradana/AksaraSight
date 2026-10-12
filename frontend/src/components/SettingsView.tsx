@@ -8,15 +8,28 @@ import {
   AlertTriangle, 
   Stethoscope,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  Download,
+  HardDrive
 } from 'lucide-react';
-import { BackendSettings, DoctorReport, EngineSettings } from '../types';
+import { BackendSettings, DoctorReport, EngineSettings, ModelStatusInfo } from '../types';
 
 interface SettingsViewProps {
   settings?: EngineSettings;
   onSave?: (newSettings: BackendSettings) => void;
   onCancel?: () => void;
+  modelStatus?: ModelStatusInfo | null;
+  onDownloadModel?: () => void | Promise<void>;
+  onCancelModelDownload?: () => void | Promise<void>;
 }
+
+const formatBytes = (bytes: number): string => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i] || 'GB'}`;
+};
+
 
 type SettingsCategory = 'engine' | 'processing' | 'advanced';
 
@@ -51,7 +64,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   onSave,
   onCancel,
+  modelStatus,
+  onDownloadModel,
+  onCancelModelDownload,
 }) => {
+  const [internalModelStatus, setInternalModelStatus] = useState<ModelStatusInfo | null>(null);
+  const effectiveModelStatus = modelStatus !== undefined ? modelStatus : internalModelStatus;
+
   const [formData, setFormData] = useState<BackendSettings>(() => {
     return {
       ...DEFAULT_SETTINGS,
@@ -134,10 +153,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         console.warn('Could not fetch cached doctor report:', err);
       });
 
+    // 3. Fetch model status from GET /api/model/status if not provided
+    if (modelStatus === undefined) {
+      fetch('/api/model/status')
+        .then(async (res) => {
+          if (res.ok) {
+            const data: ModelStatusInfo = await res.json();
+            if (isMounted && data) {
+              setInternalModelStatus(data);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [modelStatus]);
+
+  // Model download & cancel handlers
+  const handleDownloadModelAction = async () => {
+    if (onDownloadModel) {
+      await onDownloadModel();
+    } else {
+      try {
+        await fetch('/api/model/download', { method: 'POST' });
+        const res = await fetch('/api/model/status');
+        if (res.ok) {
+          const data: ModelStatusInfo = await res.json();
+          setInternalModelStatus(data);
+        }
+      } catch (err) {
+        console.error('Failed to trigger model download:', err);
+      }
+    }
+  };
+
+  const handleCancelModelDownloadAction = async () => {
+    if (onCancelModelDownload) {
+      await onCancelModelDownload();
+    } else {
+      try {
+        await fetch('/api/model/download/cancel', { method: 'POST' });
+        const res = await fetch('/api/model/status');
+        if (res.ok) {
+          const data: ModelStatusInfo = await res.json();
+          setInternalModelStatus(data);
+        }
+      } catch (err) {
+        console.error('Failed to cancel model download:', err);
+      }
+    }
+  };
+
 
   // Compute dirty state: true only when mutable fields differ from savedSettings
   const isDirty = useMemo(() => {
@@ -447,6 +516,122 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Model Weights Management Card */}
+                <div className="bg-white dark:bg-[var(--bg-elevated)] p-4 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] space-y-3.5 transition-colors">
+                  <div className="flex items-center justify-between border-b border-[#E5E2D9]/70 dark:border-[var(--border)] pb-2.5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
+                        <span className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">
+                          Model Weights Management
+                        </span>
+                      </div>
+                      <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
+                        Offline GGUF vision-language model weights for local OCR processing
+                      </p>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div>
+                      {effectiveModelStatus?.downloaded ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-[#15803D]/10 text-[#14532D] dark:bg-[var(--success)]/10 dark:text-[var(--success)] border border-[#15803D]/25 dark:border-[var(--success)]/30">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#15803D] dark:text-[var(--success)]" aria-hidden="true" />
+                          Downloaded (Verified Local Weights)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 border border-amber-500/25 dark:border-amber-500/30">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                          Not Downloaded (Using -hf fallback)
+                        </span>
+                      )}
+                    </div>
+
+                  </div>
+
+                  {/* Model Metadata Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-[#FAF9F5] dark:bg-[var(--bg-base)] p-3 rounded-lg border border-[#E5E2D9] dark:border-[var(--border)]">
+                    <div>
+                      <span className="text-[#5A6478] dark:text-[var(--text-2)] block font-medium mb-0.5">Model</span>
+                      <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] font-mono text-[12.5px]">
+                        GLM-OCR (Q8_0)
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[#5A6478] dark:text-[var(--text-2)] block font-medium mb-0.5">Repo & Revision</span>
+                      <span className="font-medium text-[#14213D] dark:text-[var(--text-1)] font-mono text-[11.5px] truncate block" title={`${effectiveModelStatus?.repo || 'ggml-org/GLM-OCR-GGUF'} (Revision ${effectiveModelStatus?.revision || '65a42de'})`}>
+                        {effectiveModelStatus?.repo || 'ggml-org/GLM-OCR-GGUF'} (Revision {effectiveModelStatus?.revision || '65a42de'})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[#5A6478] dark:text-[var(--text-2)] block font-medium mb-0.5">Size</span>
+                      <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] font-mono text-[12.5px]">
+                        1.34 GB
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Error banner if download had error */}
+                  {effectiveModelStatus?.error && (
+                    <div role="alert" className="p-2.5 bg-red-50 dark:bg-[var(--danger)]/10 border border-red-200 dark:border-[var(--danger)]/30 text-red-700 dark:text-[var(--danger)] rounded-lg text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 dark:text-[var(--danger)]" aria-hidden="true" />
+                      <span>{effectiveModelStatus.error}</span>
+                    </div>
+                  )}
+
+                  {/* Download Progress or Action Button */}
+                  {effectiveModelStatus?.is_downloading ? (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate max-w-[65%]">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#0F766E] dark:text-[var(--accent)] shrink-0" aria-hidden="true" />
+                          <span className="truncate">{effectiveModelStatus.active_file || 'Downloading weights...'}</span>
+                        </div>
+                        <div className="font-mono text-[11.5px] text-[#14213D] dark:text-[var(--text-1)] font-semibold shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatBytes(effectiveModelStatus.bytes_downloaded)} / {formatBytes(effectiveModelStatus.total_bytes || 1440000000)} ({Math.round(effectiveModelStatus.percent)}%)
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full"
+                          style={{ width: `${effectiveModelStatus.percent}%` }}
+                        />
+                      </div>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCancelModelDownloadAction}
+                          className="h-7 px-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-md text-xs font-semibold active:scale-[0.96] transition-all duration-150 cursor-pointer shadow-2xs"
+                        >
+                          Cancel Download
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="text-xs text-[#5A6478] dark:text-[var(--text-2)]">
+                        {effectiveModelStatus?.downloaded ? (
+                          <span>Local weights verified and cached for offline inference.</span>
+                        ) : (
+                          <span>Download pinned weights to run OCR without online Hugging Face hub requests.</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDownloadModelAction}
+                        className="h-8 px-3.5 bg-[#0F766E] dark:bg-[var(--accent)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 active:bg-[#0d4f4b] text-white dark:text-[var(--bg-base)] rounded-lg text-xs font-semibold active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>
+                          {effectiveModelStatus?.downloaded ? 'Re-download / Verify Model' : 'Download Pinned Model'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Field 3: Start server automatically toggle (MUTABLE) */}

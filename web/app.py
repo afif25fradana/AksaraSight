@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import threading
 from typing import Any, Dict, List, Literal, Optional, Union
 import uuid
 
@@ -25,6 +26,13 @@ from core.client import ServerOfflineError
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
+from core.model_manager import (
+    PINNED_MODEL_REPO,
+    PINNED_MODEL_REVISION,
+    TOTAL_MODEL_BYTES,
+    get_local_model_paths,
+    get_model_downloader,
+)
 from core.models import PROMPT_PRESETS
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
 from core.server_manager import (
@@ -37,6 +45,8 @@ from web.orchestrator import JobState, JobStatus, WebOrchestrator
 from web.security import LoopbackSecurityMiddleware
 
 logger = logging.getLogger(__name__)
+
+FORBIDDEN_DOWNLOAD_PARAMS = frozenset({"url", "repo", "revision", "filename", "path", "dest"})
 
 
 def enforce_loopback_host(host: str) -> None:
@@ -173,12 +183,21 @@ def create_app(
     allowed_port: Optional[int] = None,
     dev_mode: bool = False,
     env_path: Optional[Union[str, Path]] = None,
+    model_downloader: Optional[Any] = None,
 ) -> FastAPI:
     env_path = env_path or os.environ.get("AKSARA_ENV_FILE")
     app_settings = settings or Settings.from_env(env_path=env_path)
     app_engine = engine or OCREngine(settings=app_settings)
     app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
     app_server_manager = server_manager or ServerManager(settings=app_settings)
+    app_model_downloader = model_downloader or get_model_downloader()
+
+    if not hasattr(app_orchestrator, "_broadcast"):
+        def _orchestrator_broadcast(msg: Dict[str, Any]) -> None:
+            evt = msg.get("event", "message")
+            d = msg.get("data", {})
+            app_orchestrator.broadcast(evt, d)
+        app_orchestrator._broadcast = _orchestrator_broadcast  # type: ignore[attr-defined]
 
     dev_mode = dev_mode or os.environ.get("AKSARA_WEB_DEV_MODE", "").lower() in ("1", "true")
 
@@ -295,6 +314,7 @@ def create_app(
     app.state.engine = app_engine
     app.state.orchestrator = app_orchestrator
     app.state.server_manager = app_server_manager
+    app.state.model_downloader = app_model_downloader
     app.state.server_managed = False
     app.state.upload_dir = target_upload_dir
     app.state.max_upload_size = max_upload_size
@@ -302,6 +322,7 @@ def create_app(
     app.state.dev_mode = dev_mode
     app.state.instance_lock = None
     app.state.last_doctor_report = None
+    app.state.last_model_download_status = None
     app.state.env_path = Path(env_path).resolve() if env_path is not None else None
 
     @app.get("/health")
@@ -777,13 +798,155 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    @app.get("/api/model/status")
+    async def get_model_status() -> Dict[str, Any]:
+        """Return pinned model weights status and active download progress."""
+        downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
+        local_paths = get_local_model_paths()
+        status_info = downloader.get_status() if hasattr(downloader, "get_status") else {}
+        return {
+            "repo": PINNED_MODEL_REPO,
+            "revision": PINNED_MODEL_REVISION,
+            "downloaded": local_paths is not None,
+            "model_path": str(local_paths[0]) if local_paths else None,
+            "mmproj_path": str(local_paths[1]) if local_paths else None,
+            "total_bytes": TOTAL_MODEL_BYTES,
+            "is_downloading": status_info.get("is_downloading", False),
+            "bytes_downloaded": status_info.get("bytes_downloaded", 0),
+            "percent": status_info.get("percent", 0.0),
+            "active_file": status_info.get("active_file") or status_info.get("current_file"),
+            "error": status_info.get("error_message"),
+        }
+
+    @app.post("/api/model/download", status_code=status.HTTP_202_ACCEPTED)
+    async def post_model_download(request: Request) -> Dict[str, Any]:
+        """Initiate background download of pinned model weights with SSE progress reporting."""
+        query_keys = {str(k).strip().lower() for k in request.query_params.keys()}
+        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in query_keys):
+            raise HTTPException(
+                status_code=400,
+                detail="Client-controlled download targets are strictly prohibited",
+            )
+
+        body_bytes = await request.body()
+        if body_bytes:
+            try:
+                body_json = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+            if isinstance(body_json, dict):
+                body_keys = {str(k).strip().lower() for k in body_json.keys()}
+                if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in body_keys):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Client-controlled download targets are strictly prohibited",
+                    )
+            elif isinstance(body_json, list):
+                for item in body_json:
+                    if isinstance(item, str) and item.strip().lower() in FORBIDDEN_DOWNLOAD_PARAMS:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Client-controlled download targets are strictly prohibited",
+                        )
+                    elif isinstance(item, dict):
+                        item_keys = {str(k).strip().lower() for k in item.keys()}
+                        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in item_keys):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Client-controlled download targets are strictly prohibited",
+                            )
+
+        downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
+        if getattr(downloader, "is_downloading", False):
+            raise HTTPException(
+                status_code=409,
+                detail="Model download is already in progress",
+            )
+
+        def on_download_progress(*args: Any, **kwargs: Any) -> None:
+            if len(args) == 1 and isinstance(args[0], dict):
+                s = args[0]
+                dl = s.get("bytes_downloaded", s.get("downloaded", 0))
+                tot = s.get("total_bytes", s.get("total", TOTAL_MODEL_BYTES))
+                pct = s.get("percent", 0.0)
+                af = s.get("active_file") or s.get("current_file", "")
+                spd = s.get("speed", 0.0)
+                is_dl = s.get("is_downloading", False)
+                err = s.get("error_message") or s.get("error")
+            elif len(args) >= 5:
+                dl, tot, pct, af, spd = args[:5]
+                is_dl = kwargs.get("is_downloading", True)
+                err = kwargs.get("error")
+            else:
+                s = kwargs
+                dl = s.get("bytes_downloaded", s.get("downloaded", 0))
+                tot = s.get("total_bytes", s.get("total", TOTAL_MODEL_BYTES))
+                pct = s.get("percent", 0.0)
+                af = s.get("active_file") or s.get("current_file", "")
+                spd = s.get("speed", 0.0)
+                is_dl = s.get("is_downloading", True)
+                err = s.get("error_message") or s.get("error")
+
+            progress_payload = {
+                "downloaded": dl,
+                "total": tot,
+                "percent": pct,
+                "active_file": af,
+                "speed": spd,
+                "bytes_downloaded": dl,
+                "total_bytes": tot,
+                "is_downloading": is_dl,
+                "error": err,
+            }
+            app.state.last_model_download_status = progress_payload
+            payload_str = json.dumps(progress_payload)
+            if hasattr(app_orchestrator, "_broadcast"):
+                app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
+            elif hasattr(app_orchestrator, "broadcast"):
+                app_orchestrator.broadcast("model_download_progress", progress_payload)
+
+        downloader.progress_callback = on_download_progress
+
+        def _bg_download() -> None:
+            try:
+                downloader.download()
+            except Exception as exc:
+                logger.exception("Background model download encountered an error: %s", exc)
+
+        thread = threading.Thread(
+            target=_bg_download,
+            daemon=True,
+            name="AksaraSight-ModelDownloadWorker",
+        )
+        thread.start()
+
+        return {"started": True, "message": "Model download initiated"}
+
+    @app.post("/api/model/download/cancel")
+    async def post_model_download_cancel() -> Dict[str, Any]:
+        """Signal cooperative cancellation of active model download."""
+        downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
+        if not getattr(downloader, "is_downloading", False):
+            return {"cancelled": False, "message": "No active download to cancel"}
+
+        if hasattr(downloader, "cancel"):
+            downloader.cancel()
+
+        return {"cancelled": True, "message": "Download cancellation requested"}
+
     @app.get("/api/events", response_class=EventSourceResponse)
     async def sse_events(request: Request):
         """Stream real-time orchestrator queue events over Server-Sent Events."""
         async for msg in app_orchestrator.subscribe():
             if await request.is_disconnected():
                 break
-            yield ServerSentEvent(event=msg["event"], data=msg["data"])
+            event = msg.get("event", "message")
+            data = msg.get("data")
+            if isinstance(data, str):
+                yield ServerSentEvent(event=event, raw_data=data)
+            else:
+                yield ServerSentEvent(event=event, data=data)
 
     target_static_dir = Path(static_dir) if static_dir else (Path(__file__).parent / "static")
     if target_static_dir.is_dir():

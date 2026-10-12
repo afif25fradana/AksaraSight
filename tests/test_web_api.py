@@ -1916,5 +1916,288 @@ def test_server_logs_stream_receives_lines(tmp_path: Path) -> None:
     assert len(mock_mgr._log_listeners) == 0
 
 
+class MockModelDownloader:
+    """Mock model downloader for web API testing."""
+
+    def __init__(
+        self,
+        is_downloading: bool = False,
+        error_message: Optional[str] = None,
+        bytes_downloaded: int = 0,
+        total_bytes: int = 1434837056,
+        current_file: str = "",
+        percent: float = 0.0,
+    ) -> None:
+        self.is_downloading = is_downloading
+        self.error_message = error_message
+        self.bytes_downloaded = bytes_downloaded
+        self.total_bytes = total_bytes
+        self.current_file = current_file
+        self.percent = percent
+        self.download_started = threading.Event()
+        self.cancel_called = threading.Event()
+        self.progress_callback: Optional[Callable[..., None]] = None
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "is_downloading": self.is_downloading,
+            "bytes_downloaded": self.bytes_downloaded,
+            "total_bytes": self.total_bytes,
+            "current_file": self.current_file,
+            "error_message": self.error_message,
+            "percent": self.percent,
+        }
+
+    def download(self) -> bool:
+        self.is_downloading = True
+        self.download_started.set()
+        if self.progress_callback:
+            self.progress_callback({
+                "bytes_downloaded": 700000000,
+                "total_bytes": self.total_bytes,
+                "percent": 48.79,
+                "active_file": "GLM-OCR-Q8_0.gguf",
+                "speed": 10485760.0,
+                "is_downloading": True,
+            })
+        return True
+
+    def cancel(self) -> None:
+        self.cancel_called.set()
+        self.is_downloading = False
+
+
+def test_get_model_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /api/model/status returns pinned model metadata and download state."""
+    from core.model_manager import PINNED_MODEL_REPO, PINNED_MODEL_REVISION, TOTAL_MODEL_BYTES
+
+    mock_dl = MockModelDownloader(
+        is_downloading=False,
+        bytes_downloaded=0,
+        total_bytes=TOTAL_MODEL_BYTES,
+        current_file="",
+        percent=0.0,
+    )
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    client = AsgiClient(app)
+
+    # 1. When local model paths are not present
+    monkeypatch.setattr("web.app.get_local_model_paths", lambda *args, **kwargs: None)
+    status, _, body = client.get("/api/model/status")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["repo"] == PINNED_MODEL_REPO
+    assert data["revision"] == PINNED_MODEL_REVISION
+    assert data["downloaded"] is False
+    assert data["model_path"] is None
+    assert data["mmproj_path"] is None
+    assert data["total_bytes"] == TOTAL_MODEL_BYTES
+    assert data["is_downloading"] is False
+    assert data["bytes_downloaded"] == 0
+    assert data["percent"] == 0.0
+
+    # 2. When local model paths are present
+    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
+    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    monkeypatch.setattr(
+        "web.app.get_local_model_paths",
+        lambda *args, **kwargs: (fake_model, fake_mmproj),
+    )
+    status, _, body = client.get("/api/model/status")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["downloaded"] is True
+    assert data["model_path"] == str(fake_model)
+    assert data["mmproj_path"] == str(fake_mmproj)
+
+
+def test_post_model_download_rejects_client_inputs(tmp_path: Path) -> None:
+    """Verify POST /api/model/download rejects forbidden client-controlled parameters with HTTP 400."""
+    mock_dl = MockModelDownloader()
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    client = AsgiClient(app)
+
+    forbidden_payloads = [
+        {"url": "http://evil.com/model.gguf"},
+        {"repo": "malicious/repo"},
+        {"revision": "attacker-branch"},
+        {"filename": "backdoor.gguf"},
+        {"path": "/etc/shadow"},
+        {"dest": "C:\\Windows\\System32"},
+        {"url": ""},
+        {"repo": "   "},
+    ]
+
+    for payload in forbidden_payloads:
+        status, _, body = client.post(
+            "/api/model/download",
+            headers={"content-type": "application/json"},
+            body=json.dumps(payload).encode("utf-8"),
+        )
+        assert status == 400, f"Expected 400 for payload {payload}, got {status}"
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+    # Also test query parameter injection
+    status, _, body = client.request(
+        "POST",
+        "/api/model/download",
+        query_string="url=http://evil.com",
+    )
+    assert status == 400
+    resp_data = json.loads(body.decode("utf-8"))
+    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+
+def test_post_model_download_starts_and_reports_202(tmp_path: Path) -> None:
+    """Verify POST /api/model/download initiates background download and returns 202 Accepted."""
+    mock_dl = MockModelDownloader(is_downloading=False)
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    client = AsgiClient(app)
+
+    status, _, body = client.post(
+        "/api/model/download",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+    )
+    assert status == 202
+    resp_data = json.loads(body.decode("utf-8"))
+    assert resp_data["started"] is True
+    assert "Model download initiated" in resp_data["message"]
+
+    assert mock_dl.download_started.wait(timeout=2.0) is True
+
+
+def test_post_model_download_conflict_409(tmp_path: Path) -> None:
+    """Verify POST /api/model/download returns 409 Conflict if download is already in progress."""
+    mock_dl = MockModelDownloader(is_downloading=True)
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    client = AsgiClient(app)
+
+    status, _, body = client.post(
+        "/api/model/download",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+    )
+    assert status == 409
+    resp_data = json.loads(body.decode("utf-8"))
+    assert "Model download is already in progress" in resp_data["detail"]
+
+
+def test_post_model_download_cancel(tmp_path: Path) -> None:
+    """Verify POST /api/model/download/cancel cancels active download or reports not active."""
+    # 1. When not downloading
+    mock_dl_idle = MockModelDownloader(is_downloading=False)
+    app_idle = create_app(upload_dir=tmp_path, model_downloader=mock_dl_idle)
+    client_idle = AsgiClient(app_idle)
+
+    status, _, body = client_idle.post("/api/model/download/cancel")
+    assert status == 200
+    resp_idle = json.loads(body.decode("utf-8"))
+    assert resp_idle["cancelled"] is False
+    assert "No active download to cancel" in resp_idle["message"]
+
+    # 2. When downloading
+    mock_dl_active = MockModelDownloader(is_downloading=True)
+    app_active = create_app(upload_dir=tmp_path, model_downloader=mock_dl_active)
+    client_active = AsgiClient(app_active)
+
+    status, _, body = client_active.post("/api/model/download/cancel")
+    assert status == 200
+    resp_active = json.loads(body.decode("utf-8"))
+    assert resp_active["cancelled"] is True
+    assert "Download cancellation requested" in resp_active["message"]
+    assert mock_dl_active.cancel_called.is_set() is True
+
+
+def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
+    """Verify model download progress events are broadcast over /api/events SSE stream."""
+    mock_engine = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    mock_dl = MockModelDownloader(is_downloading=False)
+    app = create_app(
+        engine=mock_engine,  # type: ignore[arg-type]
+        orchestrator=orchestrator,
+        upload_dir=tmp_path,
+        model_downloader=mock_dl,
+    )
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events",
+        "raw_path": b"/api/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    resp_headers: Dict[str, str] = {}
+    resp_status = 0
+    resp_body_chunks = []
+    progress_received = asyncio.Event()
+
+    async def receive() -> Dict[str, Any]:
+        await progress_received.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        nonlocal resp_status, resp_headers
+        if message["type"] == "http.response.start":
+            resp_status = message["status"]
+            for k, v in message.get("headers", []):
+                resp_headers[k.decode("latin-1").lower()] = v.decode("latin-1")
+        elif message["type"] == "http.response.body":
+            body = message.get("body", b"")
+            resp_body_chunks.append(body)
+            if b"model_download_progress" in body and b"GLM-OCR-Q8_0.gguf" in body:
+                progress_received.set()
+
+    async def _run() -> None:
+        app_task = asyncio.create_task(app(scope, receive, send))
+
+        # Wait until SSE listener is registered
+        for _ in range(50):
+            with orchestrator._lock:
+                if len(orchestrator._subscribers) > 0:
+                    break
+            await asyncio.sleep(0.02)
+
+        # Trigger download which notifies progress callback
+        client = AsgiClient(app)
+        await asyncio.to_thread(
+            client.post,
+            "/api/model/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+
+        try:
+            await asyncio.wait_for(progress_received.wait(), timeout=3.0)
+        finally:
+            orchestrator.stop()
+            app_task.cancel()
+            try:
+                await app_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    try:
+        asyncio.run(_run())
+    finally:
+        orchestrator.stop()
+
+    assert resp_status == 200
+    assert "text/event-stream" in resp_headers.get("content-type", "")
+    full_body = b"".join(resp_body_chunks).decode("utf-8")
+    assert "model_download_progress" in full_body
+    assert "GLM-OCR-Q8_0.gguf" in full_body
+    assert "48.79" in full_body
+
+
 
 

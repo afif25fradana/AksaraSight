@@ -13,6 +13,7 @@ from markdown_it.token import Token
 from markdown_it.tree import SyntaxTreeNode
 
 from core.docx_export import (
+    _HTMLTableExtractor,
     _render_ast_node,
     _render_table_node,
     build_docx,
@@ -979,17 +980,20 @@ def test_html_table_docx_roundtrip_disk_reopen_and_ooxml_structure(tmp_path: Pat
 
 
 def test_html_table_row_count_clamping() -> None:
-    """Verify HTML tables exceeding MAX_HTML_TABLE_ROWS are clamped to 1000 rows."""
-    rows_html = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(1500))
+    """Verify HTML tables exceeding max_rows are clamped with a visible DOCX notice."""
+    rows_html = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(25))
     html = f"<table>\n{rows_html}</table>"
-    result = OCRResult(
-        file_path="large_table.pdf",
-        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
-        status=JobStatus.SUCCESS,
-    )
-    doc = build_docx(result)
+    doc = Document()
+    render_markdown_page(doc, html, max_html_table_rows=5)
     assert len(doc.tables) == 1
-    assert len(doc.tables[0].rows) == 1000
+    assert len(doc.tables[0].rows) == 5
+    assert any("[Table truncated: 20 rows omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+    large_rows = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(1005))
+    extractor = _HTMLTableExtractor()
+    extractor.feed(f"<table>\n{large_rows}</table>")
+    assert len(extractor.tables[0]) == 1000
+    assert extractor.sequence[0][2] == 5
 
 
 def test_html_table_nested_table_in_cell_safety() -> None:

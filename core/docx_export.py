@@ -2,6 +2,7 @@
 
 from html.parser import HTMLParser
 import io
+import logging
 from typing import Any, List, Optional, Sequence, Tuple
 
 import docx
@@ -14,6 +15,8 @@ from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 
 from core.models import JobStatus, OCRResult
+
+logger = logging.getLogger(__name__)
 
 
 def _create_markdown_parser() -> MarkdownIt:
@@ -214,14 +217,16 @@ class _HTMLTableExtractor(HTMLParser):
     (documented in Microsoft Word operating parameter limitations).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_rows: int = MAX_HTML_TABLE_ROWS) -> None:
         super().__init__(convert_charrefs=True)
+        self.max_rows = max_rows
         self.tables: List[List[List[dict]]] = []
         self.non_table_text: List[str] = []
-        self.sequence: List[Tuple[str, Any]] = []
+        self.sequence: List[Tuple[Any, ...]] = []
         self._current_table: List[List[dict]] = []
         self._current_row: List[dict] = []
         self._cell_text: List[str] = []
+        self._current_truncated_rows = 0
         self._in_table = False
         self._table_depth = 0
         self._in_tr = False
@@ -260,12 +265,13 @@ class _HTMLTableExtractor(HTMLParser):
                 self._flush_cell()
             if self._in_tr:
                 self._flush_row()
-            if len(self._current_table) >= MAX_HTML_TABLE_ROWS:
+            if len(self._current_table) >= self.max_rows:
+                self._current_truncated_rows += 1
                 return
             self._in_tr = True
             self._current_row = []
         elif tag in ("th", "td"):
-            if len(self._current_table) >= MAX_HTML_TABLE_ROWS:
+            if len(self._current_table) >= self.max_rows:
                 return
             if self._in_cell:
                 self._flush_cell()
@@ -279,7 +285,7 @@ class _HTMLTableExtractor(HTMLParser):
             except (ValueError, TypeError):
                 self._cell_colspan = 1
             try:
-                self._cell_rowspan = min(max(1, int(attrs_dict.get("rowspan", "1"))), MAX_HTML_TABLE_ROWS)
+                self._cell_rowspan = min(max(1, int(attrs_dict.get("rowspan", "1"))), self.max_rows)
             except (ValueError, TypeError):
                 self._cell_rowspan = 1
             align_attr = (attrs_dict.get("align") or "").lower()
@@ -359,7 +365,7 @@ class _HTMLTableExtractor(HTMLParser):
 
     def _flush_row(self) -> None:
         if self._current_row:
-            if len(self._current_table) < MAX_HTML_TABLE_ROWS:
+            if len(self._current_table) < self.max_rows:
                 self._current_table.append(self._current_row)
             self._current_row = []
         self._in_tr = False
@@ -367,8 +373,9 @@ class _HTMLTableExtractor(HTMLParser):
     def _flush_table(self) -> None:
         if self._current_table:
             self.tables.append(self._current_table)
-            self.sequence.append(("table", self._current_table))
+            self.sequence.append(("table", self._current_table, self._current_truncated_rows))
             self._current_table = []
+        self._current_truncated_rows = 0
         self._in_table = False
         self._table_depth = 0
 
@@ -383,7 +390,11 @@ class _HTMLTableExtractor(HTMLParser):
         self._table_depth = 0
 
 
-def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List[dict]]) -> None:
+def _render_parsed_html_table(
+    doc: docx.document.Document,
+    table_data: List[List[dict]],
+    truncated_rows: int = 0,
+) -> None:
     """Render a parsed HTML table into the Document with merge and OOXML attributes.
 
     Clamped to 63 columns to adhere to Microsoft Word's application table column limit
@@ -401,6 +412,11 @@ def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List
             while (r, col) in occupied:
                 col += 1
             if col >= MAX_WORD_TABLE_COLUMNS:
+                logger.warning(
+                    "HTML table row %d exceeded column limit %d; trailing cells omitted",
+                    r,
+                    MAX_WORD_TABLE_COLUMNS,
+                )
                 break
             colspan = min(max(1, int(cell_dict.get("colspan", 1))), MAX_WORD_TABLE_COLUMNS - col)
             rowspan = min(max(1, int(cell_dict.get("rowspan", 1))), max(1, len(table_data) - r))
@@ -448,9 +464,22 @@ def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List
         if row_idx < len(table_data) and any(c.get("is_header") for c in table_data[row_idx]):
             trPr.append(OxmlElement("w:tblHeader"))
 
-    p_after = doc.add_paragraph()
-    p_after.paragraph_format.space_before = Pt(0)
-    p_after.paragraph_format.space_after = Pt(6)
+    if truncated_rows > 0:
+        logger.warning(
+            "HTML table truncated: %d rows omitted exceeding limit of %d",
+            truncated_rows,
+            len(table_data),
+        )
+        p_note = doc.add_paragraph()
+        p_note.paragraph_format.space_before = Pt(0)
+        p_note.paragraph_format.space_after = Pt(6)
+        run = p_note.add_run(f"[Table truncated: {truncated_rows} rows omitted to fit document limits]")
+        run.italic = True
+        run.font.size = Pt(8.5)
+    else:
+        p_after = doc.add_paragraph()
+        p_after.paragraph_format.space_before = Pt(0)
+        p_after.paragraph_format.space_after = Pt(6)
 
 def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode, depth: int = 0) -> None:
     """Render an individual top-level block node into the Document."""
@@ -566,7 +595,12 @@ _TABLE_TAG_FRAGMENTS = (
 )
 
 
-def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser: Optional[MarkdownIt] = None) -> None:
+def render_markdown_page(
+    doc: docx.document.Document,
+    markdown_text: str,
+    parser: Optional[MarkdownIt] = None,
+    max_html_table_rows: int = MAX_HTML_TABLE_ROWS,
+) -> None:
     """Parse and render a single page's markdown string into the target Document."""
     if not markdown_text.strip():
         return
@@ -595,15 +629,15 @@ def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser
                     break
 
             html_str = "\n".join(accumulated_html)
-            extractor = _HTMLTableExtractor()
+            extractor = _HTMLTableExtractor(max_rows=max_html_table_rows)
             extractor.feed(html_str)
             extractor.close()
 
-            for item_type, item_data in extractor.sequence:
-                if item_type == "table":
-                    _render_parsed_html_table(doc, item_data)
-                elif item_type == "text":
-                    for line in item_data.splitlines():
+            for item in extractor.sequence:
+                if item[0] == "table":
+                    _render_parsed_html_table(doc, item[1], truncated_rows=item[2])
+                elif item[0] == "text":
+                    for line in item[1].splitlines():
                         stripped = line.strip()
                         if stripped:
                             p = doc.add_paragraph()

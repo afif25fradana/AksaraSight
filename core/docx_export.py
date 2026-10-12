@@ -126,10 +126,8 @@ def _extract_alignment(style_str: str) -> WD_ALIGN_PARAGRAPH:
 MAX_WORD_TABLE_COLUMNS = 63
 """Maximum table column count supported by Microsoft Word.
 
-While the ISO/IEC 29500-1 schema does not theoretically bound tblGrid column counts,
-Microsoft Word enforces a hard application-level limit of 63 columns per table
-as documented in Microsoft Learn and [MS-OODF3] Section 9.1.6 (Operating parameter limitations).
-Tables exceeding this column count cannot be rendered or opened reliably in Word.
+Microsoft Word enforces an application-level limit of 63 columns per table, as commonly documented in Word operating parameter specifications.
+Empirically observed via COM automation with Microsoft Word 2016 (Office 16 64-bit on Windows 11, one 2-row test file): an OOXML table with 64 columns opened without a crash, but Word silently collapsed it to 63 columns, merging the 64th cell's content into the 63rd column with no user warning.
 """
 
 MAX_HTML_TABLE_ROWS = 1000

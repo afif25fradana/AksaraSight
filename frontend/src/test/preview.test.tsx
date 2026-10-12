@@ -62,7 +62,7 @@ describe('ExtractedTextPanel table preview DOMParser logic', () => {
         </thead>
         <tbody>
           <tr>
-            <td><script>alert("xss")</script>Safe Content</td>
+            <td><script>alert("xss")</script><img src="x" onerror="alert(1)" /><iframe src="javascript:alert(1)" onload="alert(2)"></iframe>Safe Content</td>
           </tr>
         </tbody>
       </table>
@@ -71,8 +71,19 @@ describe('ExtractedTextPanel table preview DOMParser logic', () => {
     const doc = createMockDoc(xssHtml);
     const { container } = render(<ExtractedTextPanel {...defaultProps} document={doc} />);
 
-    // Ensure no <script> element exists in the rendered DOM
+    // Ensure no <script>, <img>, or <iframe> elements exist in the rendered DOM
     expect(container.querySelectorAll('script')).toHaveLength(0);
+    expect(container.querySelectorAll('img')).toHaveLength(0);
+    expect(container.querySelectorAll('iframe')).toHaveLength(0);
+
+    // Ensure no element in container has an attribute starting with 'on'
+    const allElements = Array.from(container.querySelectorAll('*'));
+    for (const el of allElements) {
+      for (const attr of Array.from(el.attributes)) {
+        expect(attr.name.toLowerCase().startsWith('on')).toBe(false);
+      }
+    }
+
     // Ensure the text content is extracted cleanly without executing script
     expect(screen.getByText('alert("xss")Safe Content')).toBeInTheDocument();
   });

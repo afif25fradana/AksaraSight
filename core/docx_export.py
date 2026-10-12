@@ -253,11 +253,11 @@ class _HTMLTableExtractor(HTMLParser):
             self._in_cell = True
             self._cell_is_header = (tag == "th")
             try:
-                self._cell_colspan = max(1, int(attrs_dict.get("colspan", "1")))
+                self._cell_colspan = min(max(1, int(attrs_dict.get("colspan", "1"))), 63)
             except (ValueError, TypeError):
                 self._cell_colspan = 1
             try:
-                self._cell_rowspan = max(1, int(attrs_dict.get("rowspan", "1")))
+                self._cell_rowspan = min(max(1, int(attrs_dict.get("rowspan", "1"))), 1000)
             except (ValueError, TypeError):
                 self._cell_rowspan = 1
             align_attr = (attrs_dict.get("align") or "").lower()
@@ -271,6 +271,9 @@ class _HTMLTableExtractor(HTMLParser):
             else:
                 self._cell_align = WD_ALIGN_PARAGRAPH.LEFT
             self._cell_text = []
+        elif tag == "p":
+            if self._in_cell and self._cell_text:
+                self._cell_text.append("\n")
         elif tag == "br":
             if self._in_cell:
                 self._cell_text.append("\n")
@@ -359,8 +362,10 @@ def _render_parsed_html_table(doc: docx.document.Document, table_data: List[List
         for cell_dict in row:
             while (r, col) in occupied:
                 col += 1
-            colspan = max(1, int(cell_dict.get("colspan", 1)))
-            rowspan = max(1, int(cell_dict.get("rowspan", 1)))
+            if col >= 63:
+                break
+            colspan = min(max(1, int(cell_dict.get("colspan", 1))), 63 - col)
+            rowspan = min(max(1, int(cell_dict.get("rowspan", 1))), max(1, len(table_data) - r))
             for dr in range(rowspan):
                 for dc in range(colspan):
                     occupied.add((r + dr, col + dc))
@@ -509,6 +514,20 @@ def _render_ast_node(doc: docx.document.Document, node: SyntaxTreeNode, depth: i
             p.add_run(node.content)
 
 
+_TABLE_TAG_FRAGMENTS = (
+    "<tr",
+    "<td",
+    "<th",
+    "</table",
+    "<tbody",
+    "</tbody",
+    "<thead",
+    "</thead",
+    "<tfoot",
+    "</tfoot",
+)
+
+
 def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser: Optional[MarkdownIt] = None) -> None:
     """Parse and render a single page's markdown string into the target Document."""
     if not markdown_text.strip():
@@ -524,11 +543,18 @@ def render_markdown_page(doc: docx.document.Document, markdown_text: str, parser
             accumulated_html = [node.content]
             while (
                 idx + 1 < len(children)
-                and children[idx + 1].type == "html_block"
                 and "</table>" not in "".join(accumulated_html).lower()
             ):
-                idx += 1
-                accumulated_html.append(children[idx].content)
+                next_node = children[idx + 1]
+                if (
+                    next_node.type == "html_block"
+                    and any(frag in next_node.content.lower() for frag in _TABLE_TAG_FRAGMENTS)
+                    and not next_node.content.lower().lstrip().startswith("<table")
+                ):
+                    idx += 1
+                    accumulated_html.append(children[idx].content)
+                else:
+                    break
 
             html_str = "\n".join(accumulated_html)
             extractor = _HTMLTableExtractor()

@@ -796,3 +796,123 @@ def test_html_block_non_table_text_preservation() -> None:
     doc = build_docx(result)
     assert len(doc.tables) == 1
     assert any("Footnote: text after table" in p.text for p in doc.paragraphs)
+
+
+def test_html_table_hostile_spans() -> None:
+    """Verify hostile/malformed colspan and rowspan do not cause memory exhaustion or crash, and columns are clamped to <= 63."""
+    hostile_html = (
+        "<table\n"
+        '<tr><th colspan="100000" rowspan="-5">Header</th><th colspan="invalid">Col2</th></tr>\n'
+        '<tr><td rowspan="99999">Cell1</td><td>Cell2</td></tr>\n'
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="hostile.pdf",
+        pages=[PageResult(page_num=1, markdown=hostile_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.columns) <= 63
+    assert table.rows[0].cells[0].text == "Header"
+
+
+def test_html_table_truncated_with_blank_lines_and_trailing_markdown() -> None:
+    """Verify truncated HTML table with blank lines and trailing markdown does not swallow trailing prose."""
+    md = (
+        "<table>\n"
+        "<tr><th>Col 1</th><th>Col 2</th></tr>\n\n"
+        "<tr><td>Row 1</td><td>Data 1</td></tr>\n\n"
+        "This is normal trailing prose that should remain a paragraph."
+    )
+    result = OCRResult(
+        file_path="truncated_trailing.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 2
+    assert any(
+        p.text == "This is normal trailing prose that should remain a paragraph."
+        for p in doc.paragraphs
+    )
+
+
+def test_html_table_real_captured_fixtures() -> None:
+    """Verify real captured receipt and wide table fixtures render exact rows, cols, entities, and values."""
+    receipt_html = (
+        "<table>"
+        "<thead><tr><th>Item Description</th><th>Qty</th><th>Rate</th><th>Subtotal</th></tr></thead>"
+        "<tbody>"
+        "<tr><td>Thermal Transfer Ribbon 110mm x 300m (Pack of 2)</td><td>2</td><td>$12.00</td><td>$24.00</td></tr>"
+        "<tr><td>Precision Optical Sensor Calibration Pack</td><td>5</td><td>$25.00</td><td>$125.00</td></tr>"
+        "<tr><td>USB-C 3.2 Gen2 High-Speed Host Interface Cable 2m</td><td>1</td><td>$18.50</td><td>$18.50</td></tr>"
+        "</tbody>"
+        "<tfoot>"
+        "<tr><td>Subtotal:</td><td></td><td>$167.50</td><td></td></tr>"
+        "<tr><td>Goods &amp; Services Tax (GST 9%)</td><td></td><td>$15.08</td><td></td></tr>"
+        "<tr><td>Total Amount Paid:</td><td></td><td>$182.58</td><td></td></tr>"
+        "</tfoot>"
+        "</table>"
+    )
+    result_receipt = OCRResult(
+        file_path="real_receipt.pdf",
+        pages=[PageResult(page_num=1, markdown=receipt_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_receipt = build_docx(result_receipt)
+    assert len(doc_receipt.tables) == 1
+    t_receipt = doc_receipt.tables[0]
+    assert len(t_receipt.rows) == 7
+    assert len(t_receipt.columns) == 4
+    assert t_receipt.rows[5].cells[0].text == "Goods & Services Tax (GST 9%)"
+    assert t_receipt.rows[6].cells[2].text == "$182.58"
+
+    wide_html = (
+        '<table class="table table-bordered">'
+        "<thead>"
+        "<tr><th>Region / Unit</th><th>Gross Billings</th><th>Direct Costs</th><th>Gross Margin</th><th>Overhead</th><th>Net Operating Profit</th><th>Margin %</th></tr>"
+        "</thead>"
+        "<tbody>"
+        "<tr><td>North America East</td><td>$4,850,000</td><td>$2,100,000</td><td>$2,750,000</td><td>$890,000</td><td>$1,860,000</td><td>38.4%</td></tr>"
+        "<tr><td>North America West</td><td>$5,240,000</td><td>$2,350,000</td><td>$2,890,000</td><td>$940,000</td><td>$1,950,000</td><td>37.2%</td></tr>"
+        "<tr><td>Western Europe (EMEA)</td><td>$3,920,000</td><td>$1,880,000</td><td>$2,040,000</td><td>$710,000</td><td>$1,330,000</td><td>33.9%</td></tr>"
+        "<tr><td>Asia-Pacific (APAC)</td><td>$4,150,000</td><td>$1,620,000</td><td>$2,530,000</td><td>$680,000</td><td>$1,850,000</td><td>44.6%</td></tr>"
+        "<tr><td>Latin America (LATAM)</td><td>$1,450,000</td><td>$820,000</td><td>$630,000</td><td>$340,000</td><td>$290,000</td><td>20.0%</td></tr>"
+        "<tr><td>Consolidated Total</td><td>$19,610,000</td><td>$8,770,000</td><td>$10,840,000</td><td>$3,560,000</td><td>$7,280,000</td><td>37.1%</td></tr>"
+        "</tbody>"
+        "</table>"
+    )
+    result_wide = OCRResult(
+        file_path="real_wide.pdf",
+        pages=[PageResult(page_num=1, markdown=wide_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_wide = build_docx(result_wide)
+    assert len(doc_wide.tables) == 1
+    t_wide = doc_wide.tables[0]
+    assert len(t_wide.rows) == 7
+    assert len(t_wide.columns) == 7
+    assert t_wide.rows[0].cells[0].text == "Region / Unit"
+    assert t_wide.rows[6].cells[1].text == "$19,610,000"
+
+
+def test_html_table_cell_paragraphs() -> None:
+    """Verify <p> tags inside table cells are separated by newlines."""
+    md = (
+        "<table>\n"
+        "<tr><td><p>First paragraph</p><p>Second paragraph</p></td></tr>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="cell_p.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    cell_text = doc.tables[0].rows[0].cells[0].text
+    assert cell_text == "First paragraph\nSecond paragraph"
+

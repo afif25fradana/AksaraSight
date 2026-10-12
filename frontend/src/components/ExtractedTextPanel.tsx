@@ -337,19 +337,18 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           const rowSpanVal = (cell as HTMLTableCellElement).rowSpan || parseInt(cell.getAttribute('rowspan') || cell.getAttribute('rowSpan') || '1', 10);
           const rowSpan = rowSpanVal > 1 ? rowSpanVal : undefined;
 
-          let textAlign: 'left' | 'center' | 'right' | undefined;
-          const alignAttr = (cell.getAttribute('align') || '').toLowerCase().trim();
-          const styleAttr = cell.getAttribute('style') || '';
-
-          if (alignAttr === 'center' || /text-align\s*:\s*center/i.test(styleAttr)) {
+          let textAlign: 'left' | 'center' | 'right' | 'justify' = 'left';
+          const rawAlign = (cell.getAttribute('align') || '').toLowerCase();
+          const styleAttr = (cell.getAttribute('style') || '').toLowerCase();
+          if (rawAlign === 'center' || styleAttr.includes('text-align: center') || styleAttr.includes('text-align:center')) {
             textAlign = 'center';
-          } else if (alignAttr === 'right' || /text-align\s*:\s*right/i.test(styleAttr)) {
+          } else if (rawAlign === 'right' || styleAttr.includes('text-align: right') || styleAttr.includes('text-align:right')) {
             textAlign = 'right';
-          } else if (alignAttr === 'left' || /text-align\s*:\s*left/i.test(styleAttr)) {
-            textAlign = 'left';
+          } else if (rawAlign === 'justify' || styleAttr.includes('text-align: justify') || styleAttr.includes('text-align:justify')) {
+            textAlign = 'justify';
           }
 
-          const alignClass = textAlign === 'center' ? 'text-center' : textAlign === 'right' ? 'text-right' : 'text-left';
+          const alignClass = textAlign === 'center' ? 'text-center' : textAlign === 'right' ? 'text-right' : textAlign === 'justify' ? 'text-justify' : 'text-left';
           const text = (cell.textContent || '').trim();
 
           return {
@@ -396,7 +395,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                         key={`hcell-${cIdx}`}
                         colSpan={cell.colSpan}
                         rowSpan={cell.rowSpan}
-                        style={cell.textAlign ? { textAlign: cell.textAlign } : undefined}
+                        style={{ textAlign: cell.textAlign }}
                         className={`px-3 py-2 border-r border-[#8A94A6]/20 dark:border-[var(--border)] last:border-r-0 ${cell.alignClass}`}
                       >
                         {cell.text}
@@ -420,7 +419,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                           key={`bcell-${cIdx}`}
                           colSpan={cell.colSpan}
                           rowSpan={cell.rowSpan}
-                          style={cell.textAlign ? { textAlign: cell.textAlign } : undefined}
+                          style={{ textAlign: cell.textAlign }}
                           className={`px-3 py-2 border-r border-[#8A94A6]/15 dark:border-[var(--border)] last:border-r-0 text-[#14213D] dark:text-[var(--text-1)] ${cell.isHeader ? 'font-semibold' : ''} ${cell.alignClass}`}
                         >
                           {cell.text}

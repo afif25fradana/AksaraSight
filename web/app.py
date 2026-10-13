@@ -765,11 +765,19 @@ def create_app(
             )
 
         stem = Path(job.filename).stem or "extracted_document"
+        notice = (
+            f"Incomplete extraction: {job.error or 'Processing failed'}"
+            if job.status == JobStatus.FAILED
+            else None
+        )
 
         if format == "docx":
             if not job.result:
                 raise HTTPException(status_code=400, detail="Complete extraction result required for DOCX")
-            content_bytes = export_to_docx_bytes(job.result)
+            content_bytes = export_to_docx_bytes(
+                job.result,
+                notice=notice if job.status == JobStatus.FAILED else None,
+            )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             filename = f"{stem}.docx"
         elif format == "md":
@@ -778,6 +786,8 @@ def create_app(
             else:
                 pages = sorted(job.pages_data.keys())
                 text = "\n\n---\n\n".join(job.pages_data[p].get("text", "") for p in pages)
+            if job.status == JobStatus.FAILED:
+                text = f"*[Notice: {notice}]*\n\n---\n\n" + text
             content_bytes = text.encode("utf-8")
             media_type = "text/markdown; charset=utf-8"
             filename = f"{stem}.md"

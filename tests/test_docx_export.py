@@ -1102,4 +1102,48 @@ def test_table_both_rows_and_cols_truncated_notice() -> None:
     assert any("[Table truncated: 5 rows and 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
 
 
+def test_build_docx_with_incompleteness_notice() -> None:
+    """Verify incompleteness notice banner is prepended as first paragraph with italic styling."""
+    result = OCRResult(
+        file_path="partial_doc.pdf",
+        pages=[
+            PageResult(page_num=1, markdown="# Page 1\nSome extracted text.", status=JobStatus.SUCCESS),
+        ],
+        status=JobStatus.FAILED,
+        error="Extraction failed on page 2",
+    )
+    notice = "Incomplete extraction: Extraction failed on page 2"
+    doc = build_docx(result, notice=notice)
+    assert len(doc.paragraphs) > 0
+    first_p = doc.paragraphs[0]
+    assert first_p.text == f"[Notice: {notice}]"
+    assert len(first_p.runs) > 0
+    run = first_p.runs[0]
+    assert run.italic is True
+    assert run.font.size == Pt(9.5)
+
+
+def test_docx_xml_content_invariance_for_success_export() -> None:
+    """Verify export_to_docx_bytes with notice=None produces byte-identical word/document.xml to default export."""
+    result = OCRResult(
+        file_path="clean_doc.pdf",
+        pages=[
+            PageResult(page_num=1, markdown="# Page 1\nClean content.", status=JobStatus.SUCCESS),
+            PageResult(page_num=2, markdown="# Page 2\nSecond page content.", status=JobStatus.SUCCESS),
+        ],
+        status=JobStatus.SUCCESS,
+    )
+
+    bytes_default = export_to_docx_bytes(result)
+    bytes_notice_none = export_to_docx_bytes(result, notice=None)
+
+    with zipfile.ZipFile(io.BytesIO(bytes_default), "r") as z1:
+        xml_default = z1.read("word/document.xml")
+    with zipfile.ZipFile(io.BytesIO(bytes_notice_none), "r") as z2:
+        xml_notice_none = z2.read("word/document.xml")
+
+    assert xml_default == xml_notice_none
+
+
+
 

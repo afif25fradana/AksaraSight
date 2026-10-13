@@ -726,7 +726,7 @@ def render_markdown_page(
             idx += 1
 
 
-def build_docx(result: OCRResult) -> docx.document.Document:
+def build_docx(result: OCRResult, notice: Optional[str] = None) -> docx.document.Document:
     """Build a styled Microsoft Word Document from an aggregated OCRResult.
 
     Functional guarantees:
@@ -743,6 +743,7 @@ def build_docx(result: OCRResult) -> docx.document.Document:
 
     Args:
         result: Aggregated document OCRResult instance.
+        notice: Optional disclaimer/notice text prepended as the first paragraph.
 
     Returns:
         docx.document.Document: The generated python-docx Document instance.
@@ -755,10 +756,21 @@ def build_docx(result: OCRResult) -> docx.document.Document:
 
     if not valid_pages:
         # Fallback for empty or all-failed results: return clean minimal document
-        if result.error:
+        if notice:
+            p = doc.add_paragraph(f"[Notice: {notice}]")
+            p.paragraph_format.space_before = Pt(12)
+        elif result.error:
             p = doc.add_paragraph(f"Error: {result.error}")
             p.paragraph_format.space_before = Pt(12)
         return doc
+
+    if notice:
+        p_notice = doc.add_paragraph()
+        p_notice.paragraph_format.space_before = Pt(0)
+        p_notice.paragraph_format.space_after = Pt(12)
+        run = p_notice.add_run(f"[Notice: {notice}]")
+        run.italic = True
+        run.font.size = Pt(9.5)
 
     parser = _create_markdown_parser()
     total_pages = len(valid_pages)
@@ -772,17 +784,18 @@ def build_docx(result: OCRResult) -> docx.document.Document:
     return doc
 
 
-
-def export_to_docx_bytes(result: OCRResult) -> bytes:
+def export_to_docx_bytes(result: OCRResult, notice: Optional[str] = None) -> bytes:
     """Serialize an OCRResult to DOCX binary bytes in memory.
 
     Args:
         result: Aggregated OCRResult instance.
+        notice: Optional disclaimer/notice text prepended as the first paragraph.
 
     Returns:
         bytes: Binary OpenXML DOCX archive payload.
     """
     buf = io.BytesIO()
-    doc = build_docx(result)
+    doc = build_docx(result, notice=notice) if notice is not None else build_docx(result)
     doc.save(buf)
     return buf.getvalue()
+

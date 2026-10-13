@@ -2893,4 +2893,171 @@ def test_real_engine_partial_result_ends_as_failed_job_with_page_level_status_no
         orchestrator.stop()
 
 
+def test_failed_job_exports_include_incompleteness_notice_in_md_and_docx(tmp_path: Path) -> None:
+    """Verify failed job exports (with partial kept pages) include banner notice in MD and DOCX, but not JSON."""
+    import docx
+
+    class FakePartialClient:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def verify_multimodal_support(self) -> None:
+            pass
+
+        def complete(
+            self,
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
+            self.call_count += 1
+            if self.call_count == 1:
+                return (
+                    "# Page 1 Content\nPartial success text.",
+                    {"usage": {"total_tokens": 25}},
+                    0.05,
+                    False,
+                )
+            raise ClientError("HTTP 400 Bad Request: Context length exceeded on page 2")
+
+    engine = OCREngine(settings=Settings())
+    engine.client = FakePartialClient()
+
+    pdf_path = tmp_path / "failed_partial_export.pdf"
+    img1 = Image.new("RGB", (100, 100), color="white")
+    img2 = Image.new("RGB", (100, 100), color="white")
+    img1.save(pdf_path, save_all=True, append_images=[img2])
+
+    orchestrator = WebOrchestrator(engine=engine)
+    app = create_app(engine=engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-failed-partial-export-notice"
+        job = JobState(
+            job_id=job_id,
+            filename="failed_partial_export.pdf",
+            file_path=pdf_path,
+            page_count=2,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status == JobStatus.FAILED:
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+
+        # 1. MD Export: begins with *[Notice: Incomplete extraction: ...]*
+        status_code, _, md_body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status_code == 200
+        md_text = md_body.decode("utf-8")
+        assert md_text.startswith("*[Notice: Incomplete extraction:")
+        assert "# Page 1 Content\nPartial success text." in md_text
+
+        # 2. DOCX Export: loaded by docx.Document has notice as first paragraph
+        status_code, _, docx_body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status_code == 200
+        doc = docx.Document(io.BytesIO(docx_body))
+        assert len(doc.paragraphs) > 0
+        first_p = doc.paragraphs[0]
+        assert "[Notice: Incomplete extraction:" in first_p.text
+
+        # 3. JSON Export: does not contain notice injection, preserves per-page errors
+        status_code, _, json_body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status_code == 200
+        json_text = json_body.decode("utf-8")
+        assert "[Notice: Incomplete extraction:" not in json_text
+        parsed_json = json.loads(json_text)
+        pages_list = parsed_json.get("pages", [])
+        assert len(pages_list) == 2
+        assert pages_list[0]["markdown"] == "# Page 1 Content\nPartial success text."
+        assert "Context length exceeded on page 2" in (pages_list[1].get("error") or "")
+    finally:
+        orchestrator.stop()
+
+
+def test_success_job_exports_do_not_include_incompleteness_notice(tmp_path: Path) -> None:
+    """Verify successful job exports do not include notice banner in MD or DOCX."""
+    import docx
+
+    class FakeSuccessClient:
+        def verify_multimodal_support(self) -> None:
+            pass
+
+        def complete(
+            self,
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
+            return (
+                "# Clean Page 1\nFully successful text.",
+                {"usage": {"total_tokens": 20}},
+                0.05,
+                False,
+            )
+
+    engine = OCREngine(settings=Settings())
+    engine.client = FakeSuccessClient()
+
+    pdf_path = tmp_path / "success_export.pdf"
+    img = Image.new("RGB", (100, 100), color="white")
+    img.save(pdf_path)
+
+    orchestrator = WebOrchestrator(engine=engine)
+    app = create_app(engine=engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-success-export-no-notice"
+        job = JobState(
+            job_id=job_id,
+            filename="success_export.pdf",
+            file_path=pdf_path,
+            page_count=1,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status == JobStatus.SUCCESS:
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.SUCCESS
+
+        # 1. MD Export: no *[Notice:
+        status_code, _, md_body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status_code == 200
+        md_text = md_body.decode("utf-8")
+        assert "*[Notice:" not in md_text
+        assert "# Clean Page 1\nFully successful text." in md_text
+
+        # 2. DOCX Export: no [Notice:
+        status_code, _, docx_body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status_code == 200
+        doc = docx.Document(io.BytesIO(docx_body))
+        assert not any("[Notice:" in p.text for p in doc.paragraphs)
+    finally:
+        orchestrator.stop()
+
+
+
 

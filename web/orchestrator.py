@@ -82,11 +82,11 @@ class WebOrchestrator:
 
             for job in self.jobs.values():
                 sorted_page_items = sorted(job.pages_data.items(), key=lambda kv: kv[0])
-                full_text = (
-                    "\n\n---\n\n".join(p.get("text", "") for _, p in sorted_page_items)
-                    if sorted_page_items
-                    else ""
-                )
+                if job.result and getattr(job.result, "markdown", None):
+                    full_text = job.result.markdown
+                else:
+                    page_texts = [p.get("text", "") for _, p in sorted_page_items if p.get("text", "").strip()]
+                    full_text = "\n\n---\n\n".join(page_texts) if page_texts else ""
 
                 doc_status = status_map.get(job.status, "Waiting")
                 if job.status == JobStatus.SUCCESS and any(
@@ -328,7 +328,7 @@ class WebOrchestrator:
                 if job.cancel_event.is_set() or getattr(result, "status", None) == CoreJobStatus.CANCELLED:
                     job.status = JobStatus.CANCELLED
                     self.broadcast("cancelled", {"job_id": job.job_id})
-                elif getattr(result, "status", None) == CoreJobStatus.FAILED and not result.pages:
+                elif getattr(result, "status", None) == CoreJobStatus.FAILED or getattr(result, "aborted", False):
                     job.status = JobStatus.FAILED
                     job.error = result.error or "Document processing failed"
                     self.broadcast("failed", {"job_id": job.job_id, "error": job.error})

@@ -82,11 +82,8 @@ class WebOrchestrator:
 
             for job in self.jobs.values():
                 sorted_page_items = sorted(job.pages_data.items(), key=lambda kv: kv[0])
-                if job.result and getattr(job.result, "markdown", None):
-                    full_text = job.result.markdown
-                else:
-                    page_texts = [p.get("text", "") for _, p in sorted_page_items if p.get("text", "").strip()]
-                    full_text = "\n\n---\n\n".join(page_texts) if page_texts else ""
+                page_texts = [p.get("text", "") for _, p in sorted_page_items if p.get("text", "").strip()]
+                full_text = "\n\n---\n\n".join(page_texts) if page_texts else ""
 
                 doc_status = status_map.get(job.status, "Waiting")
                 if job.status == JobStatus.SUCCESS and any(

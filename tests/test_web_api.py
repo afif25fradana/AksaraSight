@@ -2698,3 +2698,96 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
     finally:
         orchestrator.stop()
 
+
+def test_rehydrate_extracted_text_success_job_with_all_pages_non_empty(tmp_path: Path) -> None:
+    """Verify snapshot extractedText joins non-empty pages with separator on success."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        sample_file = tmp_path / "success_doc.pdf"
+        sample_file.write_bytes(b"%PDF-1.4 dummy content")
+
+        job_id = "test-rehydrate-success"
+        job = JobState(
+            job_id=job_id,
+            filename="success_doc.pdf",
+            file_path=sample_file,
+            page_count=2,
+            status=JobStatus.SUCCESS,
+        )
+        job.pages_data[1] = {
+            "pageNumber": 1,
+            "text": "Page 1 content",
+            "latency": 0.1,
+            "tokens": 10,
+            "truncated": False,
+        }
+        job.pages_data[2] = {
+            "pageNumber": 2,
+            "text": "Page 2 content",
+            "latency": 0.1,
+            "tokens": 10,
+            "truncated": False,
+        }
+        orchestrator.register_job(job)
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["extractedText"] == "Page 1 content\n\n---\n\nPage 2 content"
+    finally:
+        orchestrator.stop()
+
+
+def test_rehydrate_extracted_text_failed_job_with_empty_failed_page_no_trailing_separator(
+    tmp_path: Path,
+) -> None:
+    """Verify snapshot extractedText ignores empty failed pages and avoids trailing separator."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        sample_file = tmp_path / "failed_doc.pdf"
+        sample_file.write_bytes(b"%PDF-1.4 dummy content")
+
+        job_id = "test-rehydrate-failed-empty"
+        job = JobState(
+            job_id=job_id,
+            filename="failed_doc.pdf",
+            file_path=sample_file,
+            page_count=2,
+            status=JobStatus.FAILED,
+        )
+        job.pages_data[1] = {
+            "pageNumber": 1,
+            "text": "Page 1 content",
+            "latency": 0.1,
+            "tokens": 10,
+            "truncated": False,
+        }
+        job.pages_data[2] = {
+            "pageNumber": 2,
+            "text": "",
+            "latency": 0.0,
+            "tokens": 0,
+            "truncated": False,
+        }
+        orchestrator.register_job(job)
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["extractedText"] == "Page 1 content"
+    finally:
+        orchestrator.stop()
+
+

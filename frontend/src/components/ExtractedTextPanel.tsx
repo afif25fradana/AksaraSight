@@ -153,20 +153,31 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const isDocOwnerOfRunningJob = Boolean(document && runningJobDocId === document.id);
   const isAnotherJobRunning = Boolean(runningJobDocId && document && runningJobDocId !== document.id);
 
-  const isDoneOrTruncated = Boolean(
+  const hasExtractedContent = Boolean(
+    document &&
+    ((document.extractedText && document.extractedText.trim().length > 0) ||
+     (document.pagesData && Object.values(document.pagesData).some((p) => Boolean(p.text && p.text.trim()))))
+  );
+
+  const isPartialFailure = Boolean(document && document.status === 'Failed' && hasExtractedContent);
+  const isTotalFailure = Boolean(document && document.status === 'Failed' && !hasExtractedContent);
+
+  const canExportOrCopy = Boolean(
     isEngineOnline &&
     document &&
     !isDocOwnerOfRunningJob &&
-    (document.status === 'Done' || document.status === 'Truncated') &&
-    document.extractedText &&
-    document.extractedText.trim().length > 0
+    (document.status === 'Done' || document.status === 'Truncated' || isPartialFailure) &&
+    hasExtractedContent
   );
 
   const currentPage = document?.currentPage || 1;
   const processedPages = document?.processedPages || 0;
   const isCurrentPageViewedProcessed = Boolean(
     document &&
-    (document.status === 'Done' || document.status === 'Truncated' || currentPage <= processedPages)
+    (document.status === 'Done' ||
+     document.status === 'Truncated' ||
+     isPartialFailure ||
+     currentPage <= processedPages)
   );
 
   const currentPageData = document?.pagesData?.[currentPage];
@@ -241,7 +252,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const wordCount = currentTextContent.trim() ? currentTextContent.trim().split(/\s+/).length : 0;
 
   const handleCopy = () => {
-    if (!document || !isDoneOrTruncated) return;
+    if (!document || !canExportOrCopy) return;
     const textToCopy = activePreviewTab === 'json' ? jsonString : currentTextContent;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
@@ -625,8 +636,16 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             >
               Extract Document
             </button>
-          ) : document.status === 'Failed' ? (
-            null
+          ) : isTotalFailure ? (
+            <button 
+              onClick={() => onReExtractDocument(document.id, taskMode)}
+              className="h-8 px-3.5 bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white font-semibold text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
+              type="button" 
+              aria-label="Retry extraction"
+            >
+              <Play className="w-3.5 h-3.5 fill-current leading-none" aria-hidden="true" />
+              <span className="whitespace-nowrap">Retry extraction</span>
+            </button>
           ) : isDocOwnerOfRunningJob ? (
             <button 
               onClick={() => onCancelExtraction(document.id)}
@@ -664,7 +683,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 Add to Queue
               </span>
             </button>
-          ) : document.status === 'Done' || document.status === 'Truncated' ? (
+          ) : document.status === 'Done' || document.status === 'Truncated' || isPartialFailure ? (
             <div className="flex items-center gap-2">
               {document.isReExtractionQueued ? (
                 <div className="flex items-center gap-1.5">
@@ -688,7 +707,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                   title="Re-extract entire document with current settings"
                   type="button"
                 >
-                  <span>Re-extract</span>
+                  <span>{isPartialFailure ? 'Retry extraction' : 'Re-extract'}</span>
                 </button>
               )}
 
@@ -881,7 +900,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </div>
           </div>
         </div>
-      ) : document.status === 'Failed' ? (
+      ) : isTotalFailure ? (
         <div className="flex-1 p-6 flex flex-col justify-center items-center overflow-y-auto bg-white dark:bg-[var(--bg-base)] min-h-0">
           <div className="w-full max-w-sm rounded-lg bg-red-50/80 dark:bg-[var(--bg-elevated)] border border-red-200 dark:border-[var(--danger)]/40 p-5 shadow-xs flex flex-col items-start gap-3 my-auto">
             <div className="flex items-center gap-2">
@@ -896,6 +915,14 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             <p className="text-xs text-[#5A6478] dark:text-[var(--text-2)] pt-1 border-t border-red-200/60 dark:border-[var(--border)] w-full">
               Adjust image limits or prompt mode in Settings to retry.
             </p>
+            <button
+              type="button"
+              onClick={() => onReExtractDocument(document.id, taskMode)}
+              className="mt-1 h-8 px-3.5 bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-medium text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none"
+            >
+              <Play className="w-3.5 h-3.5 fill-current leading-none" aria-hidden="true" />
+              <span>Retry extraction</span>
+            </button>
           </div>
         </div>
       ) : !isCurrentPageViewedProcessed ? (
@@ -915,6 +942,29 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       ) : (
         /* Text / JSON Body Container */
         <div className="flex-1 p-3.5 bg-white dark:bg-[var(--bg-base)] flex flex-col overflow-hidden min-h-0 transition-colors">
+          {/* Amber Warning Banner for Partial Failure */}
+          {isPartialFailure && (
+            <div 
+              role="alert" 
+              className="mb-3 p-3 bg-amber-50/90 dark:bg-[var(--warning)]/10 border border-amber-300 dark:border-[var(--warning)]/30 rounded-lg flex items-center justify-between text-xs gap-3 shrink-0"
+            >
+              <div className="flex items-center gap-2 text-amber-900 dark:text-[var(--warning)] min-w-0">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-[var(--warning)]" aria-hidden="true" />
+                <span className="truncate">
+                  <strong className="font-semibold">Incomplete extraction:</strong>{' '}
+                  {document.statusNote || 'Processing encountered an error before all pages finished.'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onReExtractDocument(document.id, taskMode)}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium rounded text-xs transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Editorial Multi-page divider */}
           <div className={`py-1 px-3 mb-2 rounded text-xs font-mono flex justify-between items-center shrink-0 border ${
             isCurrentPageTruncated
@@ -930,7 +980,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               )}
             </div>
             <span className="text-[#0F766E] dark:text-[var(--accent)] text-2xs font-sans font-medium">
-              {document.status === 'Done' ? 'Done' : document.status === 'Truncated' ? 'Truncated' : `Processing page ${currentPage}...`}
+              {document.status === 'Done' ? 'Done' : document.status === 'Truncated' ? 'Truncated' : isPartialFailure ? 'Partial' : `Processing page ${currentPage}...`}
             </span>
           </div>
 
@@ -980,7 +1030,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       <div className="px-3.5 py-2.5 border-t border-[#8A94A6]/25 dark:border-[var(--border)] bg-[#FBFAF7] dark:bg-[var(--bg-surface)] flex items-center justify-between shrink-0 transition-colors">
         <div className="flex items-center gap-2 shrink-0">
           <button 
-            disabled={!isDoneOrTruncated}
+            disabled={!canExportOrCopy}
             onClick={handleCopy}
             className={`h-8 px-3 rounded-lg border active:scale-90 active:translate-y-px transition-all duration-100 ease-out text-xs font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
               copied

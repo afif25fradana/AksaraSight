@@ -18,7 +18,7 @@ from core.client import ServerOfflineError
 from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from web.app import create_app, enforce_loopback_host
-from web.orchestrator import JobStatus, WebOrchestrator
+from web.orchestrator import JobState, JobStatus, WebOrchestrator
 
 
 class AsgiClient:
@@ -2340,5 +2340,84 @@ def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
     assert "48.79" in full_body
 
 
+def test_server_lifecycle_starting_state_guards(tmp_path: Path) -> None:
+    """Verify server lifecycle guard routes when server is in STARTING state."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.STARTING,
+        ownership=ServerOwnership.MANAGED,
+        message="Starting llama-server...",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    try:
+        # 1. POST /api/server/start when STARTING: returns 200, started=False, status="STARTING", no call to start()
+        status_code, _, body = client.post("/api/server/start")
+        assert status_code == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["started"] is False
+        assert data["status"] == "STARTING"
+        assert mock_mgr.start_calls == 0
+
+        # 2. POST /api/server/stop when STARTING: returns 200, stopped=True, status="OFFLINE", calls mock_mgr.stop()
+        status_code, _, body = client.post("/api/server/stop")
+        assert status_code == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["stopped"] is True
+        assert data["status"] == "OFFLINE"
+        assert mock_mgr.stop_calls == 1
+        assert app.state.server_managed is False
+    finally:
+        app.state.orchestrator.stop()
 
 
+def test_server_stop_when_job_queued_permits_stop(tmp_path: Path) -> None:
+    """Verify that a QUEUED job permits server stop while a PROCESSING job blocks it."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Managed server running",
+    )
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    try:
+        fake_file = tmp_path / "queued_doc.png"
+        fake_file.write_bytes(b"dummy image bytes")
+
+        job = JobState(
+            job_id="test-queued-job-1",
+            filename="queued_doc.png",
+            file_path=fake_file,
+            status=JobStatus.QUEUED,
+        )
+        app.state.orchestrator.register_job(job)
+
+        # 1. Job is QUEUED: is_processing() is False, POST /api/server/stop permits stop (200)
+        assert app.state.orchestrator.is_processing() is False
+        status_code, _, body = client.post("/api/server/stop")
+        assert status_code == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["stopped"] is True
+        assert data["status"] == "OFFLINE"
+        assert mock_mgr.stop_calls == 1
+
+        # 2. Transition job to PROCESSING: is_processing() becomes True, POST /api/server/stop is blocked (409)
+        mock_mgr._status = ServerStatus.READY
+        mock_mgr._ownership = ServerOwnership.MANAGED
+        app.state.server_managed = True
+        mock_mgr.stop_calls = 0
+
+        with app.state.orchestrator._lock:
+            job.status = JobStatus.PROCESSING
+
+        assert app.state.orchestrator.is_processing() is True
+        status_code, _, body = client.post("/api/server/stop")
+        assert status_code == 409
+        data = json.loads(body.decode("utf-8"))
+        assert "currently in progress" in data["detail"]
+        assert mock_mgr.stop_calls == 0
+    finally:
+        app.state.orchestrator.stop()

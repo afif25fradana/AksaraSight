@@ -1536,3 +1536,113 @@ def test_server_manager_launch_args_never_verbose(tmp_path):
             assert not any(flag in cmd_args for flag in forbidden_flags)
     finally:
         mgr_m.shutdown()
+
+
+def test_server_manager_concurrent_double_start_raises(tmp_path):
+    """Verify that concurrent start() calls from multiple threads raise on the second caller."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    barrier = threading.Barrier(2)
+    errors: list[Exception] = []
+    successes: list[bool] = []
+
+    def _worker():
+        barrier.wait()
+        try:
+            mgr.start()
+            successes.append(True)
+        except Exception as exc:
+            errors.append(exc)
+
+    def _slow_popen(*args, **kwargs):
+        time.sleep(0.05)
+        return mock_proc
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", side_effect=_slow_popen), \
+             patch("core.server_manager._create_kill_on_close_job", return_value=None):
+            t1 = threading.Thread(target=_worker, name="StartWorker1")
+            t2 = threading.Thread(target=_worker, name="StartWorker2")
+            t1.start()
+            t2.start()
+            t1.join(timeout=5.0)
+            t2.join(timeout=5.0)
+
+            assert len(successes) == 1
+            assert len(errors) == 1
+            assert isinstance(errors[0], RuntimeError)
+            assert "A managed server process is already running." in str(errors[0])
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_start_while_starting_raises(tmp_path):
+    """Verify start() raises RuntimeError when server is in STARTING state with an active process."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    mgr._process = mock_proc
+    mgr._status = ServerStatus.STARTING
+    mgr._ownership = ServerOwnership.MANAGED
+
+    try:
+        with pytest.raises(RuntimeError, match="A managed server process is already running"):
+            mgr.start()
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_stop_while_starting_terminates(tmp_path):
+    """Verify stop() terminates active process when server is in STARTING state."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test/model",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    mgr._process = mock_proc
+    mgr._status = ServerStatus.STARTING
+    mgr._ownership = ServerOwnership.MANAGED
+
+    try:
+        mgr.stop()
+        assert mock_proc.terminate.called
+        assert mgr.status == ServerStatus.OFFLINE
+        assert mgr.ownership == ServerOwnership.NONE
+    finally:
+        mgr.shutdown()

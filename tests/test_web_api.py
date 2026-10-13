@@ -63,15 +63,22 @@ class AsgiClient:
                 for k, v in req_headers.items()
             ]
 
+            req_path = path
+            req_query = query_string
+            if "?" in req_path:
+                req_path, parsed_query = req_path.split("?", 1)
+                if not req_query:
+                    req_query = parsed_query
+
             scope = {
                 "type": "http",
                 "asgi": {"version": "3.0", "spec_version": "2.1"},
                 "http_version": "1.1",
                 "method": method.upper(),
                 "scheme": "http",
-                "path": path,
-                "raw_path": path.encode("latin-1"),
-                "query_string": query_string.encode("latin-1"),
+                "path": req_path,
+                "raw_path": req_path.encode("latin-1"),
+                "query_string": req_query.encode("latin-1"),
                 "headers": headers_list,
                 "client": ("127.0.0.1", 12345),
                 "server": server_tuple,
@@ -2421,3 +2428,165 @@ def test_server_stop_when_job_queued_permits_stop(tmp_path: Path) -> None:
         assert mock_mgr.stop_calls == 0
     finally:
         app.state.orchestrator.stop()
+
+
+def test_mid_job_server_death_preserves_extracted_pages_and_exports(tmp_path: Path) -> None:
+    """Verify mid-job server disconnect preserves partial extracted pages and exports."""
+    class MidJobFailureEngine(MockEngine):
+        def process_document(
+            self,
+            source: Any,
+            config: Optional[JobConfig] = None,
+            cancel_token: Optional[threading.Event] = None,
+            progress_callback: Optional[Any] = None,
+        ) -> OCRResult:
+            if progress_callback:
+                progress_callback(
+                    1,
+                    2,
+                    PageResult(
+                        page_num=1,
+                        markdown="# Page 1 Extracted Content\nSample data",
+                        latency=0.12,
+                        raw_json={"usage": {"total_tokens": 42}},
+                    ),
+                )
+            raise ServerOfflineError("Local server disconnected mid-job")
+
+    mock_engine = MidJobFailureEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    app = create_app(engine=mock_engine, orchestrator=orchestrator, upload_dir=tmp_path)  # type: ignore[arg-type]
+    client = AsgiClient(app)
+
+    try:
+        fake_file = tmp_path / "mid_job_fail.png"
+        fake_file.write_bytes(b"dummy image bytes")
+
+        job_id = "test-mid-job-death"
+        job = JobState(
+            job_id=job_id,
+            filename="mid_job_fail.png",
+            file_path=fake_file,
+            page_count=2,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status == JobStatus.FAILED:
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["status"] == "Failed"
+        assert doc["statusNote"] == "Local server disconnected mid-job"
+        assert doc["extractedText"] == "# Page 1 Extracted Content\nSample data"
+        assert "1" in doc["pagesData"]
+        assert doc["pagesData"]["1"]["text"] == "# Page 1 Extracted Content\nSample data"
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status_code == 200
+        assert "# Page 1 Extracted Content\nSample data" in body.decode("utf-8")
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status_code == 200
+        parsed_json = json.loads(body.decode("utf-8"))
+        page_entry = parsed_json.get("1") or parsed_json.get(1)
+        assert page_entry is not None
+        assert page_entry["text"] == "# Page 1 Extracted Content\nSample data"
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status_code == 400
+        detail = json.loads(body.decode("utf-8"))["detail"]
+        assert "Complete extraction result required for DOCX" in detail
+    finally:
+        orchestrator.stop()
+
+
+def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path: Path) -> None:
+    """Verify queued job fails cleanly when server is stopped before execution starts."""
+    mock_mgr = MockServerManager(
+        status=ServerStatus.READY,
+        ownership=ServerOwnership.MANAGED,
+        message="Managed server running",
+    )
+
+    class OfflineEngine(MockEngine):
+        def process_document(
+            self,
+            source: Any,
+            config: Optional[JobConfig] = None,
+            cancel_token: Optional[threading.Event] = None,
+            progress_callback: Optional[Any] = None,
+        ) -> OCRResult:
+            if mock_mgr.status == ServerStatus.OFFLINE:
+                raise ServerOfflineError("Local server is offline")
+            return super().process_document(source, config, cancel_token, progress_callback)
+
+    mock_engine = OfflineEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    app = create_app(
+        engine=mock_engine,  # type: ignore[arg-type]
+        orchestrator=orchestrator,
+        server_manager=mock_mgr,
+        upload_dir=tmp_path,
+    )
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    try:
+        fake_file = tmp_path / "queued_stop_doc.png"
+        fake_file.write_bytes(b"dummy image bytes")
+
+        job_id = "test-queued-before-stop"
+        job = JobState(
+            job_id=job_id,
+            filename="queued_stop_doc.png",
+            file_path=fake_file,
+            status=JobStatus.QUEUED,
+        )
+        orchestrator.register_job(job)
+
+        assert orchestrator.get_job(job_id).status == JobStatus.QUEUED
+        assert mock_mgr.status == ServerStatus.READY
+
+        status_code, _, body = client.post("/api/server/stop")
+        assert status_code == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["stopped"] is True
+        assert data["status"] == "OFFLINE"
+        assert mock_mgr.status == ServerStatus.OFFLINE
+
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status == JobStatus.FAILED:
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        assert docs[0]["status"] == "Failed"
+        assert docs[0]["statusNote"] == "Local server is offline"
+    finally:
+        orchestrator.stop()
+

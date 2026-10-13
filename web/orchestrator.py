@@ -17,6 +17,8 @@ from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageRe
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_QUEUE_SIZE: int = 50
+
 
 class JobStatus(str, Enum):
     """Job status lifecycle states in web orchestrator."""
@@ -50,10 +52,16 @@ class JobState:
 class WebOrchestrator:
     """Coordinates headless extraction queues and broadcasts real-time SSE events."""
 
-    def __init__(self, engine: OCREngine) -> None:
+    def __init__(
+        self,
+        engine: OCREngine,
+        max_queue_size: Optional[int] = None,
+    ) -> None:
         self.engine = engine
         self.jobs: Dict[str, JobState] = {}
-        self._queue: queue.Queue[str] = queue.Queue()
+        self._queue: queue.Queue[str] = queue.Queue(
+            maxsize=max_queue_size or DEFAULT_MAX_QUEUE_SIZE
+        )
         self._lock = threading.RLock()
         self._subscribers: Set[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = set()
         self._stop_event = threading.Event()
@@ -171,6 +179,12 @@ class WebOrchestrator:
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(f"Job '{job_id}' not found")
+            try:
+                self._queue.put_nowait(job_id)
+            except queue.Full:
+                raise queue.Full(
+                    f"Processing queue is full (max {self._queue.maxsize} jobs)"
+                )
             job.prompt_mode = prompt_mode
             job.run_id = uuid.uuid4().hex[:8]
             job.pages_data.clear()
@@ -179,7 +193,6 @@ class WebOrchestrator:
             job.error = None
             job.result = None
             job.status = JobStatus.QUEUED
-        self._queue.put(job_id)
 
     def cancel(self, job_id: str) -> bool:
         """Signal cooperative cancellation for a job."""
@@ -231,7 +244,10 @@ class WebOrchestrator:
     def stop(self) -> None:
         """Signal worker thread and subscribers to stop."""
         self._stop_event.set()
-        self._queue.put("")
+        try:
+            self._queue.put_nowait("")
+        except queue.Full:
+            pass
 
     def _worker_loop(self) -> None:
         """Background thread executing queued jobs sequentially."""

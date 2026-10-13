@@ -7,10 +7,12 @@ import json
 import logging
 import os
 from pathlib import Path
+import queue
 import re
 import tempfile
 import threading
 from typing import Any, Dict, List, Literal, Optional, Union
+from urllib.parse import quote
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
@@ -184,11 +186,14 @@ def create_app(
     dev_mode: bool = False,
     env_path: Optional[Union[str, Path]] = None,
     model_downloader: Optional[Any] = None,
+    max_queue_size: Optional[int] = None,
 ) -> FastAPI:
     env_path = env_path or os.environ.get("AKSARA_ENV_FILE")
     app_settings = settings or Settings.from_env(env_path=env_path)
     app_engine = engine or OCREngine(settings=app_settings)
-    app_orchestrator = orchestrator or WebOrchestrator(engine=app_engine)
+    app_orchestrator = orchestrator or WebOrchestrator(
+        engine=app_engine, max_queue_size=max_queue_size
+    )
     app_server_manager = server_manager or ServerManager(settings=app_settings)
     app_model_downloader = model_downloader or get_model_downloader()
 
@@ -701,6 +706,12 @@ def create_app(
             app_orchestrator.enqueue(job_id, prompt_mode=mode)
         except KeyError:
             raise HTTPException(status_code=404, detail="Document job not found")
+        except queue.Full:
+            raise HTTPException(
+                status_code=503,
+                detail="Processing queue is full. Please try again later.",
+                headers={"Retry-After": "5"},
+            )
 
         return {"message": "Extraction queued", "job_id": job_id, "prompt_mode": mode}
 
@@ -802,10 +813,17 @@ def create_app(
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
 
+        content_disposition_filename = quote(filename)
+        if content_disposition_filename != filename:
+            content_disposition = f"attachment; filename*=utf-8''{content_disposition_filename}"
+        else:
+            safe_ascii = filename.replace('"', '\\"')
+            content_disposition = f'attachment; filename="{safe_ascii}"'
+
         return Response(
             content=content_bytes,
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": content_disposition},
         )
 
     @app.get("/api/model/status")

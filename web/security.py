@@ -4,7 +4,7 @@ import re
 from typing import Any, Callable, Optional
 from urllib.parse import urlsplit
 
-_LOOPBACK_HOST_PATTERN = re.compile(r"^(127\.0\.0\.1|localhost)(:\d+)?$")
+_LOOPBACK_HOST_PATTERN = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$")
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 
@@ -51,8 +51,8 @@ class LoopbackSecurityMiddleware:
         if allowed_port is None:
             return _LOOPBACK_HOST_PATTERN
         if allowed_port == 80:
-            return re.compile(r"^(127\.0\.0\.1|localhost)(:80)?$")
-        return re.compile(rf"^(127\.0\.0\.1|localhost):{allowed_port}$")
+            return re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:80)?$")
+        return re.compile(rf"^(127\.0\.0\.1|localhost|\[::1\]):{allowed_port}$")
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         if scope.get("type") != "http":
@@ -81,7 +81,28 @@ class LoopbackSecurityMiddleware:
             })
             return
 
-        # 2. Origin header validation for any request supplying an Origin header
+        # 2. Sec-Fetch-Site validation for mutating requests
+        method = scope.get("method", "GET").upper()
+        if method not in SAFE_METHODS:
+            raw_sec_fetch_site = headers.get(b"sec-fetch-site")
+            if raw_sec_fetch_site is not None:
+                site_val = raw_sec_fetch_site.decode("latin-1").strip().lower()
+                if site_val == "cross-site":
+                    await send({
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                            (b"content-length", b"9"),
+                        ],
+                    })
+                    await send({
+                        "type": "http.response.body",
+                        "body": b"Forbidden",
+                    })
+                    return
+
+        # 3. Origin header validation for any request supplying an Origin header
         raw_origin = headers.get(b"origin")
         if raw_origin is not None:
             origin_str = raw_origin.decode("latin-1")
@@ -90,7 +111,7 @@ class LoopbackSecurityMiddleware:
             if not origin_allowed and self._is_dev_mode(scope) and netloc:
                 dev_parsed = urlsplit(origin_str)
                 if (
-                    dev_parsed.hostname in ("127.0.0.1", "localhost")
+                    dev_parsed.hostname in ("127.0.0.1", "localhost", "::1")
                     and dev_parsed.port in self.allowed_dev_ports
                 ):
                     origin_allowed = True

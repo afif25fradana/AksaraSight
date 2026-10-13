@@ -233,6 +233,12 @@ def test_loopback_security_middleware_host_validation(tmp_path: Path) -> None:
     status, _, _ = client.get("/health", headers={"host": "localhost:3000"})
     assert status == 200
 
+    status, _, _ = client.get("/health", headers={"host": "[::1]"})
+    assert status == 200
+
+    status, _, _ = client.get("/health", headers={"host": "[::1]:8000"})
+    assert status == 200
+
     # Rejected non-loopback Hosts
     status, _, body = client.get("/health", headers={"host": "attacker.com"})
     assert status == 400
@@ -260,6 +266,30 @@ def test_loopback_security_middleware_origin_validation(tmp_path: Path) -> None:
         headers={"origin": "http://localhost:5173"},
     )
     assert status == 404
+
+    status, _, _ = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={"origin": "http://[::1]:8000"},
+    )
+    assert status == 404
+
+    # Sec-Fetch-Site cross-site rejection on POST
+    status, _, body = client.post(
+        "/api/documents/nonexistent/cancel",
+        headers={
+            "sec-fetch-site": "cross-site",
+            "origin": "http://127.0.0.1:8000",
+        },
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    # Sec-Fetch-Site cross-site permitted on GET (safe method)
+    status, _, _ = client.get(
+        "/health",
+        headers={"sec-fetch-site": "cross-site"},
+    )
+    assert status == 200
 
     # Rejected non-loopback Origins on POST
     status, _, body = client.post(
@@ -3152,6 +3182,99 @@ def test_partial_failure_status_note_is_bounded_when_many_pages_fail(tmp_path: P
             assert f"Context length exceeded on page {p_num}" in (p.get("error") or "")
     finally:
         orchestrator.stop()
+
+
+def test_export_document_content_disposition_encoding(tmp_path: Path) -> None:
+    """Verify Content-Disposition header with Unicode and ASCII quotes."""
+    app = create_app(upload_dir=tmp_path)
+    orchestrator = app.state.orchestrator
+    client = AsgiClient(app)
+
+    try:
+        # 1. Unicode filename (RFC 5987 / 6266 utf-8'' percent-encoding)
+        unicode_job_id = "unicode-test-job"
+        fake_file = tmp_path / "dokumen_unicode.pdf"
+        fake_file.write_bytes(b"dummy")
+        job = JobState(
+            job_id=unicode_job_id,
+            filename="dokumen_éxàmple.pdf",
+            file_path=fake_file,
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            pages_data={1: {"text": "Teks Indonesia"}},
+        )
+        orchestrator.register_job(job)
+
+        status, headers, _ = client.get(f"/api/documents/{unicode_job_id}/export?format=md")
+        assert status == 200
+        expected_quoted = "dokumen_%C3%A9x%C3%A0mple.md"
+        assert headers.get("content-disposition") == f"attachment; filename*=utf-8''{expected_quoted}"
+
+        # 2. Standard ASCII filename (quoted filename="..." format)
+        ascii_job_id = "ascii-test-job"
+        fake_ascii_file = tmp_path / "standard_doc.pdf"
+        fake_ascii_file.write_bytes(b"dummy")
+        ascii_job = JobState(
+            job_id=ascii_job_id,
+            filename="standard_doc.pdf",
+            file_path=fake_ascii_file,
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            pages_data={1: {"text": "Standard text"}},
+        )
+        orchestrator.register_job(ascii_job)
+
+        status, headers, _ = client.get(f"/api/documents/{ascii_job_id}/export?format=md")
+        assert status == 200
+        assert headers.get("content-disposition") == 'attachment; filename="standard_doc.md"'
+    finally:
+        orchestrator.stop()
+
+
+def test_queue_backpressure_503(tmp_path: Path) -> None:
+    """Verify queue backpressure returns HTTP 503 with Retry-After header."""
+    started = threading.Event()
+    gate = threading.Event()
+    mock_engine = MockEngine(process_gate=gate, processing_started=started)
+    orchestrator = WebOrchestrator(engine=mock_engine, max_queue_size=1)
+    app = create_app(upload_dir=tmp_path, engine=mock_engine, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        f1 = tmp_path / "doc1.pdf"
+        f1.write_bytes(b"dummy1")
+        f2 = tmp_path / "doc2.pdf"
+        f2.write_bytes(b"dummy2")
+        f3 = tmp_path / "doc3.pdf"
+        f3.write_bytes(b"dummy3")
+
+        j1 = JobState(job_id="j1", filename="doc1.pdf", file_path=f1, page_count=1, status=JobStatus.UPLOADED)
+        j2 = JobState(job_id="j2", filename="doc2.pdf", file_path=f2, page_count=1, status=JobStatus.UPLOADED)
+        j3 = JobState(job_id="j3", filename="doc3.pdf", file_path=f3, page_count=1, status=JobStatus.UPLOADED)
+
+        orchestrator.register_job(j1)
+        orchestrator.register_job(j2)
+        orchestrator.register_job(j3)
+
+        # Enqueue job 1 -> worker picks it up and blocks on gate
+        status, _, _ = client.post("/api/documents/j1/extract")
+        assert status == 202
+        assert started.wait(timeout=3.0)
+
+        # Enqueue job 2 -> fits in queue (max_queue_size = 1)
+        status, _, _ = client.post("/api/documents/j2/extract")
+        assert status == 202
+
+        # Enqueue job 3 -> queue is full! Must return 503 with Retry-After: 5
+        status, headers, body = client.post("/api/documents/j3/extract")
+        assert status == 503
+        assert headers.get("retry-after") == "5"
+        data = json.loads(body.decode("utf-8"))
+        assert "queue is full" in data.get("detail", "").lower()
+    finally:
+        gate.set()
+        orchestrator.stop()
+
 
 
 

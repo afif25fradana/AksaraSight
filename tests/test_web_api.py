@@ -313,9 +313,9 @@ def test_upload_streaming_size_limit_rejection(tmp_path: Path) -> None:
     app = create_app(upload_dir=tmp_path, max_upload_size=limit)
     client = AsgiClient(app)
 
-    oversized_data = b"X" * (2 * 1024)  # 2 KB
+    oversized_data = b"\x89PNG\r\n\x1a\n" + b"X" * (2 * 1024)  # 2 KB with valid PNG magic bytes
     body, ct = urllib3.encode_multipart_formdata(
-        {"file": ("large_file.bin", oversized_data, "application/octet-stream")}
+        {"file": ("large_file.png", oversized_data, "image/png")}
     )
 
     status, _, resp = client.post(
@@ -329,6 +329,69 @@ def test_upload_streaming_size_limit_rejection(tmp_path: Path) -> None:
     # Ensure no lingering partial files remain in upload directory
     files_in_dir = list(tmp_path.iterdir())
     assert len(files_in_dir) == 0
+
+
+def test_upload_unsupported_extension_rejected(tmp_path: Path) -> None:
+    """Verify uploading files with unsupported extensions returns 400 without creating files on disk."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    for ext in (".exe", ".bin", ".txt"):
+        body, ct = urllib3.encode_multipart_formdata(
+            {"file": (f"payload{ext}", b"some content here", "application/octet-stream")}
+        )
+        status, _, resp = client.post(
+            "/api/documents",
+            headers={"content-type": ct},
+            body=body,
+        )
+        assert status == 400
+        data = json.loads(resp.decode("utf-8"))
+        assert "unsupported file extension" in data["detail"].lower()
+        assert len(list(tmp_path.iterdir())) == 0
+
+
+def test_upload_mismatched_magic_bytes_rejected(tmp_path: Path) -> None:
+    """Verify files with mismatched magic byte signatures return 400 without creating files on disk."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    test_cases = [
+        ("sample.pdf", b"NOT_A_PDF_CONTENT", "application/pdf"),
+        ("sample.png", b"NOT_A_PNG", "image/png"),
+    ]
+    for filename, content, ctype in test_cases:
+        body, ct = urllib3.encode_multipart_formdata(
+            {"file": (filename, content, ctype)}
+        )
+        status, _, resp = client.post(
+            "/api/documents",
+            headers={"content-type": ct},
+            body=body,
+        )
+        assert status == 400
+        data = json.loads(resp.decode("utf-8"))
+        assert "signature does not match" in data["detail"].lower()
+        assert len(list(tmp_path.iterdir())) == 0
+
+
+def test_upload_empty_file_rejected(tmp_path: Path) -> None:
+    """Verify uploading an empty file returns 400 without creating files on disk."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("sample.pdf", b"", "application/pdf")}
+    )
+    status, _, resp = client.post(
+        "/api/documents",
+        headers={"content-type": ct},
+        body=body,
+    )
+    assert status == 400
+    data = json.loads(resp.decode("utf-8"))
+    assert "empty" in data["detail"].lower()
+    assert len(list(tmp_path.iterdir())) == 0
 
 
 def test_upload_path_traversal_protection(tmp_path: Path) -> None:

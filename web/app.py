@@ -11,7 +11,7 @@ import queue
 import re
 import tempfile
 import threading
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 from urllib.parse import quote
 import uuid
 
@@ -25,6 +25,7 @@ import pypdfium2 as pdfium
 
 from config.settings import Settings
 from core.client import ServerOfflineError
+from core.constants import SUPPORTED_EXTENSIONS
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
@@ -49,6 +50,23 @@ from web.security import LoopbackSecurityMiddleware
 logger = logging.getLogger(__name__)
 
 FORBIDDEN_DOWNLOAD_PARAMS = frozenset({"url", "repo", "revision", "filename", "path", "dest"})
+
+_MAGIC_SIGNATURES: Dict[str, Callable[[bytes], bool]] = {
+    ".pdf": lambda b: b"%PDF" in b[:1024],
+    ".png": lambda b: b.startswith(b"\x89PNG\r\n\x1a\n"),
+    ".jpg": lambda b: b.startswith(b"\xff\xd8\xff"),
+    ".jpeg": lambda b: b.startswith(b"\xff\xd8\xff"),
+    ".tiff": lambda b: b.startswith(b"II*\x00") or b.startswith(b"MM\x00*"),
+    ".tif": lambda b: b.startswith(b"II*\x00") or b.startswith(b"MM\x00*"),
+    ".bmp": lambda b: b.startswith(b"BM"),
+    ".webp": lambda b: b.startswith(b"RIFF") and len(b) >= 12 and b[8:12] == b"WEBP",
+}
+
+
+def validate_magic_bytes(ext: str, header: bytes) -> bool:
+    """Validate that file header begins with expected magic bytes for the extension."""
+    checker = _MAGIC_SIGNATURES.get(ext)
+    return checker(header) if checker else False
 
 
 def enforce_loopback_host(host: str) -> None:
@@ -612,6 +630,13 @@ def create_app(
         if not file.filename:
             raise HTTPException(status_code=400, detail="Missing filename")
 
+        ext = Path(file.filename).suffix.lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file extension '{ext}'. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+            )
+
         raw_name = Path(file.filename).name
         safe_name = re.sub(r"[^\w\.\-]", "_", raw_name)
         job_id = uuid.uuid4().hex
@@ -621,9 +646,21 @@ def create_app(
         if not target_path.is_relative_to(target_upload_dir):
             raise HTTPException(status_code=400, detail="Invalid file destination path")
 
-        total_bytes = 0
+        first_chunk = await file.read(64 * 1024)
+        if not first_chunk:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        if not validate_magic_bytes(ext, first_chunk):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File signature does not match expected format '{ext}'",
+            )
+        if len(first_chunk) > max_upload_size:
+            raise HTTPException(status_code=413, detail="File exceeds upload limit")
+
+        total_bytes = len(first_chunk)
         try:
             with open(target_path, "wb") as out_f:
+                out_f.write(first_chunk)
                 while True:
                     chunk = await file.read(64 * 1024)
                     if not chunk:

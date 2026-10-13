@@ -3059,5 +3059,101 @@ def test_success_job_exports_do_not_include_incompleteness_notice(tmp_path: Path
         orchestrator.stop()
 
 
+def test_partial_failure_status_note_is_bounded_when_many_pages_fail(tmp_path: Path) -> None:
+    """Verify error summary is bounded to 3 pages plus overflow count when many pages fail."""
+
+    class FakePartialTenPageClient:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def verify_multimodal_support(self) -> None:
+            pass
+
+        def complete(
+            self,
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
+            self.call_count += 1
+            page_num = self.call_count
+            if page_num in (2, 4, 6, 8, 10):
+                raise ClientError(f"HTTP 400 Bad Request: Context length exceeded on page {page_num}")
+            return (
+                f"# Page {page_num} Content\nExtracted successfully.",
+                {"usage": {"total_tokens": 25}},
+                0.05,
+                False,
+            )
+
+    engine = OCREngine(settings=Settings())
+    engine.client = FakePartialTenPageClient()
+
+    pdf_path = tmp_path / "ten_page_doc.pdf"
+    pages = [Image.new("RGB", (100, 100), color="white") for _ in range(10)]
+    pages[0].save(pdf_path, save_all=True, append_images=pages[1:])
+
+    orchestrator = WebOrchestrator(engine=engine)
+    app = create_app(engine=engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-bounded-partial-failure-job"
+        job = JobState(
+            job_id=job_id,
+            filename="ten_page_doc.pdf",
+            file_path=pdf_path,
+            page_count=10,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status in (JobStatus.FAILED, JobStatus.SUCCESS):
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+        assert j.error is not None
+        assert "page 2" in j.error
+        assert "page 4" in j.error
+        assert "page 6" in j.error
+        assert "and 2 other pages failed" in j.error
+        assert len(j.error) < 400
+
+        # Verify GET /api/documents rehydrates statusNote matching job.error
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["id"] == job_id
+        assert doc["status"] == "Failed"
+        assert doc["statusNote"] == j.error
+
+        # Verify GET /api/documents/{job_id}/export?format=json returns all 5 failed pages with full errors intact
+        status_code, _, json_body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status_code == 200
+        parsed_json = json.loads(json_body.decode("utf-8"))
+        pages_list = parsed_json.get("pages", [])
+        assert len(pages_list) == 10
+        failed_pages_json = [p for p in pages_list if p.get("status") == CoreJobStatus.FAILED.value]
+        assert len(failed_pages_json) == 5
+        for p in failed_pages_json:
+            p_num = p["page_num"]
+            assert p_num in (2, 4, 6, 8, 10)
+            assert f"Context length exceeded on page {p_num}" in (p.get("error") or "")
+    finally:
+        orchestrator.stop()
+
+
+
 
 

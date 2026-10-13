@@ -339,10 +339,16 @@ class WebOrchestrator:
                             if getattr(p, "status", None) == CoreJobStatus.FAILED
                         ]
                         if failed_pages:
+                            max_visible_errors = 3
+                            visible_failures = failed_pages[:max_visible_errors]
                             details = "; ".join(
                                 f"page {p.page_num}: {p.error or 'Extraction failed'}"
-                                for p in failed_pages
+                                for p in visible_failures
                             )
+                            remaining_count = len(failed_pages) - len(visible_failures)
+                            if remaining_count > 0:
+                                page_word = "page" if remaining_count == 1 else "pages"
+                                details += f"; and {remaining_count} other {page_word} failed"
                             job.error = f"Extraction failed on {details}"
                         else:
                             job.error = "Document processing failed"

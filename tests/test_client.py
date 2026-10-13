@@ -1,6 +1,7 @@
 """Unit tests for universal OpenAI-compatible VisionClient (core/client.py)."""
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 import pytest
 import requests
@@ -569,5 +570,72 @@ def test_client_max_tokens_payload_configuration() -> None:
     client.complete("data:image/jpeg;base64,abc", max_tokens=100)
     sent_payload_override = mock_session.post.call_args[1]["json"]
     assert sent_payload_override["max_tokens"] == 100
+
+
+def test_client_error_paths_never_leak_base64_payload(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify that none of the client error paths leak base64 image data into logs or exceptions."""
+    canary_b64 = "data:image/jpeg;base64,CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK"
+
+    # a) HTTP 400 (BadRequestError)
+    resp_400 = MagicMock(spec=requests.Response)
+    resp_400.status_code = 400
+    resp_400.text = '{"error": {"message": "Invalid request"}}'
+    mock_session_400 = MagicMock(spec=requests.Session)
+    mock_session_400.post.return_value = resp_400
+
+    client_400 = VisionClient(session=mock_session_400)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(BadRequestError) as exc_info_400:
+            client_400.complete(canary_b64)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in str(exc_info_400.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in repr(exc_info_400.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in caplog.text
+
+    caplog.clear()
+
+    # b) HTTP 500 (ServerError)
+    resp_500 = MagicMock(spec=requests.Response)
+    resp_500.status_code = 500
+    resp_500.text = "Internal Server Error"
+    mock_session_500 = MagicMock(spec=requests.Session)
+    mock_session_500.post.return_value = resp_500
+
+    settings_500 = Settings(max_retries=0)
+    client_500 = VisionClient(settings=settings_500, session=mock_session_500)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(ServerError) as exc_info_500:
+            client_500.complete(canary_b64)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in str(exc_info_500.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in repr(exc_info_500.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in caplog.text
+
+    caplog.clear()
+
+    # c) requests.exceptions.ConnectionError (ServerOfflineError)
+    mock_session_conn = MagicMock(spec=requests.Session)
+    mock_session_conn.post.side_effect = requests.exceptions.ConnectionError("Connection refused")
+
+    client_conn = VisionClient(session=mock_session_conn)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(ServerOfflineError) as exc_info_conn:
+            client_conn.complete(canary_b64)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in str(exc_info_conn.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in repr(exc_info_conn.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in caplog.text
+
+    caplog.clear()
+
+    # d) requests.exceptions.Timeout (ServerTimeoutError)
+    mock_session_timeout = MagicMock(spec=requests.Session)
+    mock_session_timeout.post.side_effect = requests.exceptions.Timeout("Read timed out")
+
+    client_timeout = VisionClient(session=mock_session_timeout)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(ServerTimeoutError) as exc_info_timeout:
+            client_timeout.complete(canary_b64)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in str(exc_info_timeout.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in repr(exc_info_timeout.value)
+    assert "CANARY_SECRET_PAYLOAD_ABC123_DO_NOT_LEAK" not in caplog.text
+
 
 

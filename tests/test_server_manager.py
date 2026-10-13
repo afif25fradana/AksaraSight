@@ -1488,5 +1488,51 @@ def test_shutdown_vram_check_thread_bounded_timeout() -> None:
         atexit.unregister(mgr._atexit_hook)
 
 
+def test_server_manager_launch_args_never_verbose(tmp_path):
+    """Verify neither -hf nor local -m launch paths pass verbose flags."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+    fake_model = tmp_path / "model.gguf"
+    fake_model.write_text("weights", encoding="utf-8")
 
+    forbidden_flags = {"--verbose", "-v", "--log-verbose", "-lv"}
 
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter([])
+
+    # 1. Test -hf repo launch path
+    settings_hf = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="test-org/model-gguf",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr_hf = ServerManager(settings=settings_hf)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            mgr_hf.start()
+            cmd_args = mock_popen.call_args[0][0]
+            assert "-hf" in cmd_args
+            assert not any(flag in cmd_args for flag in forbidden_flags)
+    finally:
+        mgr_hf.shutdown()
+
+    # 2. Test local -m model launch path
+    settings_m = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo=str(fake_model),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr_m = ServerManager(settings=settings_m)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            mgr_m.start()
+            cmd_args = mock_popen.call_args[0][0]
+            assert "-m" in cmd_args
+            assert not any(flag in cmd_args for flag in forbidden_flags)
+    finally:
+        mgr_m.shutdown()

@@ -325,9 +325,27 @@ class WebOrchestrator:
                 if job.cancel_event.is_set() or getattr(result, "status", None) == CoreJobStatus.CANCELLED:
                     job.status = JobStatus.CANCELLED
                     self.broadcast("cancelled", {"job_id": job.job_id})
-                elif getattr(result, "status", None) == CoreJobStatus.FAILED or getattr(result, "aborted", False):
+                elif (
+                    getattr(result, "status", None) == CoreJobStatus.FAILED
+                    or getattr(result, "aborted", False)
+                    or any(getattr(p, "status", None) == CoreJobStatus.FAILED for p in getattr(result, "pages", []))
+                ):
                     job.status = JobStatus.FAILED
-                    job.error = result.error or "Document processing failed"
+                    if getattr(result, "error", None):
+                        job.error = result.error
+                    else:
+                        failed_pages = [
+                            p for p in getattr(result, "pages", [])
+                            if getattr(p, "status", None) == CoreJobStatus.FAILED
+                        ]
+                        if failed_pages:
+                            details = "; ".join(
+                                f"page {p.page_num}: {p.error or 'Extraction failed'}"
+                                for p in failed_pages
+                            )
+                            job.error = f"Extraction failed on {details}"
+                        else:
+                            job.error = "Document processing failed"
                     self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
                 else:
                     job.status = JobStatus.SUCCESS

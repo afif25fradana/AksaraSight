@@ -14,7 +14,7 @@ from PIL import Image
 import pytest
 
 from config.settings import Settings
-from core.client import ServerOfflineError
+from core.client import ClientError, ServerOfflineError
 from core.engine import OCREngine
 from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
@@ -2789,5 +2789,108 @@ def test_rehydrate_extracted_text_failed_job_with_empty_failed_page_no_trailing_
         assert doc["extractedText"] == "Page 1 content"
     finally:
         orchestrator.stop()
+
+
+def test_real_engine_partial_result_ends_as_failed_job_with_page_level_status_note(
+    tmp_path: Path,
+) -> None:
+    """Verify real engine partial result ends as FAILED job with page-level status note and exportable partial text."""
+
+    class FakePartialClient:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def verify_multimodal_support(self) -> None:
+            pass
+
+        def complete(
+            self,
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
+            self.call_count += 1
+            if self.call_count == 1:
+                return (
+                    "# Page 1 Real Content\nExtracted.",
+                    {"usage": {"total_tokens": 30}},
+                    0.1,
+                    False,
+                )
+            raise ClientError("HTTP 400 Bad Request: Context length exceeded on page 2")
+
+    engine = OCREngine(settings=Settings())
+    engine.client = FakePartialClient()
+
+    pdf_path = tmp_path / "partial_doc.pdf"
+    img1 = Image.new("RGB", (100, 100), color="white")
+    img2 = Image.new("RGB", (100, 100), color="white")
+    img1.save(pdf_path, save_all=True, append_images=[img2])
+
+    orchestrator = WebOrchestrator(engine=engine)
+    app = create_app(engine=engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-real-engine-partial-doc"
+        job = JobState(
+            job_id=job_id,
+            filename="partial_doc.pdf",
+            file_path=pdf_path,
+            page_count=2,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status in (JobStatus.FAILED, JobStatus.SUCCESS):
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+        assert j.error is not None
+        assert "page 2" in j.error
+        assert "Context length exceeded" in j.error
+        assert j.result is not None
+        assert j.result.status == CoreJobStatus.PARTIAL
+        assert 1 in j.pages_data
+        assert j.pages_data[1]["text"] == "# Page 1 Real Content\nExtracted."
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["status"] == "Failed"
+        assert "page 2" in (doc.get("statusNote") or "")
+        assert "Context length exceeded" in (doc.get("statusNote") or "")
+        assert doc["extractedText"] == "# Page 1 Real Content\nExtracted."
+
+        status_code, _, md_body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status_code == 200
+        assert "# Page 1 Real Content\nExtracted." in md_body.decode("utf-8")
+
+        status_code, _, json_body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status_code == 200
+        parsed_json = json.loads(json_body.decode("utf-8"))
+        pages_list = parsed_json.get("pages", [])
+        assert len(pages_list) == 2
+        assert pages_list[0]["markdown"] == "# Page 1 Real Content\nExtracted."
+        assert "Context length exceeded" in (pages_list[1].get("error") or "")
+
+        status_code, _, docx_body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status_code == 200
+        assert len(docx_body) > 0
+        assert docx_body.startswith(b"PK")
+    finally:
+        orchestrator.stop()
+
 
 

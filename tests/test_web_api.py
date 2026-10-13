@@ -15,6 +15,7 @@ import pytest
 
 from config.settings import Settings
 from core.client import ServerOfflineError
+from core.engine import OCREngine
 from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageResult
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from web.app import create_app, enforce_loopback_host
@@ -2431,7 +2432,11 @@ def test_server_stop_when_job_queued_permits_stop(tmp_path: Path) -> None:
 
 
 def test_mid_job_server_death_preserves_extracted_pages_and_exports(tmp_path: Path) -> None:
-    """Verify mid-job server disconnect preserves partial extracted pages and exports."""
+    """Verify mid-job server disconnect preserves partial extracted pages and exports.
+
+    Specifically tests the direct-exception path through orchestrator.py:344-347
+    (where process_document itself raises ServerOfflineError and job.result remains None).
+    """
     class MidJobFailureEngine(MockEngine):
         def process_document(
             self,
@@ -2514,6 +2519,102 @@ def test_mid_job_server_death_preserves_extracted_pages_and_exports(tmp_path: Pa
         orchestrator.stop()
 
 
+def test_real_engine_mid_job_server_offline_preserves_pages_and_exports(tmp_path: Path) -> None:
+    """Verify real OCREngine aborts cleanly on mid-job ServerOfflineError, preserving pages and exports."""
+    class FakeVisionClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(
+            self,
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
+            self.calls += 1
+            if self.calls == 1:
+                return (
+                    "# Page 1 Real Engine Content\nExtracted successfully.",
+                    {"usage": {"total_tokens": 42}},
+                    0.12,
+                    False,
+                )
+            raise ServerOfflineError(
+                "Cannot connect to local backend at 'http://localhost:8080/v1/chat/completions'. Ensure llama-server or Ollama is running."
+            )
+
+        def verify_multimodal_support(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    engine = OCREngine(settings=Settings())
+    engine.client = FakeVisionClient()
+
+    pdf_path = tmp_path / "real_engine_doc.pdf"
+    img1 = Image.new("RGB", (100, 100), color="white")
+    img2 = Image.new("RGB", (100, 100), color="white")
+    img1.save(pdf_path, save_all=True, append_images=[img2])
+
+    orchestrator = WebOrchestrator(engine=engine)
+    app = create_app(engine=engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-real-engine-mid-job-offline"
+        job = JobState(
+            job_id=job_id,
+            filename="real_engine_doc.pdf",
+            file_path=pdf_path,
+            page_count=2,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue(job_id)
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(job_id)
+            if j and j.status in (JobStatus.FAILED, JobStatus.SUCCESS):
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job(job_id)
+        assert j is not None
+        assert j.status == JobStatus.FAILED
+        assert j.error is not None and "Inference backend offline on page 2" in j.error
+        assert 1 in j.pages_data
+        assert j.pages_data[1]["text"] == "# Page 1 Real Engine Content\nExtracted successfully."
+        assert j.result is not None
+        assert isinstance(j.result, OCRResult)
+        assert j.result.status == CoreJobStatus.FAILED
+
+        status_code, _, body = client.get("/api/documents")
+        assert status_code == 200
+        docs = json.loads(body.decode("utf-8"))
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["status"] == "Failed"
+        assert "Inference backend offline on page 2" in (doc.get("statusNote") or "")
+        assert doc["extractedText"] == "# Page 1 Real Engine Content\nExtracted successfully."
+        assert "1" in doc["pagesData"]
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status_code == 200
+        assert "# Page 1 Real Engine Content\nExtracted successfully." in body.decode("utf-8")
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status_code == 200
+        assert "Page 1 Real Engine Content" in body.decode("utf-8")
+
+        status_code, _, body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status_code == 200
+        assert len(body) > 0
+    finally:
+        orchestrator.stop()
+
+
 def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path: Path) -> None:
     """Verify queued job fails cleanly when server is stopped before execution starts."""
     mock_mgr = MockServerManager(
@@ -2522,22 +2623,29 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
         message="Managed server running",
     )
 
-    class OfflineEngine(MockEngine):
-        def process_document(
+    class OfflineClient:
+        def complete(
             self,
-            source: Any,
-            config: Optional[JobConfig] = None,
-            cancel_token: Optional[threading.Event] = None,
-            progress_callback: Optional[Any] = None,
-        ) -> OCRResult:
+            image_b64: str,
+            prompt: str,
+            max_tokens: Optional[int] = None,
+        ) -> Tuple[str, Dict[str, Any], float, bool]:
             if mock_mgr.status == ServerStatus.OFFLINE:
                 raise ServerOfflineError("Local server is offline")
-            return super().process_document(source, config, cancel_token, progress_callback)
+            return ("Extracted text", {"usage": {"total_tokens": 10}}, 0.05, False)
 
-    mock_engine = OfflineEngine()
-    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+        def verify_multimodal_support(self) -> None:
+            if mock_mgr.status == ServerStatus.OFFLINE:
+                raise ServerOfflineError("Local server is offline")
+
+        def close(self) -> None:
+            pass
+
+    engine = OCREngine(settings=Settings())
+    engine.client = OfflineClient()
+    orchestrator = WebOrchestrator(engine=engine)
     app = create_app(
-        engine=mock_engine,  # type: ignore[arg-type]
+        engine=engine,
         orchestrator=orchestrator,
         server_manager=mock_mgr,
         upload_dir=tmp_path,
@@ -2546,14 +2654,14 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
     client = AsgiClient(app)
 
     try:
-        fake_file = tmp_path / "queued_stop_doc.png"
-        fake_file.write_bytes(b"dummy image bytes")
+        sample_file = tmp_path / "queued_stop_doc.png"
+        sample_file.write_bytes(_create_sample_png_bytes(50, 50))
 
         job_id = "test-queued-before-stop"
         job = JobState(
             job_id=job_id,
             filename="queued_stop_doc.png",
-            file_path=fake_file,
+            file_path=sample_file,
             status=JobStatus.QUEUED,
         )
         orchestrator.register_job(job)
@@ -2586,7 +2694,7 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
         docs = json.loads(body.decode("utf-8"))
         assert len(docs) == 1
         assert docs[0]["status"] == "Failed"
-        assert docs[0]["statusNote"] == "Local server is offline"
+        assert "Local server is offline" in (docs[0].get("statusNote") or "")
     finally:
         orchestrator.stop()
 

@@ -15,6 +15,13 @@ export default defineConfig(() => {
     build: {
       outDir: normalizePath(path.resolve(import.meta.dirname, '../web/static')),
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name].[ext]',
+        },
+      },
     },
     test: {
       globals: true,

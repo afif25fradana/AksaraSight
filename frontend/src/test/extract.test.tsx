@@ -193,7 +193,7 @@ describe('ExtractedTextPanel partial failure and total failure handling', () => 
       statusNote: 'Engine out of memory on page 2',
       processedPages: 1,
       currentPage: 1,
-      docType: 'pdf',
+      docType: 'invoice',
       extractedText: 'Partial page 1 content',
     };
 
@@ -233,7 +233,7 @@ describe('ExtractedTextPanel partial failure and total failure handling', () => 
       statusNote: 'Image was too large to process',
       processedPages: 0,
       currentPage: 1,
-      docType: 'pdf',
+      docType: 'invoice',
       extractedText: '',
     };
 

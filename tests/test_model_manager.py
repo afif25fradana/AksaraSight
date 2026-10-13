@@ -246,3 +246,81 @@ def test_downloader_progress_callback(tmp_path):
     assert "total_bytes" in updates[0]
     assert "percent" in updates[0]
     assert updates[0]["total_bytes"] == TOTAL_MODEL_BYTES
+
+
+def test_server_manager_does_not_hijack_custom_repo(tmp_path):
+    """Verify ServerManager does not hijack custom model repo or custom model file."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
+    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model_content = b"model-weights-sample"
+    fake_mmproj_content = b"mmproj-weights-sample"
+    fake_model.write_bytes(fake_model_content)
+    fake_mmproj.write_bytes(fake_mmproj_content)
+
+    mock_files_spec = {
+        "model": {
+            "filename": "GLM-OCR-Q8_0.gguf",
+            "sha256": hashlib.sha256(fake_model_content).hexdigest(),
+            "size_bytes": len(fake_model_content),
+        },
+        "mmproj": {
+            "filename": "mmproj-GLM-OCR-Q8_0.gguf",
+            "sha256": hashlib.sha256(fake_mmproj_content).hexdigest(),
+            "size_bytes": len(fake_mmproj_content),
+        },
+    }
+
+    # 1. Custom HF repo containing 'glm-ocr' in its name
+    custom_repo = "other-org/custom-glm-ocr-finetune"
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo=custom_repo,
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter(["[server] listening on 127.0.0.1:8080\n"])
+
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+            with patch("core.model_manager.get_models_dir", return_value=tmp_path):
+                with patch.dict("core.model_manager.PINNED_MODEL_FILES", mock_files_spec):
+                    with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                        mgr.start()
+                        assert mock_popen.called
+                        cmd_args = mock_popen.call_args[0][0]
+                        assert "-hf" in cmd_args
+                        assert custom_repo in cmd_args
+                        assert "-m" not in cmd_args
+    finally:
+        mgr.shutdown()
+
+    # 2. Custom local .gguf file uses -m flag with user's model file
+    custom_model_file = tmp_path / "custom-model.gguf"
+    custom_model_file.write_bytes(b"custom-weights")
+
+    settings_custom_m = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo=str(custom_model_file),
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr_custom_m = ServerManager(settings=settings_custom_m)
+    try:
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                mgr_custom_m.start()
+                assert mock_popen.called
+                cmd_args = mock_popen.call_args[0][0]
+                assert "-m" in cmd_args
+                assert str(custom_model_file) in cmd_args
+                assert "-hf" not in cmd_args
+    finally:
+        mgr_custom_m.shutdown()
+

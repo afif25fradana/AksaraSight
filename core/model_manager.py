@@ -83,7 +83,7 @@ def is_pinned_model_repo(repo: Optional[str]) -> bool:
         return True
     clean = repo.strip().lower()
     pinned = PINNED_MODEL_REPO.lower()
-    return clean == pinned or clean in pinned or pinned in clean or "glm-ocr" in clean
+    return clean == pinned or clean == "glm-ocr-gguf"
 
 
 def get_local_model_paths(

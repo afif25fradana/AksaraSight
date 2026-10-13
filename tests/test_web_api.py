@@ -7,6 +7,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from unittest.mock import patch
 import urllib3
 
 from PIL import Image
@@ -1914,6 +1915,146 @@ def test_server_logs_stream_receives_lines(tmp_path: Path) -> None:
     assert "Live line from worker" in full_body
     assert '\\"historical\\": false' in full_body.lower() or '"historical": false' in full_body.lower()
     assert len(mock_mgr._log_listeners) == 0
+
+
+def test_server_logs_stream_slow_client_queue_full_drops_cleanly(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify log listener drops lines cleanly on asyncio.QueueFull when client is slow."""
+    mock_mgr = MockServerManager()
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/server/logs/stream",
+        "raw_path": b"/api/server/logs/stream",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    connected = asyncio.Event()
+    stop_event = asyncio.Event()
+    slow_block = asyncio.Event()
+    dropped_items: List[str] = []
+
+    orig_put = asyncio.Queue.put_nowait
+
+    def spy_put(self: asyncio.Queue, item: Any) -> None:
+        try:
+            return orig_put(self, item)
+        except asyncio.QueueFull:
+            dropped_items.append(item)
+            raise
+
+    async def receive() -> Dict[str, Any]:
+        await stop_event.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            connected.set()
+        elif message["type"] == "http.response.body":
+            # Simulate backpressuring/slow client that stops consuming stream
+            await slow_block.wait()
+
+    async def _run() -> None:
+        task = asyncio.create_task(app(scope, receive, send))
+        await asyncio.wait_for(connected.wait(), timeout=3.0)
+        for _ in range(50):
+            if len(mock_mgr._log_listeners) > 0:
+                break
+            await asyncio.sleep(0.01)
+
+        assert len(mock_mgr._log_listeners) == 1
+        listener = mock_mgr._log_listeners[0]
+
+        secret_line_prefix = "OCR_SECRET_LINE_NO_LEAK"
+        for i in range(250):
+            listener(f"{secret_line_prefix}_{i}")
+
+        # Yield control to let scheduled threadsafe callbacks execute
+        await asyncio.sleep(0.1)
+
+        assert len(dropped_items) == 50
+        assert secret_line_prefix not in caplog.text
+
+        stop_event.set()
+        slow_block.set()
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    with patch.object(asyncio.Queue, "put_nowait", spy_put):
+        asyncio.run(_run())
+
+    assert len(mock_mgr._log_listeners) == 0
+
+
+def test_server_start_stop_ownership_matrix(tmp_path: Path) -> None:
+    """Exhaustively verify server start and stop behavior across ownership and busy states."""
+    # (1) POST /api/server/stop when ownership == ServerOwnership.EXTERNAL raises HTTP 400
+    mock_mgr_ext = MockServerManager(status=ServerStatus.READY, ownership=ServerOwnership.EXTERNAL)
+    app1 = create_app(server_manager=mock_mgr_ext, upload_dir=tmp_path)
+    client1 = AsgiClient(app1)
+    status_code, _, body = client1.post("/api/server/stop")
+    assert status_code == 400
+    assert "Cannot stop external server" in json.loads(body.decode("utf-8"))["detail"]
+    assert mock_mgr_ext.stop_calls == 0
+
+    # (2) POST /api/server/stop when ownership == ServerOwnership.NONE returns {"stopped": False, ...}
+    mock_mgr_none = MockServerManager(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE)
+    app2 = create_app(server_manager=mock_mgr_none, upload_dir=tmp_path)
+    app2.state.server_managed = False
+    client2 = AsgiClient(app2)
+    status_code, _, body = client2.post("/api/server/stop")
+    assert status_code == 200
+    data2 = json.loads(body.decode("utf-8"))
+    assert data2["stopped"] is False
+    assert data2["status"] == "OFFLINE"
+    assert "Server is not running or not managed" in data2["message"]
+    assert mock_mgr_none.stop_calls == 0
+
+    # (3) POST /api/server/start when status == ServerStatus.READY and ownership == ServerOwnership.EXTERNAL
+    # returns {"started": False, "ownership": "EXTERNAL", ...}
+    mock_mgr_ready_ext = MockServerManager(status=ServerStatus.READY, ownership=ServerOwnership.EXTERNAL)
+    app3 = create_app(server_manager=mock_mgr_ready_ext, upload_dir=tmp_path)
+    client3 = AsgiClient(app3)
+    status_code, _, body = client3.post("/api/server/start")
+    assert status_code == 200
+    data3 = json.loads(body.decode("utf-8"))
+    assert data3["started"] is False
+    assert data3["ownership"] == "EXTERNAL"
+    assert data3["status"] == "READY"
+    assert mock_mgr_ready_ext.start_calls == 0
+
+    # (4) POST /api/server/start while app_orchestrator.is_processing() raises HTTP 409
+    mock_mgr_proc = MockServerManager(status=ServerStatus.OFFLINE, ownership=ServerOwnership.NONE)
+    app4 = create_app(server_manager=mock_mgr_proc, upload_dir=tmp_path)
+    client4 = AsgiClient(app4)
+    with patch.object(app4.state.orchestrator, "is_processing", return_value=True):
+        status_code, _, body = client4.post("/api/server/start")
+        assert status_code == 409
+        assert "extraction job is in progress" in json.loads(body.decode("utf-8"))["detail"]
+        assert mock_mgr_proc.start_calls == 0
+
+    # (5) POST /api/server/stop while app_orchestrator.is_processing() raises HTTP 409
+    mock_mgr_busy = MockServerManager(status=ServerStatus.READY, ownership=ServerOwnership.MANAGED)
+    app5 = create_app(server_manager=mock_mgr_busy, upload_dir=tmp_path)
+    app5.state.server_managed = True
+    client5 = AsgiClient(app5)
+    with patch.object(app5.state.orchestrator, "is_processing", return_value=True):
+        status_code, _, body = client5.post("/api/server/stop")
+        assert status_code == 409
+        assert "extraction job is currently in progress" in json.loads(body.decode("utf-8"))["detail"]
+        assert mock_mgr_busy.stop_calls == 0
 
 
 class MockModelDownloader:

@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import dataclasses
+from datetime import datetime
 import json
 import logging
 import os
@@ -227,6 +228,39 @@ class ExtractRequest(BaseModel):
     prompt_mode: Optional[str] = "text"
 
 
+class OutputOpenRequest(BaseModel):
+    path: Optional[str] = None
+
+
+def get_output_dir(app: FastAPI) -> Path:
+    """Resolve and ensure the local output directory for export artifacts."""
+    target: Optional[Path] = getattr(app.state, "output_dir", None)
+    if target is not None:
+        p = Path(target).resolve()
+    else:
+        env_dir = os.getenv("OCR_OUTPUT_DIR")
+        if env_dir and env_dir.strip():
+            p = Path(env_dir.strip()).expanduser().resolve()
+        else:
+            docs_dir = Path.home() / "Documents"
+            if docs_dir.exists():
+                p = (docs_dir / "AksaraSight" / "output").resolve()
+            else:
+                p = (Path.home() / "AksaraSight" / "output").resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable bytes, KB, or MB."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
 def create_app(
     settings: Optional[Settings] = None,
     engine: Optional[OCREngine] = None,
@@ -240,6 +274,7 @@ def create_app(
     env_path: Optional[Union[str, Path]] = None,
     model_downloader: Optional[Any] = None,
     max_queue_size: Optional[int] = None,
+    output_dir: Optional[Union[str, Path]] = None,
 ) -> FastAPI:
     env_path = env_path or os.environ.get("AKSARA_ENV_FILE")
     app_settings = settings or Settings.from_env(env_path=env_path)
@@ -382,6 +417,7 @@ def create_app(
     app.state.last_doctor_report = None
     app.state.last_model_download_status = None
     app.state.env_path = Path(env_path).resolve() if env_path is not None else None
+    app.state.output_dir = Path(output_dir).resolve() if output_dir else None
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:
@@ -953,6 +989,12 @@ def create_app(
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
 
+        out_dir = get_output_dir(app)
+        try:
+            (out_dir / Path(filename).name).write_bytes(content_bytes)
+        except Exception as exc:
+            logger.warning("Failed to persist export artifact to %s: %s", out_dir / filename, exc)
+
         content_disposition_filename = quote(filename)
         if content_disposition_filename != filename:
             content_disposition = f"attachment; filename*=utf-8''{content_disposition_filename}"
@@ -965,6 +1007,110 @@ def create_app(
             media_type=media_type,
             headers={"Content-Disposition": content_disposition},
         )
+
+    @app.get("/api/output")
+    async def list_output_files() -> Dict[str, Any]:
+        """Scan output directory for exported artifacts (.docx, .md, .json) and return metadata."""
+        out_dir = get_output_dir(app)
+        files: List[Dict[str, Any]] = []
+        candidates: List[Path] = []
+        try:
+            for item in out_dir.iterdir():
+                if item.is_file() and item.suffix.lower() in (".docx", ".md", ".json"):
+                    candidates.append(item)
+        except OSError as exc:
+            logger.warning("Failed to read output directory %s: %s", out_dir, exc)
+
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+        for file in candidates:
+            try:
+                st = file.stat()
+                suffix = file.suffix.lower()
+                ftype = "docx" if suffix == ".docx" else ("json" if suffix == ".json" else "md")
+                ts_str = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
+                size_str = _format_file_size(st.st_size)
+                if ftype == "docx":
+                    content = "Microsoft Word OpenXML (.docx) binary package on disk."
+                else:
+                    try:
+                        raw = file.read_bytes()[:65536]
+                        content = raw.decode("utf-8", errors="replace")
+                    except Exception:
+                        content = ""
+
+                files.append({
+                    "id": f"out-{st.st_mtime_ns}-{file.name}",
+                    "filename": file.name,
+                    "type": ftype,
+                    "timestamp": ts_str,
+                    "size": size_str,
+                    "localPath": str(file.resolve()),
+                    "content": content,
+                })
+            except OSError as exc:
+                logger.warning("Failed to stat or read output file %s: %s", file, exc)
+
+        return {"path": str(out_dir), "files": files}
+
+    @app.post("/api/output/open")
+    async def open_output_target(body: Optional[OutputOpenRequest] = None) -> Dict[str, Any]:
+        """Open output directory or reveal specific export artifact in OS file manager."""
+        out_dir = get_output_dir(app).resolve()
+        req_path = body.path if body else None
+        if req_path:
+            p = Path(req_path)
+            if p.is_absolute():
+                target = p.resolve()
+            else:
+                target = (out_dir / p).resolve()
+        else:
+            target = out_dir
+
+        try:
+            if not target.is_relative_to(out_dir) or not target.exists():
+                raise HTTPException(status_code=400, detail="Invalid target path or target does not exist.")
+        except (ValueError, RuntimeError):
+            raise HTTPException(status_code=400, detail="Invalid target path.")
+
+        opened = False
+        try:
+            if sys.platform == "win32":
+                if target.is_file():
+                    subprocess.run(["explorer.exe", f"/select,{str(target)}"], check=False)
+                    opened = True
+                else:
+                    os.startfile(target)
+                    opened = True
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(target)], check=False)
+                opened = True
+            else:
+                subprocess.run(["xdg-open", str(target)], check=False)
+                opened = True
+        except Exception as exc:
+            logger.warning("Failed to open path %s: %s", target, exc)
+
+        return {"opened": opened, "target": str(target)}
+
+    @app.delete("/api/output/{filename}")
+    async def delete_output_file(filename: str) -> Dict[str, Any]:
+        """Delete an exported artifact from the output directory."""
+        out_dir = get_output_dir(app).resolve()
+        target = (out_dir / filename).resolve()
+        try:
+            if not target.is_relative_to(out_dir) or not target.exists() or not target.is_file():
+                raise HTTPException(status_code=400, detail="Invalid filename or file not found.")
+        except (ValueError, RuntimeError):
+            raise HTTPException(status_code=400, detail="Invalid filename.")
+
+        try:
+            target.unlink()
+        except OSError as exc:
+            logger.warning("Failed to delete output file %s: %s", target, exc)
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {exc}")
+
+        return {"deleted": True, "filename": filename}
 
     @app.get("/api/model/status")
     async def get_model_status() -> Dict[str, Any]:

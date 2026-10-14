@@ -376,54 +376,31 @@ export default function App() {
     };
   }, []);
 
-  // Preloaded real output files for output folder inspection (aligned to engine formats DOCX, MD, JSON)
-  const [exportedFiles, setExportedFiles] = useState<ExportedFile[]>([
-    {
-      id: 'exp-1',
-      filename: 'surat-perjanjian-v2.docx',
-      type: 'docx',
-      timestamp: '2024-11-20 14:32',
-      content: `SURAT PERJANJIAN KERJASAMA\nNomor: 042/SPK/AKS/XI/2023\n\nPada hari ini, Senin tanggal dua puluh November tahun dua ribu dua puluh tiga (20-11-2023), bertempat di Bandung, para pihak sepakat mengadakan perjanjian pemindaian dan preservasi naskah arsip digital dengan ketentuan bahwa seluruh data diproses secara lokal tanpa transmisi pihak ketiga.\n\nPIHAK PERTAMA: Dr. Hendra Gunawan (Balai Konservasi Naskah Kuno)\nPIHAK KEDUA: AksaraSight Lab (Preservasi Digital)`,
-      size: '14.2 KB',
-      localPath: 'C:\\Users\\Fradana\\Documents\\AksaraSight\\output\\surat-perjanjian-v2.docx',
-    },
-    {
-      id: 'exp-2',
-      filename: 'invoice-scan-03.json',
-      type: 'json',
-      timestamp: '2024-10-15 09:12',
-      content: JSON.stringify(
-        {
-          file_path: 'C:\\Users\\Fradana\\Documents\\AksaraSight\\input\\invoice-scan-03.pdf',
-          status: 'SUCCESS',
-          total_duration: 3.42,
-          error: null,
-          aborted: false,
-          cancelled: false,
-          page_count: 3,
-          prompt_mode: 'text',
-          backend: 'llama-cpp (cuda)',
-          pages: [
-            {
-              page_num: 1,
-              status: 'SUCCESS',
-              latency: 1.15,
-              tokens: 420,
-              markdown:
-                'FAKTUR PENJUALAN\nCOMMERCIAL TAX INVOICE\nNo: INV-2023-003\nVendor: PT. Nusantara Sistem Grafika\nTotal: IDR 13.353.300',
-              error: null,
-              raw_json: { model: 'glm-ocr-q4_k_m', finish_reason: 'stop' },
-              truncated: false,
-            },
-          ],
-        },
-        null,
-        2
-      ),
-      size: '2.8 KB',
-      localPath: 'C:\\Users\\Fradana\\Documents\\AksaraSight\\output\\invoice-scan-03.json',
-    },
-  ]);
+  const [exportedFiles, setExportedFiles] = useState<ExportedFile[]>([]);
+  const [outputFolderPath, setOutputFolderPath] = useState<string>('~/Documents/AksaraSight/output');
+
+  const fetchOutputFiles = async () => {
+    try {
+      const res = await fetch('/api/output');
+      if (res.ok) {
+        const data = await res.json();
+        setExportedFiles(data.files || []);
+        setOutputFolderPath(data.path || '');
+      }
+    } catch (err) {
+      console.error('Failed to fetch output files:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchOutputFiles();
+  }, []);
+
+  useEffect(() => {
+    if (isOutputFolderOpen) {
+      fetchOutputFiles();
+    }
+  }, [isOutputFolderOpen]);
 
   // Dynamic status consistency check
   const consistentDocuments = documents.map((doc) => {
@@ -757,8 +734,12 @@ export default function App() {
     if (format === 'both') {
       triggerDownload('md');
       setTimeout(() => triggerDownload('json'), 300);
+      fetchOutputFiles();
+      setTimeout(fetchOutputFiles, 800);
     } else {
       triggerDownload(format);
+      fetchOutputFiles();
+      setTimeout(fetchOutputFiles, 800);
     }
   };
 
@@ -925,6 +906,7 @@ export default function App() {
         onClose={() => setIsOutputFolderOpen(false)}
         files={exportedFiles}
         onDeleteFile={handleDeleteExportFile}
+        folderPath={outputFolderPath}
       />
 
       {/* Server Logs Modal */}

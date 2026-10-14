@@ -3521,6 +3521,196 @@ def test_queue_backpressure_503(tmp_path: Path) -> None:
         orchestrator.stop()
 
 
+def test_output_dir_isolation_and_get_output(tmp_path: Path) -> None:
+    """Verify output_dir isolation and GET /api/output metadata formatting."""
+    out_dir = tmp_path / "custom_output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(output_dir=out_dir)
+    client = AsgiClient(app)
+
+    # Populate test artifacts
+    doc_md = out_dir / "report.md"
+    doc_md.write_text("# Markdown Report Content", encoding="utf-8")
+
+    doc_json = out_dir / "data.json"
+    doc_json.write_text('{"status": "ok", "pages": 2}', encoding="utf-8")
+
+    doc_docx = out_dir / "document.docx"
+    doc_docx.write_bytes(b"PK\x03\x04dummy_docx_binary")
+
+    ignored_file = out_dir / "notes.txt"
+    ignored_file.write_text("Should not be listed", encoding="utf-8")
+
+    status, _, body = client.get("/api/output")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["path"] == str(out_dir.resolve())
+    files = data["files"]
+    assert len(files) == 3
+
+    filenames = [f["filename"] for f in files]
+    assert "notes.txt" not in filenames
+    assert "report.md" in filenames
+    assert "data.json" in filenames
+    assert "document.docx" in filenames
+
+    # Verify metadata fields for md
+    md_item = next(f for f in files if f["filename"] == "report.md")
+    assert md_item["type"] == "md"
+    assert md_item["content"] == "# Markdown Report Content"
+    assert "B" in md_item["size"] or "KB" in md_item["size"]
+    assert md_item["localPath"] == str(doc_md.resolve())
+
+    # Verify docx item placeholder content
+    docx_item = next(f for f in files if f["filename"] == "document.docx")
+    assert docx_item["type"] == "docx"
+    assert "Microsoft Word OpenXML" in docx_item["content"]
+
+
+def test_export_document_persists_artifact_to_output_dir(tmp_path: Path) -> None:
+    """Verify export_document writes artifact file to configured output_dir."""
+    out_dir = tmp_path / "output_artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    app = create_app(output_dir=out_dir, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-export-persist-job"
+        page = PageResult(
+            page_num=1,
+            markdown="Extracted document body text for persistence test",
+            status=CoreJobStatus.SUCCESS,
+        )
+        ocr_result = OCRResult(
+            file_path="my_test_document.pdf",
+            pages=[page],
+            status=CoreJobStatus.SUCCESS,
+        )
+        job = JobState(
+            job_id=job_id,
+            filename="my_test_document.pdf",
+            file_path=tmp_path / "my_test_document.pdf",
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            result=ocr_result,
+        )
+        orchestrator.register_job(job)
+
+        # Export as MD
+        status, _, body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status == 200
+        persisted_md = out_dir / "my_test_document.md"
+        assert persisted_md.exists()
+        assert persisted_md.read_text(encoding="utf-8") == "Extracted document body text for persistence test"
+
+        # Export as JSON
+        status, _, body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status == 200
+        persisted_json = out_dir / "my_test_document.json"
+        assert persisted_json.exists()
+        parsed = json.loads(persisted_json.read_text(encoding="utf-8"))
+        assert "file_path" in parsed
+        assert "pages" in parsed
+
+        # Export as DOCX
+        status, _, body = client.get(f"/api/documents/{job_id}/export?format=docx")
+        assert status == 200
+        persisted_docx = out_dir / "my_test_document.docx"
+        assert persisted_docx.exists()
+        assert persisted_docx.stat().st_size > 0
+    finally:
+        orchestrator.stop()
+
+
+def test_output_open_endpoint_and_security(tmp_path: Path) -> None:
+    """Verify POST /api/output/open opens target and rejects traversal or missing paths."""
+    out_dir = tmp_path / "open_test_dir"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sample_file = out_dir / "sample.md"
+    sample_file.write_text("Sample file", encoding="utf-8")
+
+    app = create_app(output_dir=out_dir)
+    client = AsgiClient(app)
+
+    with patch("subprocess.run") as mock_subproc, patch("os.startfile", create=True) as mock_startfile:
+        # Open folder itself (empty body)
+        status, _, body = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["opened"] is True
+        assert data["target"] == str(out_dir.resolve())
+
+        # Open specific file relative
+        status, _, body = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "sample.md"}).encode("utf-8"),
+        )
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["opened"] is True
+        assert data["target"] == str(sample_file.resolve())
+
+        # Open specific file absolute
+        status, _, body = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": str(sample_file.resolve())}).encode("utf-8"),
+        )
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data["opened"] is True
+
+        # Non-existent target inside out_dir -> 400
+        status, _, _ = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "nonexistent.md"}).encode("utf-8"),
+        )
+        assert status == 400
+
+        # Path traversal -> 400
+        status, _, _ = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "../outside.txt"}).encode("utf-8"),
+        )
+        assert status == 400
+
+
+def test_output_delete_endpoint_and_security(tmp_path: Path) -> None:
+    """Verify DELETE /api/output/{filename} deletes file and rejects traversal."""
+    out_dir = tmp_path / "delete_test_dir"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target_file = out_dir / "artifact.docx"
+    target_file.write_text("test artifact", encoding="utf-8")
+
+    app = create_app(output_dir=out_dir)
+    client = AsgiClient(app)
+
+    # Valid delete
+    status, _, body = client.delete("/api/output/artifact.docx")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["deleted"] is True
+    assert not target_file.exists()
+
+    # Delete non-existent file -> 400
+    status, _, _ = client.delete("/api/output/artifact.docx")
+    assert status == 400
+
+    # Path traversal attempt -> 400 or 404
+    status, _, _ = client.delete("/api/output/..%2Foutside.txt")
+    assert status in (400, 404)
+
+
+
 
 
 

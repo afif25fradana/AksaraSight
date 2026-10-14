@@ -7,15 +7,15 @@ interface OutputFolderModalProps {
   onClose: () => void;
   files: ExportedFile[];
   onDeleteFile: (id: string) => void;
+  folderPath?: string;
 }
-
-const LOCAL_OUTPUT_PATH = 'C:\\Users\\Fradana\\Documents\\AksaraSight\\output';
 
 export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
   isOpen,
   onClose,
   files,
   onDeleteFile,
+  folderPath = '~/Documents/AksaraSight/output',
 }) => {
   const [selectedFile, setSelectedFile] = useState<ExportedFile | null>(files[0] || null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -24,18 +24,42 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
 
   if (!isOpen) return null;
 
+  const effectiveFolderPath = folderPath || '~/Documents/AksaraSight/output';
+
   const handleCopyFolderPath = () => {
-    navigator.clipboard.writeText(LOCAL_OUTPUT_PATH);
+    navigator.clipboard.writeText(effectiveFolderPath);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
   };
 
-  const handleOpenInExplorer = (filePath?: string) => {
-    const feedbackText = filePath
-      ? `Revealed ${filePath.split('\\').pop() || ''} in File Explorer`
-      : 'Opened in File Explorer';
-    setExplorerOpenedFeedback(feedbackText);
-    setTimeout(() => setExplorerOpenedFeedback(null), 3000);
+  const handleOpenInExplorer = async (filePath?: string) => {
+    try {
+      const res = await fetch('/api/output/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filePath ? { path: filePath } : {}),
+      });
+      if (res.ok) {
+        const feedbackText = filePath
+          ? 'Revealed in File Explorer'
+          : 'Opened in File Explorer';
+        setExplorerOpenedFeedback(feedbackText);
+        setTimeout(() => setExplorerOpenedFeedback(null), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to open in explorer:', err);
+    }
+  };
+
+  const handleDeleteFile = async (file: ExportedFile) => {
+    try {
+      await fetch(`/api/output/${encodeURIComponent(file.filename)}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Failed to delete output file from disk:', err);
+    }
+    onDeleteFile(file.id);
+    setDeleteConfirmId(null);
+    setSelectedFile(null);
   };
 
   return (
@@ -72,13 +96,6 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
           </button>
         </div>
 
-        {/* Spike Slice Notice */}
-        <div className="px-5 pt-3 shrink-0">
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-mono">
-            Spike Slice Notice: This panel is a visual preview from the mockup and is not connected to live settings/logs in this vertical slice. Deferred to Phase 2.
-          </div>
-        </div>
-
         {/* Local Disk Location Banner & OS Actions */}
         <div className="px-5 py-3 bg-[#F0EEE8] dark:bg-[var(--bg-elevated)] border-b border-[#8A94A6]/25 dark:border-[var(--border)] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 flex-1 min-w-[280px]">
@@ -86,7 +103,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
               Location:
             </span>
             <div className="flex items-center gap-1.5 bg-white dark:bg-[var(--bg-base)] px-2.5 py-1 rounded-md border border-[#8A94A6]/30 dark:border-[var(--border)] font-mono text-[11.5px] text-[#14213D] dark:text-[var(--text-1)] truncate flex-1 shadow-2xs">
-              <span className="truncate">{LOCAL_OUTPUT_PATH}</span>
+              <span className="truncate">{effectiveFolderPath}</span>
               <button
                 type="button"
                 onClick={handleCopyFolderPath}
@@ -137,7 +154,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
             ) : (
               files.map((file) => {
                 const isSelected = selectedFile?.id === file.id;
-                const fullDiskPath = file.localPath || `${LOCAL_OUTPUT_PATH}\\${file.filename}`;
+                const fullDiskPath = file.localPath || `${effectiveFolderPath}\\${file.filename}`;
 
                 let badgeClass = 'bg-slate-100 dark:bg-[var(--bg-elevated)] text-slate-800 dark:text-[var(--text-1)] border-slate-200 dark:border-[var(--border)]';
                 if (file.type === 'docx') badgeClass = 'bg-blue-50 dark:bg-[var(--accent)]/10 text-blue-800 dark:text-[var(--accent)] border-blue-200 dark:border-[var(--accent)]/30';
@@ -208,15 +225,15 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                       {selectedFile.size}
                     </span>
                   </div>
-                  <div className="text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] font-mono truncate mt-0.5" title={selectedFile.localPath || `${LOCAL_OUTPUT_PATH}\\${selectedFile.filename}`}>
-                    {selectedFile.localPath || `${LOCAL_OUTPUT_PATH}\\${selectedFile.filename}`}
+                  <div className="text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] font-mono truncate mt-0.5" title={selectedFile.localPath || `${effectiveFolderPath}\\${selectedFile.filename}`}>
+                    {selectedFile.localPath || `${effectiveFolderPath}\\${selectedFile.filename}`}
                   </div>
 
                   <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-black/5 dark:border-[var(--border)]">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleOpenInExplorer(selectedFile.localPath || `${LOCAL_OUTPUT_PATH}\\${selectedFile.filename}`)}
+                        onClick={() => handleOpenInExplorer(selectedFile.localPath || `${effectiveFolderPath}\\${selectedFile.filename}`)}
                         className="px-2.5 py-1 text-[11.5px] bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 hover:bg-[#0F766E]/15 dark:hover:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)] border border-[#0F766E]/30 dark:border-[var(--accent)]/30 rounded-md font-medium flex items-center gap-1.5 cursor-pointer"
                         title="Reveal in Windows Explorer"
                       >
@@ -231,11 +248,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                         <span className="text-[11px] text-red-700 dark:text-[var(--danger)] font-medium px-1">Delete this file?</span>
                         <button
                           type="button"
-                          onClick={() => {
-                            onDeleteFile(selectedFile.id);
-                            setDeleteConfirmId(null);
-                            setSelectedFile(null);
-                          }}
+                          onClick={() => handleDeleteFile(selectedFile)}
                           className="px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white rounded text-[11px] font-medium cursor-pointer"
                         >
                           Yes

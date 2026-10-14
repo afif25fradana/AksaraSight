@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OutputFolderModal } from '../components/OutputFolderModal';
+import { FileQueuePanel } from '../components/FileQueuePanel';
 import App from '../App';
-import { ExportedFile } from '../types';
+import { DocumentItem, ExportedFile } from '../types';
 
 const mockFiles: ExportedFile[] = [
   {
@@ -209,5 +210,74 @@ describe('OutputFolderModal Component and Live Backend Integration', () => {
       global.EventSource = originalEventSource;
     }
   });
+
+  it('dispatches onClose when Escape key is pressed on OutputFolderModal', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <OutputFolderModal
+        isOpen={true}
+        onClose={onClose}
+        files={mockFiles}
+        onDeleteFile={vi.fn()}
+      />
+    );
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders "Cancel wait" for Waiting items and "Remove" for non-waiting items in FileQueuePanel', () => {
+    const onRemoveFromQueue = vi.fn();
+    const onRemoveDoc = vi.fn();
+
+    const testDocs: DocumentItem[] = [
+      {
+        id: 'doc-wait',
+        name: 'waiting-doc.pdf',
+        pages: 2,
+        status: 'Waiting',
+        statusNote: 'Queued #1',
+        queuePosition: 1,
+        currentPage: 1,
+        docType: 'custom-image',
+        extractedText: '',
+      },
+      {
+        id: 'doc-not-extracted',
+        name: 'not-extracted-doc.pdf',
+        pages: 1,
+        status: 'Not extracted',
+        statusNote: 'Ready',
+        currentPage: 1,
+        docType: 'custom-image',
+        extractedText: '',
+      },
+    ];
+
+    render(
+      <FileQueuePanel
+        documents={testDocs}
+        selectedDocId="doc-wait"
+        onSelectDoc={vi.fn()}
+        onAddFiles={vi.fn()}
+        onClearFinished={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onRemoveFromQueue={onRemoveFromQueue}
+        onRemoveDoc={onRemoveDoc}
+      />
+    );
+
+    const cancelWaitBtn = screen.getByRole('button', { name: 'Cancel queued extraction for waiting-doc.pdf' });
+    expect(cancelWaitBtn).toBeInTheDocument();
+    expect(cancelWaitBtn).toHaveTextContent('Cancel wait');
+    expect(cancelWaitBtn).toHaveAttribute('title', 'Cancel queued extraction');
+
+    const removeBtn = screen.getByRole('button', { name: 'Remove not-extracted-doc.pdf' });
+    expect(removeBtn).toBeInTheDocument();
+    expect(removeBtn).toHaveTextContent('Remove');
+    expect(removeBtn).toHaveAttribute('title', 'Remove file');
+  });
 });
+
 

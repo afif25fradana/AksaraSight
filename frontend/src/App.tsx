@@ -63,6 +63,25 @@ export default function App() {
     return null;
   });
 
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+
+  useEffect(() => {
+    if (selectedDocId !== null && !documents.some((d) => d.id === selectedDocId)) {
+      setSelectedDocId(documents.length > 0 ? documents[0].id : null);
+    }
+  }, [documents, selectedDocId]);
+
+  useEffect(() => {
+    return () => {
+      documentsRef.current.forEach((d) => {
+        if (d.previewImageUrl && d.previewImageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(d.previewImageUrl);
+        }
+      });
+    };
+  }, []);
+
   const [engineSettings, setEngineSettings] = useState<EngineSettings>(() => {
     if (urlState === 'offline') {
       return { ...INITIAL_SETTINGS, status: 'offline' };
@@ -484,17 +503,6 @@ export default function App() {
     });
 
     setDocuments((prev) => prev.filter((d) => d.status !== 'Done' && d.status !== 'Failed'));
-
-    // If the selected document was one of the cleared ones, select first remaining item
-    setSelectedDocId((prevId) => {
-      if (!prevId) return null;
-      const target = documents.find((d) => d.id === prevId);
-      if (target && (target.status === 'Done' || target.status === 'Failed')) {
-        const remaining = documents.filter((d) => d.status !== 'Done' && d.status !== 'Failed' && d.id !== prevId);
-        return remaining.length > 0 ? remaining[0].id : null;
-      }
-      return prevId;
-    });
   };
 
   const handlePageChange = (newPage: number) => {
@@ -695,11 +703,6 @@ export default function App() {
       }
       return prev.filter((doc) => doc.id !== docId);
     });
-
-    if (selectedDocId === docId) {
-      const remaining = documents.filter((doc) => doc.id !== docId);
-      setSelectedDocId(remaining.length > 0 ? remaining[0].id : null);
-    }
   };
 
   // Export handler matching engine formats: docx, md, json, both

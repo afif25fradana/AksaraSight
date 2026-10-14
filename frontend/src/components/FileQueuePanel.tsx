@@ -163,7 +163,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
           {/* Document list */}
           <div 
             className="flex-1 overflow-y-auto p-2 space-y-1.5" 
-            role="listbox" 
+            role="list" 
             aria-label="Document queue list"
           >
             {documents.map((doc) => {
@@ -200,8 +200,8 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
               return (
                 <div 
                   key={doc.id}
-                  role="option" 
-                  aria-selected={isSelected} 
+                  role="listitem" 
+                  aria-current={isSelected ? 'true' : undefined} 
                   tabIndex={0} 
                   onClick={() => onSelectDoc(doc.id)}
                   onKeyDown={(e) => {
@@ -259,9 +259,10 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
                               onRemoveFromQueue(doc.id);
                             }}
                             className="text-[#5A6478] dark:text-[var(--text-2)] hover:text-red-700 hover:dark:text-[var(--danger)] hover:bg-red-50 hover:dark:bg-[var(--danger)]/10 text-[11px] px-1.5 py-0.5 rounded transition-all duration-150 ease-out hover:scale-[1.05] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none"
-                            title="Remove from queue"
+                            title="Cancel queued extraction"
+                            aria-label={`Cancel queued extraction for ${doc.name}`}
                           >
-                            Remove
+                            Cancel wait
                           </button>
                         )}
                       </div>

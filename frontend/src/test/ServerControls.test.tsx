@@ -508,4 +508,31 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
       window.history.pushState({}, '', '/');
     }
   });
+
+  // Test 10: ServerLogsModal closes on Escape keydown
+  it('dispatches onClose when Escape key is pressed on ServerLogsModal', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const status: ServerStatusInfo = {
+      status: 'ready',
+      ownership: 'managed',
+      managed_by_web: true,
+      message: 'Ready',
+      endpoint: 'http://127.0.0.1:8080',
+      pid: 14288,
+      recent_logs: [],
+    };
+
+    render(
+      <ServerLogsModal
+        isOpen={true}
+        onClose={onClose}
+        serverStatus={status}
+      />
+    );
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
+

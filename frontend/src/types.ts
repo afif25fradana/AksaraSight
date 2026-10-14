@@ -109,8 +109,8 @@ export interface ExportedFile {
 }
 
 export interface ServerStatusInfo {
-  status: 'offline' | 'starting' | 'ready' | 'error';
-  ownership: 'none' | 'managed' | 'external';
+  status: 'offline' | 'starting' | 'ready' | 'error' | 'OFFLINE' | 'STARTING' | 'READY' | 'ERROR';
+  ownership: 'none' | 'managed' | 'external' | 'NONE' | 'MANAGED' | 'EXTERNAL';
   managed_by_web: boolean;
   message: string;
   endpoint: string;

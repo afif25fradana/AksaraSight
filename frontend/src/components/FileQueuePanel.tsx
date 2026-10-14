@@ -266,6 +266,24 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
                         )}
                       </div>
                     )}
+                    {doc.status !== 'Processing' && doc.status !== 'Waiting' && (onRemoveDoc || onRemoveFromQueue) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onRemoveDoc) {
+                            onRemoveDoc(doc.id);
+                          } else if (onRemoveFromQueue) {
+                            onRemoveFromQueue(doc.id);
+                          }
+                        }}
+                        className="text-[#5A6478] dark:text-[var(--text-2)] hover:text-red-700 hover:dark:text-[var(--danger)] hover:bg-red-50 hover:dark:bg-[var(--danger)]/10 text-[11px] px-1.5 py-0.5 rounded transition-all duration-150 ease-out hover:scale-[1.05] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none"
+                        title="Remove file"
+                        aria-label={`Remove ${doc.name}`}
+                      >
+                        Remove
+                      </button>
+                    )}
                     {doc.isReExtractionQueued && (
                       <span className="text-amber-800 dark:text-[var(--warning)] font-medium text-[11.5px]">
                         Queued #{doc.queuePosition || 1}

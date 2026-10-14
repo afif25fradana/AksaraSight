@@ -29,12 +29,17 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   isExtracting,
   isTransitioning = false,
 }) => {
+  const rawStatus = String(
+    serverStatus?.status || (engineSettings.status === 'running' ? 'ready' : 'offline')
+  ).toLowerCase();
   const currentStatus: 'offline' | 'starting' | 'ready' | 'error' =
-    serverStatus?.status || (engineSettings.status === 'running' ? 'ready' : 'offline');
+    rawStatus === 'ready' || rawStatus === 'starting' || rawStatus === 'error'
+      ? rawStatus
+      : 'offline';
 
   const isServerRunning = currentStatus === 'ready';
 
-  const statusConfig = {
+  const statusConfigs = {
     ready: {
       label: 'Local Engine Ready',
       wrapperClass:
@@ -59,7 +64,9 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
         'bg-[#DC2626]/10 dark:bg-[var(--danger)]/10 border-[#DC2626]/25 dark:border-[var(--danger)]/25 text-[#991B1B] dark:text-[var(--danger)]',
       dotClass: 'bg-[#DC2626] dark:bg-[var(--danger)]',
     },
-  }[currentStatus];
+  };
+
+  const statusConfig = statusConfigs[currentStatus] || statusConfigs.offline;
 
   let buttonDisabled = false;
   let buttonTitle = '';
@@ -67,9 +74,9 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   let buttonText = 'Stop Server';
 
   if (isServerRunning) {
-    if (serverStatus?.ownership === 'external') {
+    if (String(serverStatus?.ownership || '').toLowerCase() === 'external') {
       buttonDisabled = true;
-      buttonTitle = `Server managed externally (PID ${serverStatus.pid || 'external'})`;
+      buttonTitle = `Server managed externally (PID ${serverStatus?.pid || 'external'})`;
       buttonAriaLabel = 'Stop Server (Disabled - External Server)';
       buttonText = 'Stop Server';
     } else if (isExtracting) {

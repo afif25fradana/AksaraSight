@@ -86,10 +86,17 @@ export default function App() {
       if (res.ok) {
         const data: ServerStatusInfo = await res.json();
         if (data && data.status) {
-          setServerStatus(data);
+          const normalizedStatus = String(data.status).toLowerCase() as 'offline' | 'starting' | 'ready' | 'error';
+          const normalizedOwnership = String(data.ownership || 'none').toLowerCase() as 'none' | 'managed' | 'external';
+          const normalized: ServerStatusInfo = {
+            ...data,
+            status: normalizedStatus,
+            ownership: normalizedOwnership,
+          };
+          setServerStatus(normalized);
           setEngineSettings((prev) => ({
             ...prev,
-            status: data.status === 'ready' ? 'running' : 'offline',
+            status: normalizedStatus === 'ready' ? 'running' : 'offline',
           }));
         }
       }
@@ -489,15 +496,17 @@ export default function App() {
 
   // Selective Clear Finished: Purges completed (Done) or failed (Failed) items and cleans up blob URLs
   const handleClearFinished = () => {
-    setDocuments((prev) => {
-      const toRemove = prev.filter((d) => d.status === 'Done' || d.status === 'Failed');
-      toRemove.forEach((d) => {
-        if (d.previewImageUrl && d.previewImageUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(d.previewImageUrl);
-        }
+    const toRemove = documents.filter((d) => d.status === 'Done' || d.status === 'Failed');
+    toRemove.forEach((d) => {
+      if (d.previewImageUrl && d.previewImageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(d.previewImageUrl);
+      }
+      fetch(`/api/documents/${d.id}`, { method: 'DELETE' }).catch((err) => {
+        console.error(`Failed to delete finished document ${d.id} from backend:`, err);
       });
-      return prev.filter((d) => d.status !== 'Done' && d.status !== 'Failed');
     });
+
+    setDocuments((prev) => prev.filter((d) => d.status !== 'Done' && d.status !== 'Failed'));
 
     // If the selected document was one of the cleared ones, select first remaining item
     setSelectedDocId((prevId) => {
@@ -759,9 +768,11 @@ export default function App() {
 
   const handleToggleServer = async () => {
     if (isServerTransitioning) return;
-    const isRunning = serverStatus ? serverStatus.status === 'ready' : engineSettings.status === 'running';
+    const isRunning = serverStatus
+      ? String(serverStatus.status).toLowerCase() === 'ready'
+      : engineSettings.status === 'running';
     if (isRunning) {
-      if (serverStatus?.ownership === 'external' || runningJobDocId !== null) return;
+      if (String(serverStatus?.ownership || '').toLowerCase() === 'external' || runningJobDocId !== null) return;
     }
     setIsServerTransitioning(true);
     try {

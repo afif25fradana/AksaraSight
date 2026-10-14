@@ -46,17 +46,23 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
 
     const handleLog = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data);
-        if (payload.line) {
+        let payload = JSON.parse(event.data);
+        if (typeof payload === 'string') {
+          try {
+            payload = JSON.parse(payload);
+          } catch {}
+        }
+        const line = typeof payload === 'object' && payload !== null ? payload.line : payload;
+        if (line) {
           setLogs((prev) => {
-            const next = [...prev, payload.line];
+            const next = [...prev, String(line)];
             return next.length > 500 ? next.slice(-500) : next;
           });
         }
       } catch {
         if (event.data) {
           setLogs((prev) => {
-            const next = [...prev, event.data];
+            const next = [...prev, String(event.data)];
             return next.length > 500 ? next.slice(-500) : next;
           });
         }
@@ -96,7 +102,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   };
 
   const statusBadge = useMemo(() => {
-    const status = serverStatus?.status || 'offline';
+    const status = String(serverStatus?.status || 'offline').toLowerCase();
     switch (status) {
       case 'ready':
         return {
@@ -128,7 +134,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
 
   const pidText = serverStatus?.pid
     ? `PID ${serverStatus.pid}`
-    : serverStatus?.ownership === 'external'
+    : String(serverStatus?.ownership || '').toLowerCase() === 'external'
     ? 'EXTERNAL'
     : 'NO PID';
 
@@ -246,7 +252,9 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
           >
             {filteredLogs.length === 0 ? (
               <div className="text-[#5A6478] dark:text-[var(--text-2)] py-8 text-center italic">
-                No logs matching "{filterText}"
+                {logs.length === 0
+                  ? 'Waiting for engine server logs...'
+                  : `No logs matching "${filterText}"`}
               </div>
             ) : (
               filteredLogs.map((line, idx) => {

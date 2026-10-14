@@ -519,7 +519,7 @@ def create_app(
                     return
                 yield ServerSentEvent(
                     event="log",
-                    data=json.dumps({"line": line, "historical": True}),
+                    data={"line": line, "historical": True},
                 )
 
             # Stream live log lines with keepalive ping
@@ -530,7 +530,7 @@ def create_app(
                     line = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield ServerSentEvent(
                         event="log",
-                        data=json.dumps({"line": line, "historical": False}),
+                        data={"line": line, "historical": False},
                     )
                 except (asyncio.TimeoutError, TimeoutError):
                     yield ServerSentEvent(comment="ping")

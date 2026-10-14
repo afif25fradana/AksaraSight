@@ -3634,7 +3634,7 @@ def test_output_open_endpoint_and_security(tmp_path: Path) -> None:
     app = create_app(output_dir=out_dir)
     client = AsgiClient(app)
 
-    with patch("subprocess.run") as mock_subproc, patch("os.startfile", create=True) as mock_startfile:
+    with patch("subprocess.run"), patch("os.startfile", create=True):
         # Open folder itself (empty body)
         status, _, body = client.post(
             "/api/output/open",

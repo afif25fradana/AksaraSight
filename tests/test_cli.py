@@ -841,6 +841,175 @@ def test_cli_doctor_config_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert "STATUS: UNHEALTHY" in captured.out
 
 
+# ==============================================================================
+# Golden Output Parity Tests
+# ==============================================================================
+
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.probe_server_health")
+@patch("cli.main.get_installed_runtime_path")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_golden_output_match(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_get_path: MagicMock,
+    mock_probe: MagicMock,
+    mock_engine_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor matches exact line-by-line golden output when all checks pass."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(
+        gpu_name="NVIDIA RTX 4070",
+        vram_mb=8192,
+        cuda_available=True,
+        cuda_supported=True,
+        cuda_driver_version="576.88",
+        cpu_name="Test CPU",
+        recommended_backend="cuda",
+        details="CUDA 12.4 supported",
+    )
+    mock_is_installed.return_value = True
+    exe_path = Path("C:/runtimes/llama-server.exe")
+    mock_get_path.return_value = exe_path
+    mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
+
+    mock_engine = MagicMock()
+    mock_engine.verify_backend.return_value = None
+    mock_engine_cls.return_value = mock_engine
+
+    exit_code = main(["--doctor"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+
+    expected_lines = [
+        "==================================================",
+        "           AKSARASIGHT DIAGNOSTIC REPORT          ",
+        "==================================================",
+        "1. Configuration",
+        "   [PASS] Backend:             llama-cpp",
+        "   [PASS] Runtime Mode:        managed (target: auto)",
+        "   [PASS] Endpoint:            http://localhost:8080/v1 (loopback: yes)",
+        "",
+        "2. Hardware Detection",
+        "   [PASS] CPU:                 Test CPU",
+        "   [PASS] Primary GPU:         NVIDIA RTX 4070 (8192 MB)",
+        "   [PASS] Acceleration:        CUDA 12.4 Compatible (driver: 576.88)",
+        "   [PASS] Recommended Backend: CUDA",
+        "",
+        "3. Runtime Installation (Managed Mode)",
+        "   [PASS] Managed Runtime:     b11361-cuda (INSTALLED)",
+        f"          Executable:          {exe_path}",
+        "",
+        "4. Server Reachability",
+        "   [PASS] Endpoint Health:     READY (http://localhost:8080/health)",
+        "          Details:             Server is healthy and ready",
+        "",
+        "5. Multimodal Vision Probe",
+        "   [PASS] 1x1 Image Test:      VERIFIED (Vision projector active, inference operational)",
+        "==================================================",
+        "STATUS: HEALTHY - All checks passed (5/5). Ready for OCR processing.",
+        "",
+    ]
+    assert captured.out == "\n".join(expected_lines)
+
+
+@patch("cli.main.OCREngine")
+@patch("cli.main.probe_server_health")
+@patch("cli.main.get_installed_runtime_path")
+@patch("cli.main.is_runtime_installed")
+@patch("cli.main.detect_hardware")
+def test_cli_doctor_golden_output_server_offline(
+    mock_detect: MagicMock,
+    mock_is_installed: MagicMock,
+    mock_get_path: MagicMock,
+    mock_probe: MagicMock,
+    mock_engine_cls: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --doctor matches exact line-by-line golden output when server is offline."""
+    from core.hardware import HardwareProfile
+    from core.server_manager import ServerStatus
+
+    mock_detect.return_value = HardwareProfile(
+        gpu_name=None,
+        cpu_name="Test CPU",
+        recommended_backend="cpu",
+    )
+    mock_is_installed.return_value = True
+    exe_path = Path("C:/runtimes/llama-server.exe")
+    mock_get_path.return_value = exe_path
+    mock_probe.return_value = (ServerStatus.OFFLINE, "Connection refused (server not running)")
+
+    exit_code = main(["--doctor"])
+    assert exit_code == 1
+    mock_engine_cls.assert_not_called()
+    captured = capsys.readouterr()
+
+    expected_lines = [
+        "==================================================",
+        "           AKSARASIGHT DIAGNOSTIC REPORT          ",
+        "==================================================",
+        "1. Configuration",
+        "   [PASS] Backend:             llama-cpp",
+        "   [PASS] Runtime Mode:        managed (target: auto)",
+        "   [PASS] Endpoint:            http://localhost:8080/v1 (loopback: yes)",
+        "",
+        "2. Hardware Detection",
+        "   [PASS] CPU:                 Test CPU",
+        "   [PASS] Primary GPU:         None (CPU fallback)",
+        "   [INFO] Acceleration:        CPU inference only",
+        "   [PASS] Recommended Backend: CPU",
+        "",
+        "3. Runtime Installation (Managed Mode)",
+        "   [PASS] Managed Runtime:     b11361-cpu (INSTALLED)",
+        f"          Executable:          {exe_path}",
+        "",
+        "4. Server Reachability",
+        "   [FAIL] Endpoint Health:     OFFLINE (http://localhost:8080/health)",
+        "          Details:             Connection refused (server not running)",
+        "",
+        "5. Multimodal Vision Probe",
+        "   [SKIP] 1x1 Image Test:      SKIPPED (Server is not ready)",
+        "==================================================",
+        "STATUS: UNHEALTHY - 1 check failed.",
+        "Remediation:",
+        "  - Start the backend server via GUI or run 'llama-server' before processing documents.",
+        "",
+    ]
+    assert captured.out == "\n".join(expected_lines)
+
+
+@patch("cli.main.detect_hardware")
+def test_cli_detect_hardware_golden_output(
+    mock_detect: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --detect-hardware output matches profile.format_summary() verbatim."""
+    from core.hardware import HardwareProfile
+
+    profile = HardwareProfile(
+        cpu_name="AMD Ryzen 7 5800X",
+        gpu_name="NVIDIA GeForce RTX 3080",
+        vram_mb=10240,
+        cuda_available=True,
+        cuda_supported=True,
+        cuda_driver_version="550.54",
+        recommended_backend="cuda",
+        details="CUDA 12.4 supported",
+    )
+    mock_detect.return_value = profile
+
+    exit_code = main(["--detect-hardware"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out == profile.format_summary() + "\n"
+
+
 # DOCX Export CLI Tests
 
 def test_cli_parser_docx_choice() -> None:

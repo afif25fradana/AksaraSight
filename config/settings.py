@@ -20,9 +20,13 @@ LOOPBACK_HOSTS: Set[str] = {"localhost", "127.0.0.1", "::1"}
 def _resolve_default_env_path() -> Path:
     """Resolve the default .env path based on whether running frozen or from source.
 
+    If AKSARA_ENV_FILE is set and non-empty, returns Path(AKSARA_ENV_FILE).
     If frozen (PyInstaller executable), defaults to '.env' adjacent to the executable.
     If running from source, defaults to '.env' in the current working directory.
     """
+    env_override = os.environ.get("AKSARA_ENV_FILE")
+    if env_override:
+        return Path(env_override)
     if getattr(sys, "frozen", False):
         exe_env = Path(sys.executable).parent / ".env"
         return exe_env
@@ -70,6 +74,8 @@ class Settings:
         allow_remote: Explicit opt-in flag to permit non-loopback / remote endpoints.
         runtime_mode: Binary management mode ('managed' for auto-download, 'custom' for manual path).
         managed_backend_override: Acceleration backend override for managed runtime ('auto', 'cuda', 'vulkan', 'cpu').
+        auto_start_server: Whether to automatically launch the managed server on application startup.
+            Note: startup-only configuration; updating it at runtime persists to .env but does not start or stop a server.
     """
 
     backend: str = "llama-cpp"
@@ -259,14 +265,12 @@ class Settings:
         """
         if env_path is not None:
             load_dotenv(dotenv_path=env_path)
-        elif getattr(sys, "frozen", False):
+        else:
             default_env = _resolve_default_env_path()
             if default_env.is_file():
                 load_dotenv(dotenv_path=default_env)
             else:
                 load_dotenv()
-        else:
-            load_dotenv()
 
         backend = _get_env_with_fallback("OCR_BACKEND", "BACKEND", "llama-cpp")
         endpoint = _get_env_with_fallback("OCR_ENDPOINT", "LOCAL_ENDPOINT", "http://localhost:8080/v1")

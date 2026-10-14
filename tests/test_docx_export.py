@@ -2,15 +2,21 @@
 
 import io
 from pathlib import Path
-from docx import Document
-from docx.shared import Pt
+import xml.etree.ElementTree as ET
+import zipfile
 
+import docx
+from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 from markdown_it.token import Token
 from markdown_it.tree import SyntaxTreeNode
 
 from core.docx_export import (
+    _HTMLTableExtractor,
+    _append_table_truncation_note,
     _render_ast_node,
+    _render_parsed_html_table,
     _render_table_node,
     build_docx,
     export_to_docx_bytes,
@@ -638,3 +644,506 @@ def test_image_node_renders_as_placeholder() -> None:
     assert "diagram of process" not in stripped, (
         f"Alt text leaked as bare prose outside the placeholder: {para_text!r}"
     )
+
+
+# HTML Table Export Tests
+
+def test_html_table_synthetic_fixtures(tmp_path: Path) -> None:
+    """Verify receipt fixture and wide table fixture render as single Word table with matching rows, cols, and text."""
+    receipt_html = (
+        "<table>\n"
+        "<thead>\n"
+        '<tr><th>Item</th><th style="text-align: right">Price</th></tr>\n'
+        "</thead>\n"
+        "<tbody>\n"
+        '<tr><td>Espresso</td><td style="text-align: right">$3.50</td></tr>\n'
+        '<tr><td>Croissant</td><td style="text-align: right">$4.00</td></tr>\n'
+        "</tbody>\n"
+        "</table>"
+    )
+    result_receipt = OCRResult(
+        file_path="receipt.pdf",
+        pages=[PageResult(page_num=1, markdown=receipt_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_receipt = build_docx(result_receipt)
+    assert len(doc_receipt.tables) == 1
+    t_receipt = doc_receipt.tables[0]
+    assert len(t_receipt.rows) == 3
+    assert len(t_receipt.columns) == 2
+    assert t_receipt.rows[0].cells[0].text == "Item"
+    assert t_receipt.rows[0].cells[1].text == "Price"
+    assert t_receipt.rows[1].cells[0].text == "Espresso"
+    assert t_receipt.rows[1].cells[1].text == "$3.50"
+    assert t_receipt.rows[2].cells[0].text == "Croissant"
+    assert t_receipt.rows[2].cells[1].text == "$4.00"
+
+    wide_html = (
+        '<table class="table table-bordered">\n'
+        "<thead>\n"
+        "<tr><th>ID</th><th>First Name</th><th>Last Name</th><th>Role</th><th>Status</th></tr>\n"
+        "</thead>\n"
+        "<tbody>\n"
+        "<tr><td>001</td><td>Alice</td><td>Smith</td><td>Admin</td><td>Active</td></tr>\n"
+        "<tr><td>002</td><td>Bob</td><td>Jones</td><td>User</td><td>Inactive</td></tr>\n"
+        "</tbody>\n"
+        "</table>"
+    )
+    result_wide = OCRResult(
+        file_path="wide.pdf",
+        pages=[PageResult(page_num=1, markdown=wide_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_wide = build_docx(result_wide)
+    assert len(doc_wide.tables) == 1
+    t_wide = doc_wide.tables[0]
+    assert len(t_wide.rows) == 3
+    assert len(t_wide.columns) == 5
+    assert [c.text for c in t_wide.rows[0].cells] == ["ID", "First Name", "Last Name", "Role", "Status"]
+    assert [c.text for c in t_wide.rows[1].cells] == ["001", "Alice", "Smith", "Admin", "Active"]
+    assert [c.text for c in t_wide.rows[2].cells] == ["002", "Bob", "Jones", "User", "Inactive"]
+
+
+def test_html_table_with_blank_lines() -> None:
+    """Verify HTML table with empty lines between rows renders as single Word table with all rows preserved."""
+    md = (
+        "<table>\n\n"
+        "<thead>\n"
+        "<tr><th>Region</th><th>Target</th></tr>\n"
+        "</thead>\n\n"
+        "<tbody>\n\n"
+        "<tr><td>North</td><td>100</td></tr>\n\n"
+        "<tr><td>South</td><td>200</td></tr>\n\n"
+        "</tbody>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="blank_lines.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert len(table.columns) == 2
+    assert table.rows[0].cells[0].text == "Region"
+    assert table.rows[1].cells[0].text == "North"
+    assert table.rows[2].cells[0].text == "South"
+
+
+def test_html_table_truncated_unclosed() -> None:
+    """Verify truncated HTML table ending mid-cell/row does not crash and preserves parsed rows."""
+    truncated_md = (
+        "<table>\n"
+        "<tr><th>Header 1</th><th>Header 2</th></tr>\n"
+        "<tr><td>Row 1 Cell 1</td><td>Row 1 Cell 2</td></tr>\n"
+        "<tr><td>Truncated Cell"
+    )
+    result = OCRResult(
+        file_path="truncated.pdf",
+        pages=[PageResult(page_num=1, markdown=truncated_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert table.rows[0].cells[0].text == "Header 1"
+    assert table.rows[1].cells[0].text == "Row 1 Cell 1"
+    assert table.rows[2].cells[0].text == "Truncated Cell"
+
+
+def test_html_table_entities_and_merged_cells() -> None:
+    """Verify character entities (&amp;, &gt;) unescape and colspan/rowspan apply Word table merges."""
+    table_md = (
+        "<table>\n"
+        '<tr><th colspan="2">Q1 &amp; Q2 Summary</th><th>Notes &gt; Remarks</th></tr>\n'
+        '<tr><td rowspan="2">Group A</td><td>Metric 1</td><td>Pass</td></tr>\n'
+        '<tr><td>Metric 2</td><td>Pass</td></tr>\n'
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="merged.pdf",
+        pages=[PageResult(page_num=1, markdown=table_md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.rows) == 3
+    assert len(table.columns) == 3
+
+    # Unescaped entities & colspan merge
+    assert table.rows[0].cells[0].text == "Q1 & Q2 Summary"
+    assert table.rows[0].cells[1].text == "Q1 & Q2 Summary"
+    assert table.rows[0].cells[2].text == "Notes > Remarks"
+
+    # Rowspan merge
+    assert table.rows[1].cells[0].text == "Group A"
+    assert table.rows[2].cells[0].text == "Group A"
+    assert table.rows[1].cells[1].text == "Metric 1"
+    assert table.rows[2].cells[1].text == "Metric 2"
+
+
+def test_html_block_non_table_text_preservation() -> None:
+    """Verify non-table text around HTML tables is preserved as paragraphs alongside the table."""
+    md = (
+        "<table>\n"
+        "<tr><td>Row 1</td></tr>\n"
+        "</table>\n"
+        "Footnote: text after table"
+    )
+    result = OCRResult(
+        file_path="footnote.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert any("Footnote: text after table" in p.text for p in doc.paragraphs)
+
+
+def test_html_table_hostile_spans() -> None:
+    """Verify hostile/malformed colspan and rowspan do not cause memory exhaustion or crash, and columns are clamped to <= 63."""
+    hostile_html = (
+        "<table\n"
+        '<tr><th colspan="100000" rowspan="-5">Header</th><th colspan="invalid">Col2</th></tr>\n'
+        '<tr><td rowspan="99999">Cell1</td><td>Cell2</td></tr>\n'
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="hostile.pdf",
+        pages=[PageResult(page_num=1, markdown=hostile_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert len(table.columns) <= 63
+    assert table.rows[0].cells[0].text == "Header"
+
+
+def test_html_table_truncated_with_blank_lines_and_trailing_markdown() -> None:
+    """Verify truncated HTML table with blank lines and trailing markdown does not swallow trailing prose."""
+    md = (
+        "<table>\n"
+        "<tr><th>Col 1</th><th>Col 2</th></tr>\n\n"
+        "<tr><td>Row 1</td><td>Data 1</td></tr>\n\n"
+        "This is normal trailing prose that should remain a paragraph."
+    )
+    result = OCRResult(
+        file_path="truncated_trailing.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 2
+    assert any(
+        p.text == "This is normal trailing prose that should remain a paragraph."
+        for p in doc.paragraphs
+    )
+
+
+def test_html_table_real_captured_fixtures() -> None:
+    """Verify real captured receipt and wide table fixtures render exact rows, cols, entities, and values."""
+    receipt_html = (
+        "<table>"
+        "<thead><tr><th>Item Description</th><th>Qty</th><th>Rate</th><th>Subtotal</th></tr></thead>"
+        "<tbody>"
+        "<tr><td>Thermal Transfer Ribbon 110mm x 300m (Pack of 2)</td><td>2</td><td>$12.00</td><td>$24.00</td></tr>"
+        "<tr><td>Precision Optical Sensor Calibration Pack</td><td>5</td><td>$25.00</td><td>$125.00</td></tr>"
+        "<tr><td>USB-C 3.2 Gen2 High-Speed Host Interface Cable 2m</td><td>1</td><td>$18.50</td><td>$18.50</td></tr>"
+        "</tbody>"
+        "<tfoot>"
+        "<tr><td>Subtotal:</td><td></td><td>$167.50</td><td></td></tr>"
+        "<tr><td>Goods &amp; Services Tax (GST 9%)</td><td></td><td>$15.08</td><td></td></tr>"
+        "<tr><td>Total Amount Paid:</td><td></td><td>$182.58</td><td></td></tr>"
+        "</tfoot>"
+        "</table>"
+    )
+    result_receipt = OCRResult(
+        file_path="real_receipt.pdf",
+        pages=[PageResult(page_num=1, markdown=receipt_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_receipt = build_docx(result_receipt)
+    assert len(doc_receipt.tables) == 1
+    t_receipt = doc_receipt.tables[0]
+    assert len(t_receipt.rows) == 7
+    assert len(t_receipt.columns) == 4
+    assert t_receipt.rows[5].cells[0].text == "Goods & Services Tax (GST 9%)"
+    assert t_receipt.rows[6].cells[2].text == "$182.58"
+
+    wide_html = (
+        '<table class="table table-bordered">'
+        "<thead>"
+        "<tr><th>Region / Unit</th><th>Gross Billings</th><th>Direct Costs</th><th>Gross Margin</th><th>Overhead</th><th>Net Operating Profit</th><th>Margin %</th></tr>"
+        "</thead>"
+        "<tbody>"
+        "<tr><td>North America East</td><td>$4,850,000</td><td>$2,100,000</td><td>$2,750,000</td><td>$890,000</td><td>$1,860,000</td><td>38.4%</td></tr>"
+        "<tr><td>North America West</td><td>$5,240,000</td><td>$2,350,000</td><td>$2,890,000</td><td>$940,000</td><td>$1,950,000</td><td>37.2%</td></tr>"
+        "<tr><td>Western Europe (EMEA)</td><td>$3,920,000</td><td>$1,880,000</td><td>$2,040,000</td><td>$710,000</td><td>$1,330,000</td><td>33.9%</td></tr>"
+        "<tr><td>Asia-Pacific (APAC)</td><td>$4,150,000</td><td>$1,620,000</td><td>$2,530,000</td><td>$680,000</td><td>$1,850,000</td><td>44.6%</td></tr>"
+        "<tr><td>Latin America (LATAM)</td><td>$1,450,000</td><td>$820,000</td><td>$630,000</td><td>$340,000</td><td>$290,000</td><td>20.0%</td></tr>"
+        "<tr><td>Consolidated Total</td><td>$19,610,000</td><td>$8,770,000</td><td>$10,840,000</td><td>$3,560,000</td><td>$7,280,000</td><td>37.1%</td></tr>"
+        "</tbody>"
+        "</table>"
+    )
+    result_wide = OCRResult(
+        file_path="real_wide.pdf",
+        pages=[PageResult(page_num=1, markdown=wide_html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc_wide = build_docx(result_wide)
+    assert len(doc_wide.tables) == 1
+    t_wide = doc_wide.tables[0]
+    assert len(t_wide.rows) == 7
+    assert len(t_wide.columns) == 7
+    assert t_wide.rows[0].cells[0].text == "Region / Unit"
+    assert t_wide.rows[6].cells[1].text == "$19,610,000"
+
+
+def test_html_table_cell_paragraphs() -> None:
+    """Verify <p> tags inside table cells are separated by newlines."""
+    md = (
+        "<table>\n"
+        "<tr><td><p>First paragraph</p><p>Second paragraph</p></td></tr>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="cell_p.pdf",
+        pages=[PageResult(page_num=1, markdown=md, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    cell_text = doc.tables[0].rows[0].cells[0].text
+    assert cell_text == "First paragraph\nSecond paragraph"
+
+
+def test_html_table_docx_roundtrip_disk_reopen_and_ooxml_structure(tmp_path: Path) -> None:
+    """Verify clamped table DOCX disk round-trip and inspect raw OOXML elements."""
+    html = (
+        "<table>\n"
+        '<tr><td colspan="100" rowspan="5">Clamped Spans Cell</td><td>Col 2</td></tr>\n'
+        "<tr><td>Row 2</td></tr>\n"
+        "<tr><td>Row 3</td></tr>\n"
+        "<tr><td>Row 4</td></tr>\n"
+        "<tr><td>Row 5</td></tr>\n"
+        "</table>"
+    )
+    result = OCRResult(
+        file_path="clamped.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    file_path = tmp_path / "clamped.docx"
+    doc.save(str(file_path))
+
+    # Re-open with docx.Document
+    reopened = docx.Document(str(file_path))
+    assert len(reopened.tables) == 1
+    table = reopened.tables[0]
+    assert len(table.columns) <= 63
+    assert table.rows[0].cells[0].text == "Clamped Spans Cell"
+
+    # Unzip clamped.docx and parse word/document.xml
+    with zipfile.ZipFile(str(file_path)) as z:
+        xml_content = z.read("word/document.xml")
+    root = ET.fromstring(xml_content)
+
+    # Asserts XML root tag
+    assert root.tag.endswith("document")
+
+    # Asserts w:tbl and w:tblGrid exist
+    tbls = [el for el in root.iter() if el.tag.endswith("tbl")]
+    assert len(tbls) >= 1
+    tbl_grids = [el for el in root.iter() if el.tag.endswith("tblGrid")]
+    assert len(tbl_grids) >= 1
+
+    # Asserts w:gridCol count <= 63
+    grid_cols = [el for el in root.iter() if el.tag.endswith("gridCol")]
+    assert 0 < len(grid_cols) <= 63
+
+    # Asserts w:hMerge (w:gridSpan) and w:vMerge OOXML tags exist on merged cells
+    has_h_merge = any(
+        el.tag.endswith(("gridSpan", "hMerge")) or "gridSpan" in el.tag or "hMerge" in el.tag
+        for el in root.iter()
+    )
+    has_v_merge = any(
+        el.tag.endswith("vMerge") or "vMerge" in el.tag
+        for el in root.iter()
+    )
+    assert has_h_merge, "Expected horizontal merge tag (w:gridSpan or w:hMerge) in OOXML"
+    assert has_v_merge, "Expected vertical merge tag (w:vMerge) in OOXML"
+
+
+def test_html_table_row_count_clamping() -> None:
+    """Verify HTML tables exceeding max_rows are clamped with a visible DOCX notice."""
+    rows_html = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(25))
+    html = f"<table>\n{rows_html}</table>"
+    doc = Document()
+    render_markdown_page(doc, html, max_html_table_rows=5)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 5
+    assert any("[Table truncated: 20 rows omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+    large_rows = "".join(f"<tr><td>Row {i}</td></tr>\n" for i in range(1005))
+    extractor = _HTMLTableExtractor()
+    extractor.feed(f"<table>\n{large_rows}</table>")
+    assert len(extractor.tables[0]) == 1000
+    assert extractor.sequence[0][2] == 5
+
+
+def test_html_table_nested_table_in_cell_safety() -> None:
+    """Verify parser safely flattens nested tables without crash and preserves cell text."""
+    html = "<table><tr><td>Outer Cell <table><tr><td>Inner Cell</td></tr></table> More Outer</td></tr></table>"
+    result = OCRResult(
+        file_path="nested_table.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].rows) == 1
+    assert len(doc.tables[0].columns) == 1
+    assert doc.tables[0].rows[0].cells[0].text == "Outer Cell Inner Cell More Outer"
+
+
+def test_html_table_column_clamping_visible_notice() -> None:
+    """Verify HTML table exceeding 63 columns clamps to 63 and emits visible truncation notice."""
+    cells = "".join(f"<td>C{i}</td>" for i in range(65))
+    html = f"<table><tr>{cells}</tr></table>"
+    doc = Document()
+    render_markdown_page(doc, html)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_gfm_table_column_clamping_visible_notice() -> None:
+    """Verify GFM pipe table with 65 columns clamps to 63 and emits visible truncation notice."""
+    header = "| " + " | ".join(f"Col{i}" for i in range(65)) + " |"
+    delimiter = "| " + " | ".join("---" for _ in range(65)) + " |"
+    row = "| " + " | ".join(f"Val{i}" for i in range(65)) + " |"
+    table_md = f"{header}\n{delimiter}\n{row}\n"
+    doc = Document()
+    render_markdown_page(doc, table_md)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_html_table_colspan_crossing_column_limit() -> None:
+    """Verify cell at col 60 with colspan 6 (total 66) clamps grid to 63 and reports 3 omitted cols."""
+    first_60 = "".join(f"<td>C{i}</td>" for i in range(60))
+    wide_cell = '<td colspan="6">Wide</td>'
+    html = f"<table><tr>{first_60}{wide_cell}</tr></table>"
+    doc = Document()
+    render_markdown_page(doc, html)
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 63
+    assert any("[Table truncated: 3 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_row_cap_boundary_1000_vs_1001() -> None:
+    """Verify boundary at exactly 1000 rows (0 omitted) vs 1001 rows (1 row omitted with notice)."""
+    # 1000 rows boundary
+    ext_1000 = _HTMLTableExtractor(max_rows=1000)
+    ext_1000.feed("<table>" + "".join(f"<tr><td>R{i}</td></tr>" for i in range(1000)) + "</table>")
+    ext_1000.close()
+    assert len(ext_1000.tables[0]) == 1000
+    assert ext_1000.sequence[0][2] == 0
+
+    doc_1000 = Document()
+    _render_parsed_html_table(doc_1000, [[{"text": f"R{i}"}] for i in range(5)], truncated_rows=ext_1000.sequence[0][2])
+    assert not any("[Table truncated" in p.text for p in doc_1000.paragraphs)
+
+    # 1001 rows boundary
+    ext_1001 = _HTMLTableExtractor(max_rows=1000)
+    ext_1001.feed("<table>" + "".join(f"<tr><td>R{i}</td></tr>" for i in range(1001)) + "</table>")
+    ext_1001.close()
+    assert len(ext_1001.tables[0]) == 1000
+    assert ext_1001.sequence[0][2] == 1
+
+    doc_1001 = Document()
+    _render_parsed_html_table(doc_1001, [[{"text": f"R{i}"}] for i in range(5)], truncated_rows=ext_1001.sequence[0][2])
+    assert any("[Table truncated: 1 rows omitted to fit document limits]" in p.text for p in doc_1001.paragraphs)
+
+
+def test_html_table_nested_table_text_separator() -> None:
+    """Verify nested table with multiple cells and rows separates cell texts with spaces and rows with newlines."""
+    html = (
+        "<table><tr><td>"
+        "Outer "
+        "<table>"
+        "<tr><td>Inner1</td><td>Inner2</td></tr>"
+        "<tr><td>Inner3</td><td>Inner4</td></tr>"
+        "</table>"
+        "</td></tr></table>"
+    )
+    result = OCRResult(
+        file_path="nested_multi.pdf",
+        pages=[PageResult(page_num=1, markdown=html, status=JobStatus.SUCCESS)],
+        status=JobStatus.SUCCESS,
+    )
+    doc = build_docx(result)
+    assert len(doc.tables) == 1
+    assert doc.tables[0].rows[0].cells[0].text == "Outer Inner1 Inner2\nInner3 Inner4"
+
+
+def test_table_both_rows_and_cols_truncated_notice() -> None:
+    """Verify notice phrasing when both rows and columns exceed document limits."""
+    doc = Document()
+    _append_table_truncation_note(doc, truncated_rows=5, truncated_cols=2)
+    assert any("[Table truncated: 5 rows and 2 columns omitted to fit document limits]" in p.text for p in doc.paragraphs)
+
+
+def test_build_docx_with_incompleteness_notice() -> None:
+    """Verify incompleteness notice banner is prepended as first paragraph with italic styling."""
+    result = OCRResult(
+        file_path="partial_doc.pdf",
+        pages=[
+            PageResult(page_num=1, markdown="# Page 1\nSome extracted text.", status=JobStatus.SUCCESS),
+        ],
+        status=JobStatus.FAILED,
+        error="Extraction failed on page 2",
+    )
+    notice = "Incomplete extraction: Extraction failed on page 2"
+    doc = build_docx(result, notice=notice)
+    assert len(doc.paragraphs) > 0
+    first_p = doc.paragraphs[0]
+    assert first_p.text == f"[Notice: {notice}]"
+    assert len(first_p.runs) > 0
+    run = first_p.runs[0]
+    assert run.italic is True
+    assert run.font.size == Pt(9.5)
+
+
+def test_docx_xml_content_invariance_for_success_export() -> None:
+    """Verify export_to_docx_bytes with notice=None produces byte-identical word/document.xml to default export."""
+    result = OCRResult(
+        file_path="clean_doc.pdf",
+        pages=[
+            PageResult(page_num=1, markdown="# Page 1\nClean content.", status=JobStatus.SUCCESS),
+            PageResult(page_num=2, markdown="# Page 2\nSecond page content.", status=JobStatus.SUCCESS),
+        ],
+        status=JobStatus.SUCCESS,
+    )
+
+    bytes_default = export_to_docx_bytes(result)
+    bytes_notice_none = export_to_docx_bytes(result, notice=None)
+
+    with zipfile.ZipFile(io.BytesIO(bytes_default), "r") as z1:
+        xml_default = z1.read("word/document.xml")
+    with zipfile.ZipFile(io.BytesIO(bytes_notice_none), "r") as z2:
+        xml_notice_none = z2.read("word/document.xml")
+
+    assert xml_default == xml_notice_none
+
+
+
+

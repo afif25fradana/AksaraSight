@@ -591,6 +591,25 @@ def test_frozen_env_path_resolution(tmp_path, monkeypatch):
     assert resolved == tmp_path / "bin" / ".env"
 
 
+def test_aksara_env_file_env_override(tmp_path, monkeypatch):
+    """Verify _resolve_default_env_path prioritizes AKSARA_ENV_FILE environment variable."""
+    from config.settings import _resolve_default_env_path
+
+    custom_env = tmp_path / "custom" / "aksara.env"
+    monkeypatch.setenv("AKSARA_ENV_FILE", str(custom_env))
+    assert _resolve_default_env_path() == custom_env
+
+    # Verify frozen does not take precedence over AKSARA_ENV_FILE
+    dummy_exe = tmp_path / "bin" / "AksaraSight.exe"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(dummy_exe))
+    assert _resolve_default_env_path() == custom_env
+
+    # When unset, falls back to standard resolution
+    monkeypatch.delenv("AKSARA_ENV_FILE", raising=False)
+    assert _resolve_default_env_path() == tmp_path / "bin" / ".env"
+
+
 def test_frozen_from_and_save_to_env(tmp_path, monkeypatch):
     """Verify Settings.from_env and save_to_env use executable directory when frozen."""
     dummy_exe = tmp_path / "portable_app" / "AksaraSight.exe"

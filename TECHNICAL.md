@@ -20,7 +20,7 @@ This document provides in-depth technical specifications, architecture notes, co
 
 ## Architecture & Codebase Layout
 
-AksaraSight strictly isolates presentation layers from domain logic. The CLI and Desktop GUI are thin consumers; all OCR execution, base64 payload encoding, image downscaling, and HTTP client interactions are centralized in `core/`.
+AksaraSight strictly isolates presentation layers from domain logic. The CLI and Web UI are thin consumers; all OCR execution, base64 payload encoding, image downscaling, and HTTP client interactions are centralized in `core/`.
 
 ```
 AksaraSight/
@@ -38,26 +38,21 @@ AksaraSight/
 │   └── constants.py       # Application constants and version single source of truth
 ├── cli/                   # Scriptable command-line interface
 │   └── main.py            # Streaming CLI entrypoint, argument parsing, batch processor
-├── gui/                   # Desktop GUI Studio (CustomTkinter)
-│   ├── app.py             # Main application window and coordinator (~1,497 lines)
-│   ├── queue_manager.py   # QueueManager: queue state, list selection, card widgets
-│   ├── export_controller.py # ExportController: artifact exports, format resolution, export threads
-│   ├── server_controller.py # ServerUIController: health polling, status pill, server actions
-│   ├── worker_coordinator.py # WorkerCoordinator: background task loop and result dispatch
-│   ├── image_preview.py   # ImagePreviewController: page preview rendering, zoom, pan
-│   ├── preview_highlighter.py # MarkdownHighlighter: syntax highlighting and preview tabs
-│   ├── security_dialog.py # SecurityConfirmationDialog: remote endpoint opt-in confirmation
-│   ├── settings_window.py # SettingsWindow: runtime manager, preferences modal, backend toggle
-│   └── theme.py           # Dark theme color tokens and styling helpers
+├── web/                   # Browser-based local workspace (FastAPI & React)
+│   ├── app.py             # FastAPI application factory, API routes, and SSE streaming
+│   ├── orchestrator.py    # Batch queue orchestration, SSE progress dispatch, and worker threads
+│   ├── security.py        # Loopback-only Host header, port pinning, and origin security middleware
+│   ├── __main__.py        # Module entrypoint (`python -m web`)
+│   └── static/            # Pre-built React production frontend SPA assets
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
-└── tests/                 # Automated test suite (unit, integration, and UI tests)
+└── tests/                 # Automated test suite (unit, functional, and integration tests)
 ```
 
 ### Architectural Guarantees & Concurrency
 - **Thread Safety**: `pypdfium2` PDF bindings are not thread-safe; all PDF operations are strictly serialized via `_PDFIUM_LOCK` in `core/pipeline.py`.
-- **GUI Thread Isolation**: Tkinter and Tcl are single-threaded on Windows. Background worker threads never invoke UI methods directly; all cross-thread events route through `_ui_callback_queue` drained on the main loop.
+- **Worker Isolation**: Document OCR jobs run on background threads managed by `web/orchestrator.py`, streaming real-time progress over SSE without blocking FastAPI request handling.
 - **Fail-Safe Offline Behavior**: If the local backend is unreachable or drops connection mid-document, processing stops immediately with a `ServerOfflineError` rather than routing files externally.
 
 ---
@@ -213,13 +208,13 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 ### Application File Logging
 When running as a packaged desktop application, runtime logs are written directly to disk:
 - **Destination**: `%LOCALAPPDATA%\AksaraSight\logs\app.log`
-- **Log Level Routing**: The root logger is initialized at `INFO` to record operational lifecycle events. To capture diagnostic troubleshooting details without polluting logs with high-volume third-party library noise (such as `urllib3`, `PIL`, or `customtkinter`), `DEBUG` logging is specifically enabled for internal application namespaces (`gui` and `core`). Unhandled crashes are intercepted via `sys.excepthook` and recorded with full tracebacks.
+- **Log Level Routing**: The root logger is initialized at `INFO` to record operational lifecycle events. To capture diagnostic troubleshooting details without polluting logs with high-volume third-party library noise (such as `urllib3` or `PIL`), `DEBUG` logging is specifically enabled for internal application namespaces (`web` and `core`). Unhandled crashes are intercepted via `sys.excepthook` and recorded with full tracebacks.
 - **Log Rotation Policy**: Log file growth is bounded using a `RotatingFileHandler` configured with a 5 MB maximum file size (`maxBytes=5242880`) and up to 3 backup archives (`backupCount=3`, preserving `app.log.1`, `app.log.2`, and `app.log.3`).
 - **Multi-Instance Concurrency on Windows**: Windows enforces mandatory file locks on open file handles. When two application instances run concurrently and share the same log file, log rotation cannot rename active log files (`PermissionError`). Python's logging handler catches this condition internally, deferring rotation until the secondary process releases its handle. Standard single-instance execution rotates logs cleanly without interruption.
 
 ### Hardware Pre-Flight & Cold-Start Diagnostics
 GLM-OCR inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 2.2 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
-- **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Desktop GUI (`gui/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
+- **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Web UI (`web/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
 - **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without freezing process supervision.
 
 ---
@@ -227,17 +222,11 @@ GLM-OCR inference under the default 8,192 token context window (`-c 8192 --paral
 ## Testing, Build Verification & Portable Packaging
 
 ### Running the Test Suite
-The test suite is configured via `pytest.ini`:
-1. **Core & CLI Suite**: Headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, controllers, and runtime supervision. Runs on both Linux and Windows.
-2. **Desktop GUI Suite**: Tkinter and CustomTkinter desktop interface tests, run on Windows.
+The test suite is configured via `pytest.ini` (`testpaths = tests`). All tests are headless unit, functional, and integration tests covering document ingestion, formatting, hardware detection, model client, Web API routes, and runtime supervision. Runs identically on both Linux and Windows.
 
 Run tests from the repository root:
 
 ```powershell
-# Core & CLI test suite (headless, verified green on Linux CI)
-python -m pytest --ignore=tests/test_gui.py
-
-# Complete test suite (verified green on Windows CI)
 python -m pytest
 ```
 

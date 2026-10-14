@@ -8,11 +8,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 # "table" and "formula" are upstream native task prompts for zai-org/GLM-OCR.
 PROMPT_PRESETS: Dict[str, str] = {
-    "text": (
-        "Text Recognition: Transcribe the document into Markdown. "
-        "Format any tabular, grid, or checklist content (including checkbox columns) "
-        "using GFM pipe tables (| ... |)."
-    ),
+    "text": "Text Recognition:",
     "table": "Table Recognition:",
     "formula": "Formula Recognition:",
 }

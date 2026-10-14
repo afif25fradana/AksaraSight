@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 import threading
@@ -99,12 +100,18 @@ class OCREngine:
         file_path = str(source)
 
         result = OCRResult(file_path=file_path)
-        effective_dpi = cfg.dpi if cfg.dpi is not None else getattr(self.settings, "dpi", 100)
+        doc_settings = copy.deepcopy(self.settings) if getattr(self, "settings", None) else None
+        effective_dpi = (
+            cfg.dpi
+            if cfg.dpi is not None
+            else (getattr(doc_settings, "dpi", 100) if doc_settings else 100)
+        )
         effective_max_dim = (
             cfg.max_image_dimension
             if cfg.max_image_dimension is not None
-            else getattr(self.settings, "max_image_dimension", 2048)
+            else (getattr(doc_settings, "max_image_dimension", 2048) if doc_settings else 2048)
         )
+        effective_max_tokens = getattr(doc_settings, "max_tokens", None) if doc_settings else None
 
         try:
             # Note: ingest() is a generator; validation and pre-flight execute
@@ -143,6 +150,7 @@ class OCREngine:
                         text, raw_json, latency, truncated = self.client.complete(
                             image_b64=page.image_b64,
                             prompt=cfg.effective_prompt,
+                            max_tokens=effective_max_tokens,
                         )
                         page_res = PageResult(
                             page_num=page.page_num,

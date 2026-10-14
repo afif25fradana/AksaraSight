@@ -11,6 +11,12 @@ from .client import (
     resolve_chat_endpoint,
 )
 from .constants import SUPPORTED_EXTENSIONS, __version__
+from .diagnostics import (
+    DiagnosticCheck,
+    DiagnosticReport,
+    DiagnosticStatus,
+    run_diagnostics,
+)
 from .engine import OCREngine
 from .formatter import (
     format_output,
@@ -71,6 +77,9 @@ __all__ = [
     "BadRequestError",
     "ClientError",
     "CorruptDocumentError",
+    "DiagnosticCheck",
+    "DiagnosticReport",
+    "DiagnosticStatus",
     "EmptyDocumentError",
     "EncryptedDocumentError",
     "ExtractedPage",
@@ -117,6 +126,7 @@ __all__ = [
     "probe_server_health",
     "resolve_chat_endpoint",
     "resolve_unique_stem",
+    "run_diagnostics",
     "sanitize_filename_stem",
     "save_artifacts",
     "start_hardware_prewarm",

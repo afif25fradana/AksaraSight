@@ -1,5 +1,5 @@
 [run]
-source = core,cli,gui,config
+source = core,cli,web,config
 omit = tests/*
 
 [report]

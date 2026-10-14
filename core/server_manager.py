@@ -31,6 +31,7 @@ from core.job_object import (
     _close_job_handle,
     _create_kill_on_close_job,
 )
+from core.model_manager import get_local_model_paths
 
 
 class ServerStatus(str, Enum):
@@ -256,6 +257,7 @@ class ServerManager:
         self._last_message: str = "Offline"
         self._stopping: bool = False
         self._log_buffer: deque[str] = deque(maxlen=200)
+        self._log_listeners: list[Callable[[str], None]] = []
         self._reader_thread: Optional[threading.Thread] = None
         self._vram_check_thread: Optional[threading.Thread] = None
         # _lock guards state only and is held briefly. It is never held across
@@ -298,6 +300,26 @@ class ServerManager:
         with self._lock:
             all_logs = list(self._log_buffer)
             return all_logs[-max_lines:] if max_lines > 0 else all_logs
+
+    def add_log_listener(self, listener: Callable[[str], None]) -> None:
+        """Register a callback listener for new log lines.
+
+        Args:
+            listener: Callable accepting a single log line string.
+        """
+        with self._lock:
+            if listener not in self._log_listeners:
+                self._log_listeners.append(listener)
+
+    def remove_log_listener(self, listener: Callable[[str], None]) -> None:
+        """Unregister a log line callback listener.
+
+        Args:
+            listener: Callable to remove from active listeners.
+        """
+        with self._lock:
+            if listener in self._log_listeners:
+                self._log_listeners.remove(listener)
 
     def poll_status(self) -> ServerStatusInfo:
         """Query server health and process status, updating internal state.
@@ -400,7 +422,13 @@ class ServerManager:
     def _diagnose_failure(self) -> str:
         """Analyze recent log buffer lines to diagnose the root cause of startup failure."""
         recent_text = "\n".join(list(self._log_buffer)[-25:]).lower()
-        if "address already in use" in recent_text or "10048" in recent_text or "failed to bind socket" in recent_text:
+        if (
+            "address already in use" in recent_text
+            or "10048" in recent_text
+            or "failed to bind socket" in recent_text
+            or "couldn't bind" in recent_text
+            or "could not bind" in recent_text
+        ):
             return "Port already in use by another process"
         if "failed to initialize cuda" in recent_text or "cuda driver version" in recent_text:
             return "CUDA/GPU acceleration initialization failed"
@@ -429,6 +457,11 @@ class ServerManager:
         """
         callback: Optional[Callable[[], None]] = None
         with self._lifecycle_lock:
+            with self._lock:
+                existing_proc = self._process
+            if existing_proc is not None and existing_proc.poll() is None:
+                raise RuntimeError("A managed server process is already running.")
+
             # Check if a compatible server is already running
             active_ep = endpoint or self.settings.local_endpoint
             cur_status, cur_msg = probe_server_health(active_ep, timeout=1.5, session=self._session)
@@ -484,11 +517,6 @@ class ServerManager:
                     self._last_message = f"Connected to existing server ({model_detail})"
                     callback = self.on_lifecycle_change
             else:
-                with self._lock:
-                    existing_proc = self._process
-                if existing_proc is not None and existing_proc.poll() is None:
-                    raise RuntimeError("A managed server process is already running.")
-
                 # Resolve executable path (uses effective_llama_server_path to support managed runtime)
                 candidate_path = server_path or self.settings.effective_llama_server_path
                 if not candidate_path:
@@ -545,18 +573,44 @@ class ServerManager:
                     logger.debug("VRAM pre-flight check skipped: %s", hw_exc)
 
                 # Verified optimal hardware arguments
-                cmd = [
-                    resolved_path,
-                    model_flag, repo,
-                    "--host", "127.0.0.1",
-                    "--port", str(port),
-                    "-ngl", "99",
-                    "-c", "8192",
-                    "--parallel", "1",
-                ]
+                if model_flag != "-m":
+                    local_paths = get_local_model_paths(repo)
+                    if local_paths is not None:
+                        model_path, mmproj_path = local_paths
+                        cmd = [
+                            resolved_path,
+                            "-m", str(model_path),
+                            "--mmproj", str(mmproj_path),
+                            "--host", "127.0.0.1",
+                            "--port", str(port),
+                            "-ngl", "99",
+                            "-c", "8192",
+                            "--parallel", "1",
+                        ]
+                        logger.info("Using local pinned model weights: %s", model_path.name)
+                    else:
+                        cmd = [
+                            resolved_path,
+                            "-hf", repo,
+                            "--host", "127.0.0.1",
+                            "--port", str(port),
+                            "-ngl", "99",
+                            "-c", "8192",
+                            "--parallel", "1",
+                        ]
+                        logger.info("Local model weights not found; falling back to -hf %s", repo)
+                else:
+                    cmd = [
+                        resolved_path,
+                        "-m", repo,
+                        "--host", "127.0.0.1",
+                        "--port", str(port),
+                        "-ngl", "99",
+                        "-c", "8192",
+                        "--parallel", "1",
+                    ]
 
-                # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
-                if model_flag == "-m":
+                    # For local GGUF model files, auto-detect adjacent mmproj or emit helpful warning
                     model_path = Path(repo).resolve()
                     mmproj_candidates: List[Path] = []
                     if model_path.parent.is_dir():
@@ -633,8 +687,16 @@ class ServerManager:
                             for line in p.stdout:
                                 cleaned = line.rstrip("\r\n")
                                 if cleaned:
+                                    if len(cleaned) > 1024:
+                                        cleaned = cleaned[:1024] + " ... [truncated]"
                                     with self._lock:
                                         self._log_buffer.append(cleaned)
+                                        listeners = list(self._log_listeners)
+                                    for l in listeners:
+                                        try:
+                                            l(cleaned)
+                                        except Exception as listener_exc:
+                                            logger.debug("Error in log listener callback: %s", listener_exc)
                         except Exception as exc:
                             logger.debug("stdout reader stopped: %s", exc)
 

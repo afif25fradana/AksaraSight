@@ -497,15 +497,17 @@ def rasterize_page(
         if doc is not None:
             try:
                 idx = max(0, min(page_idx, total_pages - 1))
+                pil_img = None
                 with _PDFIUM_LOCK:
                     page = doc[idx]
                     try:
                         pil_img = page.render(scale=scale).to_pil()
-                        buf = io.BytesIO()
-                        pil_img.save(buf, format="PNG")
-                        return buf.getvalue()
                     finally:
                         page.close()
+                if pil_img is not None:
+                    buf = io.BytesIO()
+                    pil_img.save(buf, format="PNG")
+                    return buf.getvalue()
             except EmptyDocumentError:
                 raise
             except Exception as exc:

@@ -1,4 +1,4 @@
-"""Central constants shared across core, cli, and gui modules."""
+"""Central constants shared across core, cli, and web modules."""
 
 # Application release version (single source of truth)
 __version__: str = "1.2.1"

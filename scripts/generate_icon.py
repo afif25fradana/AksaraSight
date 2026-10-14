@@ -15,8 +15,8 @@ from typing import List, Tuple
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_PNG = REPO_ROOT / "gui" / "assets" / "icon.png"
-DEFAULT_ICO = REPO_ROOT / "gui" / "assets" / "icon.ico"
+DEFAULT_PNG = REPO_ROOT / "assets" / "icon.png"
+DEFAULT_ICO = REPO_ROOT / "assets" / "icon.ico"
 
 ICON_SIZES: List[Tuple[int, int]] = [
     (16, 16),

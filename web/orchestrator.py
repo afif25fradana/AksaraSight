@@ -249,6 +249,12 @@ class WebOrchestrator:
         except queue.Full:
             pass
 
+    def shutdown(self, timeout: float = 2.0) -> None:
+        """Stop worker thread and wait for it to exit."""
+        self.stop()
+        if self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=timeout)
+
     def _worker_loop(self) -> None:
         """Background thread executing queued jobs sequentially."""
         while not self._stop_event.is_set():
@@ -337,53 +343,66 @@ class WebOrchestrator:
                     progress_callback=on_progress,
                 )
                 job.result = result
-
-                if job.cancel_event.is_set() or getattr(result, "status", None) == CoreJobStatus.CANCELLED:
-                    job.status = JobStatus.CANCELLED
-                    self.broadcast("cancelled", {"job_id": job.job_id})
-                elif (
-                    getattr(result, "status", None) == CoreJobStatus.FAILED
-                    or getattr(result, "aborted", False)
-                    or any(getattr(p, "status", None) == CoreJobStatus.FAILED for p in getattr(result, "pages", []))
-                ):
-                    job.status = JobStatus.FAILED
-                    if getattr(result, "error", None):
-                        job.error = result.error
-                    else:
-                        failed_pages = [
-                            p for p in getattr(result, "pages", [])
-                            if getattr(p, "status", None) == CoreJobStatus.FAILED
-                        ]
-                        if failed_pages:
-                            max_visible_errors = 3
-                            visible_failures = failed_pages[:max_visible_errors]
-                            details = "; ".join(
-                                f"page {p.page_num}: {p.error or 'Extraction failed'}"
-                                for p in visible_failures
-                            )
-                            remaining_count = len(failed_pages) - len(visible_failures)
-                            if remaining_count > 0:
-                                page_word = "page" if remaining_count == 1 else "pages"
-                                details += f"; and {remaining_count} other {page_word} failed"
-                            job.error = f"Extraction failed on {details}"
-                        else:
-                            job.error = "Document processing failed"
-                    self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
-                else:
-                    job.status = JobStatus.SUCCESS
-                    self.broadcast(
-                        "completed",
-                        {
-                            "job_id": job.job_id,
-                            "pages": job.page_count,
-                        },
-                    )
             except ServerOfflineError as e:
+                result = None
                 job.status = JobStatus.FAILED
                 job.error = str(e)
-                self.broadcast("failed", {"job_id": job.job_id, "error": str(e)})
             except Exception as e:
                 logger.exception("Unexpected error processing job %s", job.job_id)
+                result = None
                 job.status = JobStatus.FAILED
                 job.error = str(e)
-                self.broadcast("failed", {"job_id": job.job_id, "error": str(e)})
+
+            with self._lock:
+                is_removed = job.job_id not in self.jobs
+
+            if is_removed:
+                if job.file_path and job.file_path.exists():
+                    try:
+                        job.file_path.unlink()
+                    except OSError as unlink_err:
+                        logger.warning("Deferred unlink failed for removed job %s: %s", job.job_id, unlink_err)
+                continue
+
+            if result is None:
+                self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
+            elif job.cancel_event.is_set() or getattr(result, "status", None) == CoreJobStatus.CANCELLED:
+                job.status = JobStatus.CANCELLED
+                self.broadcast("cancelled", {"job_id": job.job_id})
+            elif (
+                getattr(result, "status", None) == CoreJobStatus.FAILED
+                or getattr(result, "aborted", False)
+                or any(getattr(p, "status", None) == CoreJobStatus.FAILED for p in getattr(result, "pages", []))
+            ):
+                job.status = JobStatus.FAILED
+                if getattr(result, "error", None):
+                    job.error = result.error
+                else:
+                    failed_pages = [
+                        p for p in getattr(result, "pages", [])
+                        if getattr(p, "status", None) == CoreJobStatus.FAILED
+                    ]
+                    if failed_pages:
+                        max_visible_errors = 3
+                        visible_failures = failed_pages[:max_visible_errors]
+                        details = "; ".join(
+                            f"page {p.page_num}: {p.error or 'Extraction failed'}"
+                            for p in visible_failures
+                        )
+                        remaining_count = len(failed_pages) - len(visible_failures)
+                        if remaining_count > 0:
+                            page_word = "page" if remaining_count == 1 else "pages"
+                            details += f"; and {remaining_count} other {page_word} failed"
+                        job.error = f"Extraction failed on {details}"
+                    else:
+                        job.error = "Document processing failed"
+                self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
+            else:
+                job.status = JobStatus.SUCCESS
+                self.broadcast(
+                    "completed",
+                    {
+                        "job_id": job.job_id,
+                        "pages": job.page_count,
+                    },
+                )

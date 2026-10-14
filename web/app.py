@@ -358,8 +358,9 @@ def create_app(
         yield
 
         # Server shutdown cleanup: stop worker thread and unlink session upload files
-        if hasattr(app_instance.state, "orchestrator") and app_instance.state.orchestrator:
-            app_instance.state.orchestrator.stop()
+        orch = getattr(app_instance.state, "orchestrator", None)
+        if orch:
+            orch.shutdown()
 
         if getattr(app_instance.state, "server_managed", False):
             logger.info("Web application shutting down; stopping owned managed server.")
@@ -367,15 +368,17 @@ def create_app(
         else:
             logger.info("Web application shutting down; external server left untouched.")
 
-        held_lock = getattr(app_instance.state, "instance_lock", None)
-        if held_lock is not None and active_upload_dir and Path(active_upload_dir).exists():
-            upload_path = Path(active_upload_dir)
-            for f in upload_path.glob("*"):
-                if f.is_file() and f.name != ".instance.lock":
+        if orch:
+            with orch._lock:
+                tracked_jobs = list(orch.jobs.values())
+            for job in tracked_jobs:
+                if job.file_path and job.file_path.exists():
                     try:
-                        f.unlink()
+                        job.file_path.unlink()
                     except OSError as e:
-                        logger.warning("Failed to cleanup upload file %s: %s", f, e)
+                        logger.warning("Failed to cleanup upload file for job %s: %s", job.job_id, e)
+
+        held_lock = getattr(app_instance.state, "instance_lock", None)
         if held_lock is not None:
             _release_instance_lock(held_lock)
             app_instance.state.instance_lock = None
@@ -857,6 +860,8 @@ def create_app(
         try:
             png_bytes = rasterize_page(job.file_path, page_idx=page_idx)
             return Response(content=png_bytes, media_type="image/png")
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Document file not found")
         except Exception as e:
             logger.exception("Failed to rasterize preview for job %s page %s", job_id, page)
             raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {e}")

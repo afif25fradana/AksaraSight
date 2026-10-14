@@ -12,6 +12,7 @@ from unittest.mock import patch
 import urllib3
 
 from PIL import Image
+import pypdfium2 as pdfium
 import pytest
 
 from config.settings import Settings
@@ -693,7 +694,7 @@ def test_startup_sweep_cleans_up_stale_uploads(tmp_path: Path) -> None:
 
 
 def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
-    """Verify FastAPI lifespan shutdown cleans up all files in upload directory."""
+    """Verify FastAPI lifespan shutdown cleans up tracked files in upload directory."""
     app = create_app(upload_dir=tmp_path)
 
     async def _run_lifespan():
@@ -705,10 +706,16 @@ def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
             file2.write_bytes(b"data2")
             assert file1.exists()
             assert file2.exists()
+            app.state.orchestrator.register_job(
+                JobState(job_id="file1", filename="session_file1.png", file_path=file1, page_count=1)
+            )
+            app.state.orchestrator.register_job(
+                JobState(job_id="file2", filename="session_file2.pdf", file_path=file2, page_count=1)
+            )
 
     asyncio.run(_run_lifespan())
 
-    # On shutdown, all files in upload directory must be deleted
+    # On shutdown, tracked files in upload directory must be deleted
     assert len(list(tmp_path.iterdir())) == 0
 
 
@@ -3708,6 +3715,193 @@ def test_output_delete_endpoint_and_security(tmp_path: Path) -> None:
     # Path traversal attempt -> 400 or 404
     status, _, _ = client.delete("/api/output/..%2Foutside.txt")
     assert status in (400, 404)
+
+
+def test_upload_valid_pdf_exercises_probe_page_count(tmp_path: Path) -> None:
+    """Verify upload of valid PDF file invokes probe_page_count and returns total pages."""
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(width=200, height=200)
+    bio = io.BytesIO()
+    doc.save(bio)
+    doc.close()
+    pdf_bytes = bio.getvalue()
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("valid_sample.pdf", pdf_bytes, "application/pdf")}
+    )
+    status, _, resp = client.post(
+        "/api/documents",
+        headers={"content-type": ct},
+        body=body,
+    )
+    assert status == 200
+    data = json.loads(resp.decode("utf-8"))
+    assert data["pages"] == 1
+    assert data["total_pages"] == 1
+
+
+def test_upload_size_limit_rejection_and_cleanup(tmp_path: Path) -> None:
+    """Verify upload exceeding max_upload_size returns 413 and unlinks partial upload."""
+    app = create_app(upload_dir=tmp_path, max_upload_size=100)
+    client = AsgiClient(app)
+
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(width=200, height=200)
+    bio = io.BytesIO()
+    doc.save(bio)
+    doc.close()
+    large_pdf = bio.getvalue()
+    assert len(large_pdf) > 100
+
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("oversized.pdf", large_pdf, "application/pdf")}
+    )
+    status, _, _ = client.post(
+        "/api/documents",
+        headers={"content-type": ct},
+        body=body,
+    )
+    assert status == 413
+    assert len(list(tmp_path.glob("*_*"))) == 0
+
+
+def test_upload_corrupt_page_inspection_cleanup(tmp_path: Path) -> None:
+    """Verify upload of corrupt PDF content returns 400 and unlinks written file on inspection failure."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    corrupt_pdf = b"%PDF-1.4\ncorrupted content that cannot be parsed as a valid document"
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("corrupt.pdf", corrupt_pdf, "application/pdf")}
+    )
+    status, _, resp = client.post(
+        "/api/documents",
+        headers={"content-type": ct},
+        body=body,
+    )
+    assert status == 400
+    data = json.loads(resp.decode("utf-8"))
+    assert "inspect document pages" in data["detail"].lower()
+    assert len(list(tmp_path.glob("*_*"))) == 0
+
+
+def test_delete_in_flight_job_defers_unlink_and_suppresses_cancelled_event(tmp_path: Path) -> None:
+    """Verify deleting an in-flight job defers unlink until execution finishes and suppresses cancelled event."""
+    gate = threading.Event()
+    started = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    png_bytes = _create_sample_png_bytes(80, 80)
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("in_flight_doc.png", png_bytes, "image/png")}
+    )
+    status, _, resp = client.post(
+        "/api/documents", headers={"content-type": ct}, body=body
+    )
+    assert status == 200
+    job_id = json.loads(resp.decode("utf-8"))["id"]
+
+    job = orchestrator.get_job(job_id)
+    assert job is not None
+    job_file_path = job.file_path
+    assert job_file_path and job_file_path.exists()
+
+    events_after_delete: List[Tuple[str, Dict[str, Any]]] = []
+    deleted_event = threading.Event()
+    orig_broadcast = orchestrator.broadcast
+
+    def spy_broadcast(event_type: str, data: Dict[str, Any]) -> None:
+        if deleted_event.is_set() and data.get("job_id") == job_id:
+            events_after_delete.append((event_type, data))
+        orig_broadcast(event_type, data)
+
+    orchestrator.broadcast = spy_broadcast  # type: ignore[assignment]
+
+    # Enqueue job for extraction
+    status, _, _ = client.post(f"/api/documents/{job_id}/extract")
+    assert status == 202
+    assert started.wait(timeout=5.0), "Worker did not reach process_document"
+
+    # Hold handle on Windows to ensure delete_document's unlink fails and defers to worker
+    hold_file = open(job_file_path, "rb")
+    try:
+        del_status, _, del_body = client.delete(f"/api/documents/{job_id}")
+        assert del_status == 200
+        del_data = json.loads(del_body.decode("utf-8"))
+        assert del_data["deleted"] is True
+        deleted_event.set()
+    finally:
+        hold_file.close()
+
+    # Release gate so process_document completes
+    gate.set()
+
+    # Wait for orchestrator worker thread to complete deferred cleanup
+    orchestrator.shutdown(timeout=5.0)
+
+    # Verify file is deleted on disk
+    assert not job_file_path.exists()
+
+    # Verify no cancelled, completed, or failed events were broadcast for job_id after deletion
+    suppressed_types = {"cancelled", "completed", "failed"}
+    disallowed_broadcasts = [ev for ev in events_after_delete if ev[0] in suppressed_types]
+    assert len(disallowed_broadcasts) == 0
+
+
+def test_get_page_preview_file_not_found_returns_404(tmp_path: Path) -> None:
+    """Verify get_page_preview returns 404 with 'Document file not found' on missing file."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    missing_file = tmp_path / "missing_target.png"
+    job = JobState(
+        job_id="test_missing_job",
+        filename="missing.png",
+        file_path=missing_file,
+        page_count=1,
+    )
+    app.state.orchestrator.register_job(job)
+
+    with patch("web.app.rasterize_page", side_effect=FileNotFoundError("Target raster file missing")):
+        status, _, body = client.get(f"/api/documents/{job.job_id}/pages/1/preview")
+        assert status == 404
+        data = json.loads(body.decode("utf-8"))
+        assert data["detail"] == "Document file not found"
+
+
+def test_lifespan_shutdown_unlinks_only_own_jobs(tmp_path: Path) -> None:
+    """Verify lifespan shutdown unlinks only jobs registered to this instance."""
+    app = create_app(upload_dir=tmp_path)
+    orch = app.state.orchestrator
+
+    foreign_file = tmp_path / "foreign.pdf"
+    own_file = tmp_path / "own.pdf"
+
+    async def _run():
+        async with app.router.lifespan_context(app):
+            foreign_file.write_bytes(b"%PDF-1.4 foreign mock content")
+            own_file.write_bytes(b"%PDF-1.4 own mock content")
+            own_job = JobState(
+                job_id="own_job_id",
+                filename="own.pdf",
+                file_path=own_file,
+                page_count=1,
+            )
+            orch.register_job(own_job)
+            assert foreign_file.exists()
+            assert own_file.exists()
+
+    asyncio.run(_run())
+
+    assert not own_file.exists()
+    assert foreign_file.exists()
+
 
 
 

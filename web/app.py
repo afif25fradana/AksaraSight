@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import queue
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
@@ -24,7 +26,7 @@ from pydantic import BaseModel
 import pypdfium2 as pdfium
 
 from config.settings import Settings
-from core.client import ServerOfflineError
+from core.client import ServerOfflineError, resolve_chat_endpoint
 from core.constants import SUPPORTED_EXTENSIONS
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
@@ -158,17 +160,16 @@ MUTABLE_SETTINGS = {
     "timeout",
     "max_retries",
     "auto_start_server",
+    "backend",
+    "runtime_mode",
+    "managed_backend_override",
+    "llama_server_path",
+    "local_endpoint",
+    "allow_remote",
+    "model_repo",
 }
 
-IMMUTABLE_SETTINGS = {
-    "llama_server_path",
-    "runtime_mode",
-    "model_repo",
-    "allow_remote",
-    "local_endpoint",
-    "backend",
-    "managed_backend_override",
-}
+IMMUTABLE_SETTINGS = set()
 
 
 def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
@@ -178,6 +179,8 @@ def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
         "local_endpoint": settings.local_endpoint,
         "runtime_mode": settings.runtime_mode,
         "managed_backend_override": settings.managed_backend_override,
+        "llama_server_path": settings.llama_server_path,
+        "allow_remote": settings.allow_remote,
         "dpi": settings.dpi,
         "max_image_dimension": settings.max_image_dimension,
         "max_tokens": settings.max_tokens,
@@ -186,6 +189,38 @@ def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
         "auto_start_server": settings.auto_start_server,
         "model_repo": settings.model_repo,
     }
+
+
+def _pick_executable_file() -> Optional[str]:
+    """Spawn a subprocess with Tkinter to pick an executable file via native file dialog."""
+    script = (
+        "import tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "root = tk.Tk()\n"
+        "root.withdraw()\n"
+        "root.attributes('-topmost', True)\n"
+        "path = filedialog.askopenfilename(\n"
+        "    title='Select llama-server Executable',\n"
+        "    filetypes=[('Executable files', '*.exe'), ('All files', '*.*')],\n"
+        ")\n"
+        "root.destroy()\n"
+        "if path:\n"
+        "    print(path.strip())\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            out = result.stdout.strip()
+            return out or None
+        return None
+    except Exception as exc:
+        logger.warning("Native file dialog failed or cancelled: %s", exc)
+        return None
 
 
 class ExtractRequest(BaseModel):
@@ -537,6 +572,12 @@ def create_app(
         finally:
             app_server_manager.remove_log_listener(listener_callback)
 
+    @app.post("/api/dialog/file")
+    async def dialog_pick_file() -> Dict[str, Any]:
+        """Open a native Windows file dialog to pick an executable file."""
+        picked = await asyncio.to_thread(_pick_executable_file)
+        return {"path": picked}
+
     @app.get("/api/settings")
     async def get_settings() -> Dict[str, Any]:
         """Return current application settings."""
@@ -597,6 +638,38 @@ def create_app(
                 if not isinstance(val, bool):
                     raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
                 updates[key] = bool(val)
+            elif key == "backend":
+                if not isinstance(val, str) or not val.strip():
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = val.strip()
+            elif key == "runtime_mode":
+                if not isinstance(val, str) or not val.strip():
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = val.strip()
+            elif key == "managed_backend_override":
+                if not isinstance(val, str) or not val.strip():
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = val.strip()
+            elif key == "llama_server_path":
+                if val is None:
+                    updates[key] = None
+                elif isinstance(val, str):
+                    stripped = val.strip()
+                    updates[key] = stripped if stripped else None
+                else:
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+            elif key == "model_repo":
+                if not isinstance(val, str) or not val.strip():
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = val.strip()
+            elif key == "local_endpoint":
+                if not isinstance(val, str) or not val.strip():
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = val.strip()
+            elif key == "allow_remote":
+                if not isinstance(val, bool):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
+                updates[key] = bool(val)
 
         current_settings = getattr(app.state, "settings", app_settings)
         try:
@@ -614,10 +687,40 @@ def create_app(
             app.state.engine.settings = new_settings
             if hasattr(app.state.engine, "client") and app.state.engine.client:
                 app.state.engine.client.settings = new_settings
+                app.state.engine.client.endpoint = resolve_chat_endpoint(new_settings.local_endpoint)
+            if hasattr(app.state.engine, "invalidate_backend_verification"):
+                app.state.engine.invalidate_backend_verification()
+
+        server_stopped = False
         if hasattr(app.state, "server_manager") and app.state.server_manager:
             app.state.server_manager.settings = new_settings
+            server_keys = {
+                "backend",
+                "runtime_mode",
+                "managed_backend_override",
+                "llama_server_path",
+                "model_repo",
+                "local_endpoint",
+            }
+            server_config_changed = any(
+                getattr(new_settings, k) != getattr(current_settings, k) for k in server_keys
+            )
+            if server_config_changed:
+                info = app.state.server_manager.get_status_info()
+                is_running_managed = (
+                    getattr(app.state, "server_managed", False)
+                    or info.ownership == ServerOwnership.MANAGED
+                ) and app.state.server_manager.status in (ServerStatus.READY, ServerStatus.STARTING)
+                if is_running_managed:
+                    app.state.server_manager.stop()
+                    app.state.server_managed = False
+                    server_stopped = True
 
-        return {"updated": True, "settings": get_safe_settings_dict(new_settings)}
+        return {
+            "updated": True,
+            "settings": get_safe_settings_dict(new_settings),
+            "server_stopped": server_stopped,
+        }
 
     @app.get("/api/documents")
     async def list_documents() -> List[Dict[str, Any]]:

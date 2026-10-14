@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   CheckCircle2, 
   Cpu, 
@@ -7,8 +7,7 @@ import {
   RefreshCw, 
   AlertTriangle, 
   Stethoscope,
-  Lock,
-  ShieldCheck,
+  FolderOpen,
   Download,
   HardDrive
 } from 'lucide-react';
@@ -58,6 +57,13 @@ const MUTABLE_KEYS = [
   'timeout',
   'max_retries',
   'auto_start_server',
+  'backend',
+  'runtime_mode',
+  'managed_backend_override',
+  'llama_server_path',
+  'local_endpoint',
+  'allow_remote',
+  'model_repo',
 ] as const;
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -96,6 +102,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ...(settings?.modelRepo ? { model_repo: settings.modelRepo } : {}),
       ...(settings?.llama_server_path ? { llama_server_path: settings.llama_server_path } : {}),
       ...(settings?.customLlamaServerPath ? { llama_server_path: settings.customLlamaServerPath } : {}),
+      ...(settings?.allow_remote !== undefined ? { allow_remote: settings.allow_remote } : {}),
+      ...(settings?.allowRemote !== undefined ? { allow_remote: settings.allowRemote } : {}),
     };
   });
 
@@ -110,6 +118,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isRefreshingHardware, setIsRefreshingHardware] = useState(false);
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
   const [doctorError, setDoctorError] = useState<string | null>(null);
+
+  // Remote endpoints security modal state
+  const [showSecurityWarning, setShowSecurityWarning] = useState(false);
+
+  useEffect(() => {
+    if (!showSecurityWarning) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSecurityWarning(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSecurityWarning]);
+
+  const handleToggleRemote = () => {
+    if (!formData.allow_remote) {
+      setShowSecurityWarning(true);
+    } else {
+      setFormData((prev) => ({ ...prev, allow_remote: false }));
+    }
+  };
+
+  // Sliding segmented indicators for Runtime Mode and Managed Backend Override
+  const [runtimeIndicator, setRuntimeIndicator] = useState<{ left: number; width: number }>({ left: 2, width: 0 });
+  const runtimeContainerRef = useRef<HTMLDivElement>(null);
+  const runtimeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+
+  const [targetIndicator, setTargetIndicator] = useState<{ left: number; width: number }>({ left: 2, width: 0 });
+  const targetContainerRef = useRef<HTMLDivElement>(null);
+  const targetRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+
+  useEffect(() => {
+    const updateIndicators = () => {
+      const currentRuntime = formData.runtime_mode || 'managed';
+      if (runtimeContainerRef.current && runtimeRefs.current[currentRuntime]) {
+        const cRect = runtimeContainerRef.current.getBoundingClientRect();
+        const tRect = runtimeRefs.current[currentRuntime]!.getBoundingClientRect();
+        setRuntimeIndicator({ left: tRect.left - cRect.left, width: tRect.width });
+      }
+      const currentTarget = formData.managed_backend_override || 'auto';
+      if (currentRuntime === 'managed' && targetContainerRef.current && targetRefs.current[currentTarget]) {
+        const cRect = targetContainerRef.current.getBoundingClientRect();
+        const tRect = targetRefs.current[currentTarget]!.getBoundingClientRect();
+        setTargetIndicator({ left: tRect.left - cRect.left, width: tRect.width });
+      }
+    };
+    updateIndicators();
+    window.addEventListener('resize', updateIndicators);
+    return () => window.removeEventListener('resize', updateIndicators);
+  }, [formData.runtime_mode, formData.managed_backend_override, activeCategory, savedSettings]);
+
+  const handleBrowseExecutable = async () => {
+    try {
+      const res = await fetch('/api/dialog/file', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.path) {
+          setFormData((prev) => ({ ...prev, llama_server_path: data.path }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to open file dialog:', err);
+    }
+  };
 
   // Fetch real settings and latest cached doctor report on mount
   useEffect(() => {
@@ -415,107 +486,217 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {activeCategory === 'engine' && (
               <div className="space-y-4 animate-fade-in" role="tabpanel">
                 
-                {/* Field 1: Backend (IMMUTABLE - READ ONLY) */}
+                {/* Field 1: Backend */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13.5px] font-medium text-[#14213D] dark:text-[var(--text-1)]">
-                      Local Inference Engine Backend
-                    </label>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium font-mono text-[#5A6478] dark:text-[var(--text-2)] bg-black/[0.04] dark:bg-[var(--bg-elevated)] px-2 py-0.5 rounded border border-black/5 dark:border-[var(--border)]">
-                      <Lock className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
-                      <span>Read-Only</span>
-                    </span>
-                  </div>
-                  <div className="bg-[#FAF9F5] dark:bg-[var(--bg-base)] p-3 rounded-lg border border-[#E5E2D9] dark:border-[var(--border)] flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-semibold text-[13px] text-[#14213D] dark:text-[var(--text-1)]">
-                        {formData.backend}
-                      </span>
-                      <span className="text-2xs text-[#0F766E] dark:text-[var(--accent)] font-medium bg-[#0F766E]/10 dark:bg-[var(--accent)]/15 px-1.5 py-0.5 rounded">
-                        Active Backend
-                      </span>
-                    </div>
-                    <span className="text-xs text-[#5A6478] dark:text-[var(--text-2)]">
-                      Configured via environment / CLI flags
-                    </span>
+                  <label className="block text-[13.5px] font-medium text-[#14213D] dark:text-[var(--text-1)] mb-1.5">
+                    Local Inference Engine Backend
+                  </label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {(['llama-cpp', 'ollama', 'vllm'] as const).map((backendOption) => {
+                      const isSelected = formData.backend === backendOption;
+                      return (
+                        <label 
+                          key={backendOption}
+                          className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border cursor-pointer transition-all duration-150 active:scale-[0.98] ${
+                            isSelected 
+                              ? 'border-[#0F766E] dark:border-[var(--accent)] bg-[#0F766E]/5 dark:bg-[var(--accent)]/10 ring-1 ring-[#0F766E]/30 dark:ring-[var(--accent)]/30' 
+                              : 'border-[#E5E2D9] dark:border-[var(--border)] hover:bg-[#F9F8F5] dark:hover:bg-[var(--bg-active)] bg-white dark:bg-[var(--bg-elevated)]'
+                          }`}
+                        >
+                          <input 
+                            type="radio" 
+                            name="backend" 
+                            value={backendOption} 
+                            checked={isSelected}
+                            onChange={() => setFormData((prev) => ({ ...prev, backend: backendOption }))}
+                            className="sr-only" 
+                          />
+                          <div 
+                            className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors duration-150 shrink-0 ${
+                              isSelected 
+                                ? 'border-[#0F766E] dark:border-[var(--accent)] bg-white dark:bg-[var(--bg-elevated)]' 
+                                : 'border-[#8A94A6] dark:border-[var(--border)] bg-[#FAF9F5] dark:bg-[var(--bg-base)]'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <div 
+                              className={`w-2 h-2 rounded-full bg-[#0F766E] dark:bg-[var(--accent)] transition-transform duration-150 ease-out ${
+                                isSelected ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
+                              }`} 
+                            />
+                          </div>
+                          <span className={`text-[13.5px] ${isSelected ? 'font-medium text-[#14213D] dark:text-[var(--text-1)]' : 'text-[#374151] dark:text-[var(--text-2)]'}`}>
+                            {backendOption}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Field 2: Runtime mode & Target Backend (IMMUTABLE - READ ONLY) */}
+                {/* Field 2: Runtime source & Inset Blocks */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[13.5px] font-medium text-[#14213D] dark:text-[var(--text-1)]">
-                      Runtime Binary Source & Mode
+                      Runtime Binary Source
                     </label>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium font-mono text-[#5A6478] dark:text-[var(--text-2)] bg-black/[0.04] dark:bg-[var(--bg-elevated)] px-2 py-0.5 rounded border border-black/5 dark:border-[var(--border)]">
-                      <Lock className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
-                      <span>Read-Only</span>
-                    </span>
+                    <div 
+                      ref={runtimeContainerRef}
+                      className="relative inline-flex p-0.5 bg-[#F5F4F0] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-lg gap-1 whitespace-nowrap"
+                    >
+                      <div 
+                        className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 cubic-bezier(0.16, 1, 0.3, 1) pointer-events-none"
+                        style={{
+                          left: `${runtimeIndicator.left}px`,
+                          width: `${runtimeIndicator.width}px`,
+                          opacity: runtimeIndicator.width > 0 ? 1 : 0,
+                        }}
+                      />
+                      <button 
+                        ref={(el) => { runtimeRefs.current.managed = el; }}
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, runtime_mode: 'managed' }))}
+                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                          formData.runtime_mode === 'managed' 
+                            ? 'text-[#14213D] dark:text-[var(--text-1)]' 
+                            : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
+                        }`}
+                      >
+                        Managed Local Runtime
+                      </button>
+                      <button 
+                        ref={(el) => { runtimeRefs.current.custom = el; }}
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, runtime_mode: 'custom' }))}
+                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                          formData.runtime_mode === 'custom' 
+                            ? 'text-[#14213D] dark:text-[var(--text-1)]' 
+                            : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
+                        }`}
+                      >
+                        Custom Executable Path
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="bg-white dark:bg-[var(--bg-elevated)] rounded-lg p-3.5 border border-[#E5E2D9] dark:border-[var(--border)] space-y-3 transition-colors">
-                    <div className="flex items-center justify-between border-b border-[#E5E2D9]/70 dark:border-[var(--border)] pb-2.5">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">
-                            Runtime Mode:
-                          </span>
-                          <span className="font-mono text-[12.5px] text-[#374151] dark:text-[var(--text-2)] uppercase">
-                            {formData.runtime_mode}
-                          </span>
-                        </div>
-                        <p className="text-[12px] text-[#4B5563] dark:text-[var(--text-2)] mt-0.5">
-                          Target Backend Override: <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] font-mono">{formData.managed_backend_override || 'auto'}</span>
-                        </p>
-                      </div>
-                      <span className="text-2xs font-mono bg-black/[0.04] dark:bg-[var(--bg-base)] text-[#5A6478] dark:text-[var(--text-2)] px-2 py-1 rounded border border-black/5 dark:border-[var(--border)]">
-                        Immutable
-                      </span>
-                    </div>
-
-                    {/* Detected Hardware from Doctor */}
-                    <div className="flex items-center justify-between border-b border-[#E5E2D9]/70 dark:border-[var(--border)] pb-2.5">
-                      <div className="flex-1 pr-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">
-                            Hardware Detection:
-                          </span>
-                        </div>
-                        {hardwareCheck ? (
-                          <div className="text-[12px] text-[#374151] dark:text-[var(--text-2)] mt-0.5 font-mono">
-                            {Array.isArray(hardwareCheck.details)
-                              ? hardwareCheck.details.join(' · ')
-                              : String(hardwareCheck.details || 'Detected')}
+                  {formData.runtime_mode === 'managed' ? (
+                    /* Managed Inset Block */
+                    <div className="bg-white dark:bg-[var(--bg-elevated)] rounded-lg p-3.5 border border-[#E5E2D9] dark:border-[var(--border)] space-y-3 transition-colors animate-fade-in">
+                      <div className="flex items-center justify-between border-b border-[#E5E2D9]/70 dark:border-[var(--border)] pb-2.5">
+                        <div className="flex-1 pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">
+                              Hardware Detection:
+                            </span>
                           </div>
+                          {hardwareCheck ? (
+                            <div className="text-[12px] text-[#374151] dark:text-[var(--text-2)] mt-0.5 font-mono">
+                              {Array.isArray(hardwareCheck.details)
+                                ? hardwareCheck.details.join(' · ')
+                                : String(hardwareCheck.details || 'Detected')}
+                            </div>
+                          ) : (
+                            <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5 italic">
+                              Run diagnostic probe to inspect local hardware and GPU acceleration
+                            </p>
+                          )}
+                        </div>
+                        <button 
+                          onClick={handleRefreshHardware}
+                          disabled={isDoctorRunning || isRefreshingHardware}
+                          className="text-[12.5px] font-medium text-[#0F766E] dark:text-[var(--accent)] hover:underline flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none rounded-xs shrink-0 disabled:opacity-50" 
+                          type="button" 
+                          aria-label="Refresh Hardware"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingHardware || isDoctorRunning ? 'animate-spin' : ''}`} aria-hidden="true" />
+                          <span>{isRefreshingHardware || isDoctorRunning ? 'Probing...' : 'Refresh'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <label className="text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)]">
+                          Target Hardware Backend
+                        </label>
+                        <div 
+                          ref={targetContainerRef}
+                          className="relative inline-flex p-0.5 bg-[#F0EEE8] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-lg gap-1 whitespace-nowrap"
+                        >
+                          <div 
+                            className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 cubic-bezier(0.16, 1, 0.3, 1) pointer-events-none"
+                            style={{
+                              left: `${targetIndicator.left}px`,
+                              width: `${targetIndicator.width}px`,
+                              opacity: targetIndicator.width > 0 ? 1 : 0,
+                            }}
+                          />
+                          {(['auto', 'cuda', 'vulkan', 'cpu'] as const).map((backendOption) => (
+                            <button
+                              key={backendOption}
+                              ref={(el) => { targetRefs.current[backendOption] = el; }}
+                              type="button"
+                              onClick={() => setFormData((prev) => ({ ...prev, managed_backend_override: backendOption }))}
+                              className={`relative z-10 px-2.5 py-0.5 rounded text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                                (formData.managed_backend_override || 'auto') === backendOption 
+                                  ? 'text-[#14213D] dark:text-[var(--text-1)]' 
+                                  : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
+                              }`}
+                            >
+                              {backendOption}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-0.5">
+                        <div className="flex items-center justify-between text-[12px] mb-1">
+                          <span className="font-medium text-[#14213D] dark:text-[var(--text-1)]">
+                            Executable Location:
+                          </span>
+                        </div>
+                        <div className="font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate bg-[#F9F8F5] dark:bg-[var(--bg-base)] px-2.5 py-1.5 rounded border border-[#E5E2D9] dark:border-[var(--border)]">
+                          %LOCALAPPDATA%\AksaraSight\runtimes\llama-server.exe
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Custom Path Inset Block */
+                    <div className="bg-white dark:bg-[var(--bg-elevated)] rounded-lg p-3.5 border border-[#E5E2D9] dark:border-[var(--border)] space-y-3 transition-colors animate-fade-in">
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)] mb-1.5" htmlFor="custom-server-path">
+                          Custom llama-server Executable Path
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="custom-server-path"
+                            type="text"
+                            value={formData.llama_server_path || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, llama_server_path: e.target.value }))}
+                            placeholder="C:\tools\llama-cpp\llama-server.exe"
+                            className="flex-1 h-[34px] px-3 font-mono text-[12px] bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-md text-[#14213D] dark:text-[var(--text-1)] focus:outline-none focus:border-[#0F766E] dark:focus:border-[var(--accent)] focus:ring-1 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)]"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleBrowseExecutable}
+                            className="h-[34px] px-3 border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-md text-[12.5px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                            title="Browse local disk for llama-server executable"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" />
+                            <span>Browse...</span>
+                          </button>
+                        </div>
+                        {formData.llama_server_path ? (
+                          <p className="text-[11.5px] text-[#4B5563] dark:text-[var(--text-2)] mt-1.5 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-[#15803D] dark:bg-[var(--success)]" />
+                            <span>Custom llama-server binary configured</span>
+                          </p>
                         ) : (
-                          <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5 italic">
-                            Run diagnostic probe to inspect local hardware and GPU acceleration
+                          <p className="text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] mt-1.5">
+                            Specify the full absolute path to a custom llama-server binary or browse to select one
                           </p>
                         )}
                       </div>
-                      <button 
-                        onClick={handleRefreshHardware}
-                        disabled={isDoctorRunning || isRefreshingHardware}
-                        className="text-[12.5px] font-medium text-[#0F766E] dark:text-[var(--accent)] hover:underline flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none rounded-xs shrink-0 disabled:opacity-50" 
-                        type="button" 
-                        aria-label="Refresh Hardware"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingHardware || isDoctorRunning ? 'animate-spin' : ''}`} aria-hidden="true" />
-                        <span>{isRefreshingHardware || isDoctorRunning ? 'Probing...' : 'Refresh'}</span>
-                      </button>
                     </div>
-
-                    <div className="pt-0.5">
-                      <div className="flex items-center justify-between text-[12px] mb-1">
-                        <span className="font-medium text-[#14213D] dark:text-[var(--text-1)]">
-                          Executable Location:
-                        </span>
-                      </div>
-                      <div className="font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate bg-[#F9F8F5] dark:bg-[var(--bg-base)] px-2.5 py-1.5 rounded border border-[#E5E2D9] dark:border-[var(--border)]">
-                        {formData.llama_server_path || (formData.runtime_mode === 'managed' ? '%LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-server.exe' : 'Custom llama-server path')}
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Model Weights Management Card */}
@@ -871,37 +1052,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="space-y-4 animate-fade-in" role="tabpanel">
                 <div className="bg-white dark:bg-[var(--bg-elevated)] p-4 rounded-lg border border-[#E5E2D9] dark:border-[var(--border)] space-y-3.5 transition-colors">
                   
-                  {/* Local Engine HTTP Endpoint URL (IMMUTABLE - READ ONLY) */}
+                  {/* Local Engine HTTP Endpoint URL */}
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)]" htmlFor="endpoint">
-                        Local Engine HTTP Endpoint URL
-                      </label>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium font-mono text-[#5A6478] dark:text-[var(--text-2)] bg-black/[0.04] dark:bg-[var(--bg-elevated)] px-2 py-0.5 rounded border border-black/5 dark:border-[var(--border)]">
-                        <Lock className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
-                        <span>Read-Only</span>
-                      </span>
-                    </div>
-                    <div className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-md text-[#14213D] dark:text-[var(--text-1)] flex items-center justify-between">
-                      <span>{formData.local_endpoint}</span>
-                      <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)]">Strict Loopback</span>
-                    </div>
+                    <label className="block text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)] mb-1" htmlFor="endpoint">
+                      Local Engine HTTP Endpoint URL
+                    </label>
+                    <input 
+                      id="endpoint" 
+                      type="text" 
+                      value={formData.local_endpoint}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, local_endpoint: e.target.value }))}
+                      className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-md text-[#14213D] dark:text-[var(--text-1)] focus:outline-none focus:border-[#0F766E] dark:focus:border-[var(--accent)] focus:ring-1 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)]" 
+                    />
                   </div>
 
-                  {/* Allow Remote Endpoints (IMMUTABLE - READ ONLY GUARANTEE) */}
+                  {/* Allow Remote Endpoints */}
                   <div className="flex items-center justify-between pt-2 border-t border-[#8A94A6]/20 dark:border-[var(--border)]">
                     <div>
-                      <span className="text-[13px] font-semibold text-[#14213D] dark:text-[var(--text-1)] flex items-center gap-1.5">
-                        <ShieldCheck className="w-4 h-4 text-[#0F766E] dark:text-[var(--success)]" />
-                        <span>100% Local-Only Invariant</span>
+                      <span className="text-[13px] font-semibold text-[#14213D] dark:text-[var(--text-1)] block">
+                        Allow Non-Loopback (Remote) Endpoints
                       </span>
                       <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
-                        Remote external endpoints forbidden. Offline confidential processing guaranteed.
+                        Permit connections outside 127.0.0.1 or localhost (violates 100% local guarantee)
                       </p>
                     </div>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0F766E]/10 dark:bg-[var(--success)]/10 text-[#0F766E] dark:text-[var(--success)] border border-[#0F766E]/20 text-xs font-semibold">
-                      <span>Enforced Local</span>
-                    </span>
+                    <button 
+                      role="switch" 
+                      aria-checked={formData.allow_remote || false}
+                      aria-label="Allow Non-Loopback (Remote) Endpoints"
+                      onClick={handleToggleRemote}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)] focus:ring-offset-2 ${
+                        formData.allow_remote ? 'bg-[#0F766E] dark:bg-[var(--accent)]' : 'bg-[#8A94A6] dark:bg-[var(--border-strong)]'
+                      }`} 
+                      type="button" 
+                    >
+                      <span 
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-[#f0f1f3] shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          formData.allow_remote ? 'translate-x-4' : 'translate-x-0'
+                        }`} 
+                      />
+                    </button>
                   </div>
 
                   {/* Mutable Network Limits: Timeout and Max Retries */}
@@ -940,21 +1130,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Hugging Face Model Repository (IMMUTABLE - READ ONLY) */}
+                  {/* Hugging Face Model Repository */}
                   <div className="pt-2 border-t border-[#E5E2D9] dark:border-[var(--border)]">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)]" htmlFor="model-repo">
-                        Hugging Face Model Repository
-                      </label>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium font-mono text-[#5A6478] dark:text-[var(--text-2)] bg-black/[0.04] dark:bg-[var(--bg-elevated)] px-2 py-0.5 rounded border border-black/5 dark:border-[var(--border)]">
-                        <Lock className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
-                        <span>Read-Only</span>
-                      </span>
-                    </div>
-                    <div className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-md text-[#14213D] dark:text-[var(--text-1)] flex items-center justify-between">
-                      <span>{formData.model_repo}</span>
-                      <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)]">GLM-OCR Architecture</span>
-                    </div>
+                    <label className="block text-[13px] font-medium text-[#14213D] dark:text-[var(--text-1)] mb-1" htmlFor="model-repo">
+                      Hugging Face Model Repository
+                    </label>
+                    <input 
+                      id="model-repo" 
+                      type="text" 
+                      value={formData.model_repo}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, model_repo: e.target.value }))}
+                      className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-md text-[#14213D] dark:text-[var(--text-1)] focus:outline-none focus:border-[#0F766E] dark:focus:border-[var(--accent)] focus:ring-1 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)]" 
+                    />
                   </div>
                 </div>
               </div>
@@ -1000,6 +1187,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         </div>
       </main>
+
+      {/* Security Confirmation Warning Modal Dialog */}
+      {showSecurityWarning && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] animate-modal-backdrop"
+          onClick={() => setShowSecurityWarning(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white dark:bg-[var(--bg-surface)] rounded-xl shadow-xl border border-red-200 dark:border-[var(--danger)]/40 p-5 space-y-4 text-[#14213D] dark:text-[var(--text-1)] animate-modal-window will-change-transform transition-colors"
+            onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="security-warning-title"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-[var(--danger)]/15 flex items-center justify-center text-red-600 dark:text-[var(--danger)] shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-[var(--danger)]" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 id="security-warning-title" className="font-semibold text-[15px] text-[#14213D] dark:text-[var(--text-1)]">
+                  Security Notice: Remote Endpoint
+                </h3>
+                <span className="text-[12px] text-red-700 dark:text-[var(--danger)] font-medium">
+                  Violates 100% Local Guarantee
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[13px] text-[#374151] dark:text-[var(--text-2)] leading-relaxed">
+              Connecting to an external endpoint transmits document images outside this machine. AksaraSight is architected for strict offline-first archival confidentiality.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-black/5 dark:border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setShowSecurityWarning(false)}
+                className="px-3.5 py-1.5 text-[12.5px] border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] text-[#374151] dark:text-[var(--text-1)] rounded-lg font-medium cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData((prev) => ({ ...prev, allow_remote: true }));
+                  setShowSecurityWarning(false);
+                }}
+                className="px-4 py-1.5 text-[12.5px] bg-red-700 dark:bg-[var(--danger)] hover:bg-red-800 dark:hover:bg-[var(--danger)]/90 text-white rounded-lg font-semibold cursor-pointer shadow-xs active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out"
+              >
+                I understand, enable remote
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

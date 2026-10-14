@@ -3,6 +3,7 @@
 import asyncio
 import io
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -1187,85 +1188,266 @@ def test_doctor_endpoint_execution_and_schema(tmp_path: Path) -> None:
 
 
 def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify settings querying, valid patch persistence, and strict security rejecting immutable/malformed keys."""
-    env_file = tmp_path / ".env"
-    monkeypatch.chdir(tmp_path)
+    """Verify settings querying, valid patch persistence, and strict security rejecting malformed keys."""
+    pre_env = dict(os.environ)
+    try:
+        env_file = tmp_path / ".env"
+        monkeypatch.chdir(tmp_path)
 
-    app = create_app(upload_dir=tmp_path, env_path=env_file)
-    client = AsgiClient(app)
+        app = create_app(upload_dir=tmp_path, env_path=env_file)
+        client = AsgiClient(app)
 
-    # 1. GET /api/settings
-    status, _, resp = client.get("/api/settings")
-    assert status == 200
-    settings_data = json.loads(resp.decode("utf-8"))
-    assert "dpi" in settings_data
-    assert "timeout" in settings_data
-    assert "backend" in settings_data
-    assert "auto_start_server" in settings_data
+        # 1. GET /api/settings
+        status, _, resp = client.get("/api/settings")
+        assert status == 200
+        settings_data = json.loads(resp.decode("utf-8"))
+        assert "dpi" in settings_data
+        assert "timeout" in settings_data
+        assert "backend" in settings_data
+        assert "auto_start_server" in settings_data
+        assert "llama_server_path" in settings_data
+        assert "allow_remote" in settings_data
 
-    # 2. PATCH /api/settings valid updates
-    patch_body = json.dumps({"dpi": 150, "timeout": 45.0}).encode("utf-8")
-    status, _, resp = client.patch(
-        "/api/settings",
-        headers={"content-type": "application/json"},
-        body=patch_body,
-    )
-    assert status == 200
-    res = json.loads(resp.decode("utf-8"))
-    assert res["updated"] is True
-    assert res["settings"]["dpi"] == 150
-    assert res["settings"]["timeout"] == 45.0
-    assert app.state.settings.dpi == 150
-    assert app.state.settings.timeout == 45.0
-    assert env_file.exists()
-    saved_env = env_file.read_text(encoding="utf-8")
-    assert "150" in saved_env
-
-    # 3. PATCH immutable keys (must return 403 Forbidden)
-    for immutable_key, immutable_val in [
-        ("backend", "ollama"),
-        ("llama_server_path", "/bin/sh"),
-        ("allow_remote", True),
-        ("runtime_mode", "custom"),
-        ("local_endpoint", "http://remote:8080/v1"),
-        ("model_repo", "evil/repo"),
-        ("managed_backend_override", "cuda"),
-    ]:
-        body_bytes = json.dumps({immutable_key: immutable_val}).encode("utf-8")
+        # 2. PATCH /api/settings valid updates (numeric/basic settings)
+        patch_body = json.dumps({"dpi": 150, "timeout": 45.0}).encode("utf-8")
         status, _, resp = client.patch(
             "/api/settings",
             headers={"content-type": "application/json"},
-            body=body_bytes,
+            body=patch_body,
         )
-        assert status == 403, f"Expected 403 for {immutable_key}, got {status}"
+        assert status == 200
+        res = json.loads(resp.decode("utf-8"))
+        assert res["updated"] is True
+        assert res["settings"]["dpi"] == 150
+        assert res["settings"]["timeout"] == 45.0
+        assert app.state.settings.dpi == 150
+        assert app.state.settings.timeout == 45.0
+        assert env_file.exists()
+        saved_env = env_file.read_text(encoding="utf-8")
+        assert "150" in saved_env
 
-    # 4. PATCH unknown keys (must return 400 Bad Request)
-    body_bytes = json.dumps({"unknown_key": "val"}).encode("utf-8")
-    status, _, _ = client.patch(
-        "/api/settings",
-        headers={"content-type": "application/json"},
-        body=body_bytes,
-    )
-    assert status == 400
+        # 3. PATCH newly mutable backend/runtime keys
+        patch_backend_body = json.dumps({
+            "backend": "ollama",
+            "runtime_mode": "custom",
+            "managed_backend_override": "cuda",
+            "llama_server_path": "C:\\tools\\llama.exe",
+            "model_repo": "test/repo",
+            "allow_remote": True,
+            "local_endpoint": "http://remote.lan:8080/v1",
+        }).encode("utf-8")
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=patch_backend_body,
+        )
+        assert status == 200
+        res = json.loads(resp.decode("utf-8"))
+        assert res["updated"] is True
+        assert res["settings"]["backend"] == "ollama"
+        assert res["settings"]["runtime_mode"] == "custom"
+        assert res["settings"]["managed_backend_override"] == "cuda"
+        assert res["settings"]["llama_server_path"] == "C:\\tools\\llama.exe"
+        assert res["settings"]["model_repo"] == "test/repo"
+        assert res["settings"]["allow_remote"] is True
+        assert res["settings"]["local_endpoint"] == "http://remote.lan:8080/v1"
+        assert app.state.settings.backend == "ollama"
+        assert app.state.settings.local_endpoint == "http://remote.lan:8080/v1"
+        assert app.state.engine.client.endpoint == "http://remote.lan:8080/v1/chat/completions"
 
-    # 5. PATCH invalid types and ranges (must return 400 Bad Request)
-    for invalid_payload in [
-        {"dpi": "not_an_int"},
-        {"dpi": -5},
-        {"dpi": 1000},
-        {"timeout": "slow"},
-        {"timeout": 0.5},
-        {"max_retries": -1},
-        {"max_retries": 15},
-        {"auto_start_server": "yes"},
-    ]:
-        body_bytes = json.dumps(invalid_payload).encode("utf-8")
+        # Also test empty string llama_server_path normalizes to None
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"llama_server_path": "   "}).encode("utf-8"),
+        )
+        assert status == 200
+        res = json.loads(resp.decode("utf-8"))
+        assert res["settings"]["llama_server_path"] is None
+        assert app.state.settings.llama_server_path is None
+
+        # 4. Non-loopback local_endpoint rejected when allow_remote=False
+        # Reset to loopback first with allow_remote=False
+        status, _, _ = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"allow_remote": False, "local_endpoint": "http://127.0.0.1:8080/v1"}).encode("utf-8"),
+        )
+        assert status == 200
+        # Attempting to change local_endpoint to non-loopback while allow_remote=False must return 400
+        status, _, _ = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"local_endpoint": "http://remote.lan:8080/v1"}).encode("utf-8"),
+        )
+        assert status == 400
+
+        # 5. PATCH unknown keys (must return 400 Bad Request)
+        body_bytes = json.dumps({"unknown_key": "val"}).encode("utf-8")
         status, _, _ = client.patch(
             "/api/settings",
             headers={"content-type": "application/json"},
             body=body_bytes,
         )
         assert status == 400
+
+        # 6. PATCH invalid enum values (must return 400 Bad Request)
+        for invalid_enum in [
+            {"backend": "invalid_engine"},
+            {"runtime_mode": "invalid_mode"},
+            {"managed_backend_override": "invalid_accel"},
+        ]:
+            status, _, _ = client.patch(
+                "/api/settings",
+                headers={"content-type": "application/json"},
+                body=json.dumps(invalid_enum).encode("utf-8"),
+            )
+            assert status == 400
+
+        # 7. PATCH invalid types and ranges (must return 400 Bad Request)
+        for invalid_payload in [
+            {"dpi": "not_an_int"},
+            {"dpi": -5},
+            {"dpi": 1000},
+            {"timeout": "slow"},
+            {"timeout": 0.5},
+            {"max_retries": -1},
+            {"max_retries": 15},
+            {"auto_start_server": "yes"},
+            {"allow_remote": "yes"},
+            {"llama_server_path": 123},
+            {"model_repo": ""},
+            {"backend": ""},
+            {"local_endpoint": ""},
+            {"runtime_mode": ""},
+            {"managed_backend_override": ""},
+        ]:
+            body_bytes = json.dumps(invalid_payload).encode("utf-8")
+            status, _, _ = client.patch(
+                "/api/settings",
+                headers={"content-type": "application/json"},
+                body=body_bytes,
+            )
+            assert status == 400
+    finally:
+        os.environ.clear()
+        os.environ.update(pre_env)
+
+
+# Alias for test_settings_api_patch_and_persistence
+test_settings_api_patch_and_persistence = test_settings_endpoint_lifecycle_and_security
+
+
+def test_patch_settings_server_stop_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify PATCH /api/settings conditionally stops managed server on server config changes."""
+    pre_env = dict(os.environ)
+    try:
+        monkeypatch.chdir(tmp_path)
+        mock_mgr = MockServerManager(
+            status=ServerStatus.READY,
+            ownership=ServerOwnership.MANAGED,
+            message="Active managed backend",
+        )
+        app = create_app(
+            settings=Settings(),
+            server_manager=mock_mgr,
+            upload_dir=tmp_path,
+            env_path=tmp_path / ".env",
+        )
+        app.state.server_managed = True
+        client = AsgiClient(app)
+
+        # 1. Non-server key change (e.g. dpi) -> server_stopped is False, mock_mgr.stop_calls == 0
+        patch_body = json.dumps({"dpi": 200}).encode("utf-8")
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=patch_body,
+        )
+        assert status == 200
+        data = json.loads(resp.decode("utf-8"))
+        assert data["updated"] is True
+        assert data["server_stopped"] is False
+        assert mock_mgr.stop_calls == 0
+        assert app.state.server_managed is True
+
+        # 2. Server-affecting key change (e.g. backend) -> server_stopped is True, mock_mgr.stop_calls == 1
+        patch_body = json.dumps({"backend": "ollama"}).encode("utf-8")
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=patch_body,
+        )
+        assert status == 200
+        data = json.loads(resp.decode("utf-8"))
+        assert data["updated"] is True
+        assert data["server_stopped"] is True
+        assert mock_mgr.stop_calls == 1
+        assert app.state.server_managed is False
+
+        # 3. Server-affecting key change while already offline -> server_stopped is False
+        assert mock_mgr.status == ServerStatus.OFFLINE
+        patch_body = json.dumps({"runtime_mode": "custom"}).encode("utf-8")
+        status, _, resp = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=patch_body,
+        )
+        assert status == 200
+        data = json.loads(resp.decode("utf-8"))
+        assert data["updated"] is True
+        assert data["server_stopped"] is False
+        assert mock_mgr.stop_calls == 1
+    finally:
+        os.environ.clear()
+        os.environ.update(pre_env)
+
+
+def test_dialog_pick_file_endpoint(tmp_path: Path) -> None:
+    """Verify POST /api/dialog/file returns picked file path or None."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. Success mock
+    with patch("web.app._pick_executable_file", return_value="C:\\custom\\llama-server.exe"):
+        status, _, body = client.post("/api/dialog/file")
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data == {"path": "C:\\custom\\llama-server.exe"}
+
+    # 2. Cancellation / None mock
+    with patch("web.app._pick_executable_file", return_value=None):
+        status, _, body = client.post("/api/dialog/file")
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert data == {"path": None}
+
+
+def test_pick_executable_file_helper() -> None:
+    """Verify _pick_executable_file handles subprocess exit codes and exceptions."""
+    import subprocess
+    from web.app import _pick_executable_file
+
+    class DummyProc:
+        def __init__(self, code: int, stdout: str):
+            self.returncode = code
+            self.stdout = stdout
+
+    # Returncode 0 with path
+    with patch("subprocess.run", return_value=DummyProc(0, "C:\\llama\\llama-server.exe\n")):
+        assert _pick_executable_file() == "C:\\llama\\llama-server.exe"
+
+    # Returncode 0 with empty stdout (cancelled)
+    with patch("subprocess.run", return_value=DummyProc(0, "   \n")):
+        assert _pick_executable_file() is None
+
+    # Non-zero returncode
+    with patch("subprocess.run", return_value=DummyProc(1, "error")):
+        assert _pick_executable_file() is None
+
+    # Exception / timeout
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="test", timeout=120)):
+        assert _pick_executable_file() is None
 
 
 class MockServerManager:

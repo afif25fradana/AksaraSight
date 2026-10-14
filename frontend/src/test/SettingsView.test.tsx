@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsView } from '../components/SettingsView';
 import { BackendSettings } from '../types';
@@ -32,7 +32,75 @@ describe('SettingsView backend integration and security', () => {
     global.fetch = originalFetch;
   });
 
-  it('renders settings from GET /api/settings and displays immutable fields as read-only', async () => {
+  it('renders mutable backend radios, runtime mode pills, and allows custom binary selection via browse dialog', async () => {
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/settings') && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/doctor') && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ report: null }),
+        } as Response);
+      }
+      if (urlStr.includes('/api/dialog/file') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ path: 'C:\\tools\\llama-server.exe' }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
+    });
+
+    render(<SettingsView />);
+
+    // Wait for backend settings to load
+    expect(await screen.findByText('llama-cpp')).toBeInTheDocument();
+
+    // Verify Read-Only badges are completely removed
+    expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
+
+    // Verify backend radios are rendered and selectable
+    const llamaRadio = screen.getByRole('radio', { name: /llama-cpp/i });
+    const ollamaRadio = screen.getByRole('radio', { name: /ollama/i });
+    expect(llamaRadio).toBeChecked();
+    expect(ollamaRadio).not.toBeChecked();
+
+    await userEvent.click(ollamaRadio);
+    expect(ollamaRadio).toBeChecked();
+
+    // Verify runtime mode segmented buttons
+    const managedBtn = screen.getByRole('button', { name: 'Managed Local Runtime' });
+    const customBtn = screen.getByRole('button', { name: 'Custom Executable Path' });
+    expect(managedBtn).toBeInTheDocument();
+    expect(customBtn).toBeInTheDocument();
+
+    // Switch to Custom Executable Path
+    await userEvent.click(customBtn);
+
+    // Custom path input and Browse button should now appear
+    const customPathInput = screen.getByLabelText(/Custom llama-server Executable Path/i);
+    expect(customPathInput).toBeInTheDocument();
+
+    const browseBtn = screen.getByRole('button', { name: /Browse\.\.\./i });
+    expect(browseBtn).toBeInTheDocument();
+
+    // Click Browse...
+    await userEvent.click(browseBtn);
+    await waitFor(() => {
+      expect(customPathInput).toHaveValue('C:\\tools\\llama-server.exe');
+    });
+    expect(screen.getByText('Custom llama-server binary configured')).toBeInTheDocument();
+  });
+
+  it('renders Advanced tab with editable endpoint, model repo, and remote security confirmation modal', async () => {
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
       if (urlStr.includes('/api/settings') && (!init || !init.method || init.method === 'GET')) {
@@ -53,30 +121,60 @@ describe('SettingsView backend integration and security', () => {
     });
 
     render(<SettingsView />);
+    await screen.findByText('llama-cpp');
 
-    // Wait for backend settings to load
-    expect(await screen.findByText('llama-cpp')).toBeInTheDocument();
-
-    // Verify immutable fields are displayed with read-only badges
-    const readOnlyBadges = screen.getAllByText('Read-Only');
-    expect(readOnlyBadges.length).toBeGreaterThanOrEqual(2);
-
-    // Verify backend is rendered as text and NOT as an editable input or radio button
-    expect(screen.queryByRole('radio', { name: /llama-cpp/i })).not.toBeInTheDocument();
-
-    // Verify runtime mode is rendered read-only
-    expect(screen.getByText('managed')).toBeInTheDocument();
-
-    // Switch to Advanced & Network tab to check endpoint and model_repo immutability
+    // Switch to Advanced & Network tab
     const advancedTab = screen.getByRole('tab', { name: /Advanced/i });
     await userEvent.click(advancedTab);
 
-    expect(screen.getByText('http://127.0.0.1:8080/v1')).toBeInTheDocument();
-    expect(screen.getByText('ggml-org/GLM-OCR-GGUF')).toBeInTheDocument();
-    expect(screen.getByText('100% Local-Only Invariant')).toBeInTheDocument();
+    // Verify endpoint input is editable
+    const endpointInput = screen.getByLabelText(/Local Engine HTTP Endpoint URL/i);
+    expect(endpointInput).toHaveValue('http://127.0.0.1:8080/v1');
+    await userEvent.clear(endpointInput);
+    await userEvent.type(endpointInput, 'http://127.0.0.1:9090/v1');
+    expect(endpointInput).toHaveValue('http://127.0.0.1:9090/v1');
+
+    // Verify model_repo input is editable
+    const modelRepoInput = screen.getByLabelText(/Hugging Face Model Repository/i);
+    expect(modelRepoInput).toHaveValue('ggml-org/GLM-OCR-GGUF');
+    await userEvent.clear(modelRepoInput);
+    await userEvent.type(modelRepoInput, 'custom-org/model-gguf');
+    expect(modelRepoInput).toHaveValue('custom-org/model-gguf');
+
+    // Verify remote endpoint toggle opens security modal
+    const remoteSwitch = screen.getByRole('switch', { name: /Allow Non-Loopback \(Remote\) Endpoints/i });
+    expect(remoteSwitch).toHaveAttribute('aria-checked', 'false');
+
+    // Click toggle to turn remote ON -> should open Security Confirmation Modal
+    await userEvent.click(remoteSwitch);
+
+    const modal = screen.getByRole('alertdialog');
+    expect(modal).toBeInTheDocument();
+    expect(screen.getByText('Security Notice: Remote Endpoint')).toBeInTheDocument();
+    expect(screen.getByText('Violates 100% Local Guarantee')).toBeInTheDocument();
+
+    // Cancel modal first
+    const cancelModalBtn = within(modal).getByRole('button', { name: 'Cancel' });
+    await userEvent.click(cancelModalBtn);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(remoteSwitch).toHaveAttribute('aria-checked', 'false');
+
+    // Click toggle again and confirm
+    await userEvent.click(remoteSwitch);
+    const modalAfter = screen.getByRole('alertdialog');
+    const confirmBtn = within(modalAfter).getByRole('button', { name: 'I understand, enable remote' });
+    await userEvent.click(confirmBtn);
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(remoteSwitch).toHaveAttribute('aria-checked', 'true');
+
+    // Clicking switch again disables remote directly without modal
+    await userEvent.click(remoteSwitch);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(remoteSwitch).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('modifying a mutable setting and saving triggers PATCH /api/settings with ONLY changed mutable fields', async () => {
+  it('modifying multiple mutable settings and saving triggers PATCH /api/settings with all modified mutable fields', async () => {
     let patchBody: any = null;
 
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -112,13 +210,27 @@ describe('SettingsView backend integration and security', () => {
     render(<SettingsView />);
     await screen.findByText('llama-cpp');
 
-    // Switch to Processing & Quality tab
+    // 1. In Engine tab: change backend to 'vllm'
+    const vllmRadio = screen.getByRole('radio', { name: /vllm/i });
+    await userEvent.click(vllmRadio);
+
+    // 2. In Processing & Quality tab: change DPI to 150
     const processingTab = screen.getByRole('tab', { name: /Processing/i });
     await userEvent.click(processingTab);
-
-    // Change DPI by clicking 150 DPI button
     const dpi150Btn = screen.getByRole('button', { name: '150 DPI' });
     await userEvent.click(dpi150Btn);
+
+    // 3. In Advanced & Network tab: change local_endpoint and enable remote
+    const advancedTab = screen.getByRole('tab', { name: /Advanced/i });
+    await userEvent.click(advancedTab);
+    const endpointInput = screen.getByLabelText(/Local Engine HTTP Endpoint URL/i);
+    await userEvent.clear(endpointInput);
+    await userEvent.type(endpointInput, 'http://192.168.1.100:8000/v1');
+
+    const remoteSwitch = screen.getByRole('switch', { name: /Allow Non-Loopback \(Remote\) Endpoints/i });
+    await userEvent.click(remoteSwitch);
+    const confirmBtn = screen.getByRole('button', { name: 'I understand, enable remote' });
+    await userEvent.click(confirmBtn);
 
     // Click Save Settings button
     const saveButton = screen.getByRole('button', { name: /Save Settings/i });
@@ -130,11 +242,12 @@ describe('SettingsView backend integration and security', () => {
       expect(patchBody).not.toBeNull();
     });
 
-    // Ensure only the mutable dpi field was sent, and NO immutable fields
-    expect(patchBody).toEqual({ dpi: 150 });
-    expect(patchBody.backend).toBeUndefined();
-    expect(patchBody.runtime_mode).toBeUndefined();
-    expect(patchBody.local_endpoint).toBeUndefined();
+    expect(patchBody).toEqual({
+      backend: 'vllm',
+      dpi: 150,
+      local_endpoint: 'http://192.168.1.100:8000/v1',
+      allow_remote: true,
+    });
 
     // Verify success banner appears
     expect(await screen.findByText('Settings saved successfully')).toBeInTheDocument();

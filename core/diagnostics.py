@@ -305,7 +305,7 @@ def run_diagnostics(
             lines.append(f"          Executable:          {expected_path}")
             failed_checks += 1
             remediations.append(
-                f"Install the managed runtime '{tag}-{target_backend}' via GUI Settings or download to '{expected_dir}'."
+                f"Install the managed runtime '{tag}-{target_backend}' via Web UI Settings or download to '{expected_dir}'."
             )
             checks.append(
                 DiagnosticCheck(
@@ -365,7 +365,7 @@ def run_diagnostics(
             lines.append(f"          Details:             {health_msg}")
             failed_checks += 1
             remediations.append(
-                "Start the backend server via GUI or run 'llama-server' before processing documents."
+                "Start the backend server via Web UI or run 'llama-server' before processing documents."
             )
             checks.append(
                 DiagnosticCheck(

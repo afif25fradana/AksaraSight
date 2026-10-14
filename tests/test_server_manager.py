@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+import socket
 import subprocess
 import sys
 import threading
@@ -1646,3 +1647,34 @@ def test_server_manager_stop_while_starting_terminates(tmp_path):
         assert mgr.ownership == ServerOwnership.NONE
     finally:
         mgr.shutdown()
+
+
+def test_server_manager_start_port_in_use_preflight_fails(tmp_path):
+    """Verify start() fails pre-flight check when port is already occupied by another process."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker_sock:
+        blocker_sock.bind(("127.0.0.1", 0))
+        blocker_sock.listen(1)
+        port = blocker_sock.getsockname()[1]
+
+        settings = Settings(
+            llama_server_path=str(fake_exe),
+            runtime_mode="custom",
+            model_repo="test/model",
+            local_endpoint=f"http://127.0.0.1:{port}/v1",
+        )
+        mgr = ServerManager(settings=settings)
+
+        try:
+            with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "No server")):
+                with pytest.raises(RuntimeError, match=f"Port {port} is already in use"):
+                    mgr.start()
+
+            assert mgr.status == ServerStatus.ERROR
+            assert mgr.ownership == ServerOwnership.NONE
+            assert f"Port {port} is already in use" in mgr._last_message
+        finally:
+            mgr.shutdown()
+

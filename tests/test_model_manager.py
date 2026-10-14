@@ -324,3 +324,75 @@ def test_server_manager_does_not_hijack_custom_repo(tmp_path):
     finally:
         mgr_custom_m.shutdown()
 
+
+def test_downloader_incomplete_dest_file_cleaned_up(tmp_path):
+    """Verify that an incomplete or invalid dest_file is deleted upon download initiation."""
+    filename = PINNED_MODEL_FILES["model"]["filename"]
+    dest_file = tmp_path / filename
+    # Write an incomplete file whose size doesn't match expected_size
+    dest_file.write_bytes(b"short-invalid-data")
+    assert dest_file.exists()
+
+    mock_usage = MagicMock()
+    mock_usage.free = 50_000_000_000
+
+    def mock_get(url, **kwargs):
+        # By the time download begins streaming, dest_file should have already been unlinked
+        assert not dest_file.exists()
+        downloader.cancel()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = []
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+        return mock_resp
+
+    mock_session = MagicMock()
+    mock_session.get.side_effect = mock_get
+
+    downloader = ModelDownloader(dest_dir=tmp_path, session=mock_session)
+
+    with patch("shutil.disk_usage", return_value=mock_usage):
+        downloader.download()
+
+    assert not dest_file.exists()
+
+
+def test_downloader_resumed_part_file_sha256_mismatch_deleted(tmp_path):
+    """Verify resumed .part file with HTTP 206 is deleted when SHA-256 digest mismatches."""
+    filename = PINNED_MODEL_FILES["model"]["filename"]
+    part_file = tmp_path / f"{filename}.part"
+    part_file.write_bytes(b"initial-corrupt-prefix-")
+    existing_len = part_file.stat().st_size
+
+    mock_usage = MagicMock()
+    mock_usage.free = 50_000_000_000
+
+    captured_headers = {}
+
+    def mock_get(url, headers=None, **kwargs):
+        if headers:
+            captured_headers.update(headers)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 206
+        mock_resp.iter_content.return_value = [b"resumed-stream-suffix"]
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+        return mock_resp
+
+    mock_session = MagicMock()
+    mock_session.get.side_effect = mock_get
+
+    downloader = ModelDownloader(dest_dir=tmp_path, session=mock_session)
+
+    with patch("shutil.disk_usage", return_value=mock_usage):
+        with pytest.raises(ValueError, match="Digest mismatch"):
+            downloader.download()
+
+    assert captured_headers.get("Range") == f"bytes={existing_len}-"
+    assert not part_file.exists()
+    assert downloader.is_downloading is False
+    assert downloader.error_message is not None
+    assert "Digest mismatch" in downloader.error_message
+
+

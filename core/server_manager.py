@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -655,6 +656,21 @@ class ServerManager:
                 with self._lock:
                     self._log_buffer.clear()
                     self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
+
+                # Pre-flight TCP port bind check (L2-07)
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test_sock:
+                        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                            test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                        test_sock.bind(("127.0.0.1", port))
+                except OSError as bind_err:
+                    with self._lock:
+                        self._status = ServerStatus.ERROR
+                        self._ownership = ServerOwnership.NONE
+                        self._last_message = f"Port {port} is already in use by another process on 127.0.0.1"
+                    raise RuntimeError(
+                        f"Port {port} is already in use on 127.0.0.1 by another process: {bind_err}"
+                    ) from bind_err
 
                 creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 

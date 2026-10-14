@@ -243,15 +243,15 @@ class ModelDownloader:
                 self.current_file = filename
 
             # Check if file already exists and is valid
-            if dest_file.is_file() and dest_file.stat().st_size == expected_size:
-                if _compute_sha256(dest_file).lower() == expected_sha256.lower():
+            if dest_file.is_file():
+                if dest_file.stat().st_size == expected_size and _compute_sha256(dest_file).lower() == expected_sha256.lower():
                     logger.info("Model file already present and verified: %s", filename)
                     with self._state_lock:
                         self.bytes_downloaded += expected_size
                     self._notify_progress()
                     continue
                 else:
-                    logger.warning("Existing file corrupt; re-downloading: %s", filename)
+                    logger.warning("Existing file invalid or incomplete; re-downloading: %s", filename)
                     dest_file.unlink()
 
             # Check existing partial file

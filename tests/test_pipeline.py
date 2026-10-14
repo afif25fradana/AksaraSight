@@ -273,6 +273,66 @@ def test_rasterize_page_valid_pdf_and_image(tmp_path):
     assert img_bytes.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_rasterize_page_encrypted_pdf_raises(tmp_path: Path) -> None:
+    """Verify rasterize_page raises EncryptedDocumentError on encrypted PDF."""
+    enc_path = tmp_path / "encrypted.pdf"
+    enc_path.write_bytes(MINIMAL_ENCRYPTED_PDF)
+    with pytest.raises(EncryptedDocumentError, match="Password-protected PDF"):
+        rasterize_page(enc_path)
+
+
+def test_rasterize_page_mislabeled_image_fallback(tmp_path: Path) -> None:
+    """Verify rasterize_page returns PNG bytes for valid image mislabeled as .pdf."""
+    fake_pdf = tmp_path / "real_image.pdf"
+    Image.new("RGB", (64, 64), color="blue").save(fake_pdf, format="PNG")
+    result = rasterize_page(fake_pdf)
+    assert result.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_rasterize_page_mislabeled_pdf_fallback(tmp_path: Path) -> None:
+    """Verify rasterize_page returns PNG bytes for valid PDF saved with .png extension."""
+    fake_img = tmp_path / "real_doc.png"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(fake_img))
+    doc.close()
+
+    with patch("core.pipeline.is_pdf", return_value=False):
+        result = rasterize_page(fake_img)
+    assert result.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_rasterize_page_oversized_pdf_raises(tmp_path: Path) -> None:
+    """Verify rasterize_page raises OversizedImageError when PDF page dimensions exceed MAX_RASTER_PIXELS."""
+    pdf_path = tmp_path / "oversized.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    mock_page = MagicMock()
+    mock_page.get_size.return_value = (50000.0, 50000.0)
+    with patch("pypdfium2.PdfDocument.__getitem__", return_value=mock_page):
+        with pytest.raises(OversizedImageError, match="exceed safety threshold"):
+            rasterize_page(pdf_path, dpi=100)
+
+
+def test_rasterize_page_oversized_fallback_pdf_raises(tmp_path: Path) -> None:
+    """Verify rasterize_page raises OversizedImageError on mislabeled PDF fallback exceeding MAX_RASTER_PIXELS."""
+    fake_img = tmp_path / "real_doc_oversized.png"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(100, 100)
+    doc.save(str(fake_img))
+    doc.close()
+
+    mock_page = MagicMock()
+    mock_page.get_size.return_value = (50000.0, 50000.0)
+    with patch("core.pipeline.is_pdf", return_value=False), \
+         patch("pypdfium2.PdfDocument.__getitem__", return_value=mock_page):
+        with pytest.raises(OversizedImageError, match="exceed safety threshold"):
+            rasterize_page(fake_img, dpi=100)
+
+
 # Edge Cases: Misnamed Extensions
 
 def test_ingest_mislabeled_image_as_pdf(tmp_path):

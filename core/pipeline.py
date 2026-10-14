@@ -501,6 +501,17 @@ def rasterize_page(
                 with _PDFIUM_LOCK:
                     page = doc[idx]
                     try:
+                        width_pt, height_pt = page.get_size()
+                        pixel_width = int(width_pt * scale)
+                        pixel_height = int(height_pt * scale)
+                        pixel_area = pixel_width * pixel_height
+
+                        if pixel_area > MAX_RASTER_PIXELS:
+                            raise OversizedImageError(
+                                f"Page {idx + 1} dimensions ({pixel_width}x{pixel_height} = "
+                                f"{pixel_area:,} pixels) exceed safety threshold of "
+                                f"{MAX_RASTER_PIXELS:,} pixels"
+                            )
                         pil_img = page.render(scale=scale).to_pil()
                     finally:
                         page.close()
@@ -508,7 +519,7 @@ def rasterize_page(
                     buf = io.BytesIO()
                     pil_img.save(buf, format="PNG")
                     return buf.getvalue()
-            except EmptyDocumentError:
+            except (EmptyDocumentError, OversizedImageError):
                 raise
             except Exception as exc:
                 raise CorruptDocumentError(f"Failed to rasterize PDF page: {exc}") from exc
@@ -551,22 +562,49 @@ def rasterize_page(
     except Exception as img_exc:
         # Fallback if image extension was actually a mislabeled PDF
         try:
+            enc_errhandler = "strict" if sys.platform.startswith("win32") else "surrogateescape"
+            cstr_path = (str(file_path) + "\x00").encode("utf-8", errors=enc_errhandler)
+            pil_img = None
+            doc = None
             with _PDFIUM_LOCK:
-                doc = pdfium.PdfDocument(str(file_path))
+                raw_doc = pdfium_c.FPDF_LoadDocument(cstr_path, None)
+                if raw_doc:
+                    total_pages = pdfium_c.FPDF_GetPageCount(raw_doc)
+                    if total_pages > 0:
+                        doc = pdfium.PdfDocument(raw_doc)
+                    else:
+                        pdfium_c.FPDF_CloseDocument(raw_doc)
+
+            if doc is not None:
                 try:
-                    n_pages = len(doc)
-                    if n_pages > 0:
-                        idx = max(0, min(page_idx, n_pages - 1))
+                    idx = max(0, min(page_idx, total_pages - 1))
+                    with _PDFIUM_LOCK:
                         page = doc[idx]
                         try:
+                            width_pt, height_pt = page.get_size()
+                            pixel_width = int(width_pt * scale)
+                            pixel_height = int(height_pt * scale)
+                            pixel_area = pixel_width * pixel_height
+
+                            if pixel_area > MAX_RASTER_PIXELS:
+                                raise OversizedImageError(
+                                    f"Page {idx + 1} dimensions ({pixel_width}x{pixel_height} = "
+                                    f"{pixel_area:,} pixels) exceed safety threshold of "
+                                    f"{MAX_RASTER_PIXELS:,} pixels"
+                                )
                             pil_img = page.render(scale=scale).to_pil()
-                            buf = io.BytesIO()
-                            pil_img.save(buf, format="PNG")
-                            return buf.getvalue()
                         finally:
                             page.close()
                 finally:
-                    doc.close()
+                    with _PDFIUM_LOCK:
+                        doc.close()
+
+            if pil_img is not None:
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG")
+                return buf.getvalue()
+        except OversizedImageError:
+            raise
         except Exception:
             pass
         raise CorruptDocumentError(f"Failed to load image: {img_exc}") from img_exc

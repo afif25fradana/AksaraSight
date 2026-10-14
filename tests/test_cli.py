@@ -759,7 +759,7 @@ def test_cli_doctor_server_offline(
     assert "Connection refused (server not running)" in captured.out
     assert "[SKIP] 1x1 Image Test:      SKIPPED (Server is not ready)" in captured.out
     assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
-    assert "Start the backend server via GUI or run 'llama-server'" in captured.out
+    assert "Start the backend server via Web UI or run 'llama-server'" in captured.out
 
 
 @patch("cli.main.probe_server_health")
@@ -790,7 +790,7 @@ def test_cli_doctor_runtime_not_installed(
     captured = capsys.readouterr()
     assert "[FAIL] Managed Runtime:     b11361-cpu (NOT INSTALLED)" in captured.out
     assert "STATUS: UNHEALTHY - 1 check failed." in captured.out
-    assert "Install the managed runtime 'b11361-cpu' via GUI Settings" in captured.out
+    assert "Install the managed runtime 'b11361-cpu' via Web UI Settings" in captured.out
 
 
 @patch("cli.main.OCREngine")
@@ -978,7 +978,7 @@ def test_cli_doctor_golden_output_server_offline(
         "==================================================",
         "STATUS: UNHEALTHY - 1 check failed.",
         "Remediation:",
-        "  - Start the backend server via GUI or run 'llama-server' before processing documents.",
+        "  - Start the backend server via Web UI or run 'llama-server' before processing documents.",
         "",
     ]
     assert captured.out == "\n".join(expected_lines)

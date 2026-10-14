@@ -28,7 +28,7 @@ import pypdfium2 as pdfium
 
 from config.settings import Settings
 from core.client import ServerOfflineError, resolve_chat_endpoint
-from core.constants import SUPPORTED_EXTENSIONS
+from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
@@ -389,7 +389,7 @@ def create_app(
 
     app = FastAPI(
         title="AksaraSight Web API",
-        version="1.2.1",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,

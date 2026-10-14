@@ -1,6 +1,6 @@
 """Automated build hygiene and dependency leak prevention tests.
 
-Ensures that production runtime modules (gui/, core/, cli/, config/) never
+Ensures that production runtime modules (core/, web/, cli/, config/) never
 import test framework libraries (unittest, unittest.mock, pytest) which
 are excluded from the standalone portable frozen binary distribution.
 """

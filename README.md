@@ -2,17 +2,17 @@
 
 [![Tests](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml/badge.svg)](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml)
 
-AksaraSight is a desktop app for running OCR locally on your computer. It takes scanned documents, PDFs, receipts, or images and converts them into Markdown, Word documents (.docx), or structured JSON.
+AksaraSight is a local OCR workspace running on your computer. It takes scanned documents, PDFs, receipts, or images and converts them into Markdown, Word documents (.docx), or structured JSON.
 
 I built this because most modern OCR tools require uploading files to third-party cloud APIs. If you are scanning tax papers, legal contracts, medical records, or personal notes, sending them off to a remote server is often unacceptable. AksaraSight runs entirely offline using the GLM-OCR model and llama.cpp under the hood. There is no cloud fallback. If the local backend is unreachable, it stops instead of quietly routing your files across the internet.
 
-![AksaraSight Desktop GUI Studio Preview](docs/images/gui_refined_preview.png)
+![AksaraSight Web UI Workspace Preview](docs/images/webui_workspace_preview.png)
 
 ## What it can do
 
 - **Completely offline**: Everything runs on your machine. Your documents never touch the internet.
 - **Export to Word, Markdown, and JSON**: Generates clean `.docx` files with preserved headings and tables, as well as raw `.md` and `.json`.
-- **Simple desktop interface**: Drag and drop single files or folders to queue them up. You can view the original scan side-by-side with the extracted text, formatted preview, and JSON output.
+- **Browser-based workspace interface**: Drag and drop single files or folders to queue them up. You can view the original scan side-by-side with the extracted text, formatted preview, and JSON output.
 - **Built-in runtime setup**: You don't need to manually configure llama.cpp or compile CUDA drivers. The app checks your hardware (NVIDIA GPU, Vulkan, or CPU) and downloads the matching build for you.
 - **Command-line interface**: If you prefer terminals or want to script batch conversions, you can use the CLI directly.
 
@@ -20,11 +20,7 @@ I built this because most modern OCR tools require uploading files to third-part
 
 ### Option 1: Portable Windows Build (No Python needed)
 
-The easiest way to run AksaraSight on Windows:
-
-1. Go to the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page.
-2. Download `AksaraSight-v1.2.1-windows-x64.zip`.
-3. Extract the zip anywhere and double-click `AksaraSight.exe`.
+Standalone portable binary packaging for the Web UI workspace is planned for a subsequent update. In the meantime, the v1.2.1 native desktop standalone executable (`AksaraSight-v1.2.1-windows-x64.zip`) remains available on the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page.
 
 ### Option 2: Running from source
 
@@ -38,22 +34,24 @@ cd AksaraSight
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python -m gui
+python -m web
 ```
+
+Open your web browser and navigate to `http://127.0.0.1:8000`.
 
 ## First run walkthrough
 
-1. Open the application (`AksaraSight.exe` or `python -m gui`).
-2. Click the **Preferences** button in the top-right header.
-3. Under *Local Inference Engine*, click **Download Runtime**. The app will detect your graphics card (or fall back to CPU) and grab the verified server build.
+1. Open the application (`python -m web`) and navigate to `http://127.0.0.1:8000`.
+2. Click the **Settings** button in the top navigation bar.
+3. Under *Runtime Binary Source*, select **Managed Local Runtime** and click **Download Runtime** (or verify the managed local runtime). Under *Model Weights Management*, click **Download Pinned Model** to retrieve the verified GLM-OCR model weights. The app will detect your graphics card (or fall back to CPU) and grab the verified server build.
 
 <p align="center">
-  <img src="docs/images/settings_window_preview.png" alt="Preferences settings preview" width="48%">
-  <img src="docs/images/settings_window_scrolled_preview.png" alt="Managed runtime supervision preview" width="48%">
+  <img src="docs/images/webui_settings_preview.png" alt="Web UI Settings preview" width="48%">
+  <img src="docs/images/security_confirmation_preview.png" alt="Security Notice confirmation preview" width="48%">
 </p>
 
-4. Click **Start Server** in the main window header. Once the status shows `READY`, drop a scan or PDF into the drop zone.
-5. Check the result in the preview tabs, then click **Export All** to save your files.
+4. Click **Start Server** in the navigation bar. Once the status shows `Engine Online`, switch back to **Workspace** and drop a scan or PDF into the drop zone.
+5. Check the result in the preview tabs, then click **Export** to save your files.
 
 ## A few things to keep in mind
 

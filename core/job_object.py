@@ -124,11 +124,3 @@ else:
 
 
 _create_job_object = _create_kill_on_close_job
-
-
-class Win32JobObject:
-    """Encapsulates Win32 Job Object operations for subprocess containment."""
-
-    create = staticmethod(_create_kill_on_close_job)
-    assign = staticmethod(_assign_process_to_job)
-    close = staticmethod(_close_job_handle)

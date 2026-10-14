@@ -6,7 +6,10 @@ AksaraSight is a local OCR workspace running on your computer. It takes scanned 
 
 I built this because most modern OCR tools require uploading files to third-party cloud APIs. If you are scanning tax papers, legal contracts, medical records, or personal notes, sending them off to a remote server is often unacceptable. AksaraSight runs entirely offline using the GLM-OCR model and llama.cpp under the hood. There is no cloud fallback. If the local backend is unreachable, it stops instead of quietly routing your files across the internet.
 
-![AksaraSight Web UI Workspace Preview](docs/images/webui_workspace_preview.png)
+<p align="center">
+  <img src="docs/images/webui_workspace_light.png" alt="AksaraSight Web UI Workspace - Archival Light Theme" width="49%">
+  <img src="docs/images/webui_workspace_dark.png" alt="AksaraSight Web UI Workspace - Graphite Dark Theme" width="49%">
+</p>
 
 ## What it can do
 
@@ -46,8 +49,12 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
 3. Under *Runtime Binary Source*, select **Managed Local Runtime** and click **Download Runtime** (or verify the managed local runtime). Under *Model Weights Management*, click **Download Pinned Model** to retrieve the verified GLM-OCR model weights. The app will detect your graphics card (or fall back to CPU) and grab the verified server build.
 
 <p align="center">
-  <img src="docs/images/webui_settings_preview.png" alt="Web UI Settings preview" width="48%">
-  <img src="docs/images/security_confirmation_preview.png" alt="Security Notice confirmation preview" width="48%">
+  <img src="docs/images/webui_settings_light.png" alt="Settings view in Archival Light theme" width="49%">
+  <img src="docs/images/webui_settings_dark.png" alt="Settings view in Graphite Dark theme" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/images/security_confirmation_preview.png" alt="Security Notice: Remote Endpoint Confirmation Modal" width="55%">
 </p>
 
 4. Click **Start Server** in the navigation bar. Once the status shows `Engine Online`, switch back to **Workspace** and drop a scan or PDF into the drop zone.

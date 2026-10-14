@@ -36,8 +36,17 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   const [levelFilter, setLevelFilter] = useState<'ALL' | 'INFO' | 'HEALTH' | 'OCR' | 'WARN' | 'ERROR'>('ALL');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<NodeJS.Timeout | number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -113,7 +122,13 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   const handleCopy = () => {
     navigator.clipboard.writeText(logs.join('\n'));
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copyTimerRef.current) {
+      clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = setTimeout(() => {
+      setCopied(false);
+      copyTimerRef.current = null;
+    }, 2000);
   };
 
   const statusBadge = useMemo(() => {

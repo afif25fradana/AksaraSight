@@ -112,6 +112,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const saveToastTimerRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveToastTimerRef.current) {
+        clearTimeout(saveToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // Diagnostic (--doctor) state
   const [isDoctorRunning, setIsDoctorRunning] = useState(false);
@@ -341,7 +350,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setFormData(updatedSettings);
         setSaveSuccess(true);
         onSave?.(updatedSettings);
-        setTimeout(() => setSaveSuccess(false), 2500);
+        if (saveToastTimerRef.current) {
+          clearTimeout(saveToastTimerRef.current);
+        }
+        saveToastTimerRef.current = setTimeout(() => {
+          setSaveSuccess(false);
+          saveToastTimerRef.current = null;
+        }, 2500);
       } else {
         const errData = await res.json().catch(() => ({ detail: 'Failed to update settings' }));
         setSaveError(errData.detail || `HTTP ${res.status}: Failed to update settings`);
@@ -819,7 +834,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="flex items-center justify-between bg-white dark:bg-[var(--bg-elevated)] p-3.5 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] transition-colors">
                   <div>
                     <span className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)] block">
-                      Start engine automatically with GUI
+                      Start engine automatically with Web UI
                     </span>
                     <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
                       Spawn background llama-server process on workspace startup
@@ -828,7 +843,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button 
                     role="switch" 
                     aria-checked={formData.auto_start_server}
-                    aria-label="Start engine automatically with GUI"
+                    aria-label="Start engine automatically with Web UI"
                     onClick={() => setFormData((prev) => ({ ...prev, auto_start_server: !prev.auto_start_server }))}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)] focus:ring-offset-2 ${
                       formData.auto_start_server ? 'bg-[#0F766E] dark:bg-[var(--accent)]' : 'bg-[#8A94A6] dark:bg-[var(--border-strong)]'

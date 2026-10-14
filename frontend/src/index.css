@@ -148,11 +148,11 @@ html {
 }
 .dark ::-webkit-scrollbar-thumb,
 :where(.dark, .dark *) ::-webkit-scrollbar-thumb {
-  background: #32373f;
+  background: #565d6a;
 }
 .dark ::-webkit-scrollbar-thumb:hover,
 :where(.dark, .dark *) ::-webkit-scrollbar-thumb:hover {
-  background: #464c56;
+  background: #6b7280;
 }
 
 /* Range input accent styling */

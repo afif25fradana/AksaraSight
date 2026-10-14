@@ -371,4 +371,30 @@ describe('SettingsView backend integration and security', () => {
     expect(alertBanner).toBeInTheDocument();
     expect(alertBanner).toHaveTextContent("Invalid value for setting 'dpi'.");
   });
+
+  it('renders auto_start_server switch with updated Web UI copy', async () => {
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/settings') && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/doctor') && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ report: null }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
+    });
+
+    render(<SettingsView />);
+    expect(await screen.findByText('Start engine automatically with Web UI')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Start engine automatically with Web UI' })).toBeInTheDocument();
+    expect(screen.queryByText(/with GUI/i)).not.toBeInTheDocument();
+  });
 });

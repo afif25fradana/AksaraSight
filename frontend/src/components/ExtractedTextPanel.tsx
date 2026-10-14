@@ -112,6 +112,15 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const [exportFormat, setExportFormat] = useState<OutputFormatType>('docx');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const copyTimerRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
   const [taskMode, setTaskMode] = useState<PromptMode>('text');
   const [showTaskModeMenu, setShowTaskModeMenu] = useState<boolean>(false);
   const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('formatted');
@@ -256,7 +265,13 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     const textToCopy = activePreviewTab === 'json' ? jsonString : currentTextContent;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copyTimerRef.current) {
+      clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = setTimeout(() => {
+      setCopied(false);
+      copyTimerRef.current = null;
+    }, 2000);
   };
 
   // Helper to render Formatted Markdown Preview cleanly

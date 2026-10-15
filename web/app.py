@@ -1267,7 +1267,12 @@ def create_app(
             else:
                 yield ServerSentEvent(event=event, data=data)
 
-    target_static_dir = Path(static_dir) if static_dir else (Path(__file__).parent / "static")
+    if static_dir:
+        target_static_dir = Path(static_dir)
+    elif getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        target_static_dir = Path(sys._MEIPASS) / "web" / "static"
+    else:
+        target_static_dir = Path(__file__).parent / "static"
     if target_static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(target_static_dir), html=True), name="static")
 

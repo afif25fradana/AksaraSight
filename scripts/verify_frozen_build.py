@@ -1,25 +1,21 @@
 """Comprehensive verification and smoke test suite for AksaraSight frozen portable build.
 
 Verifies:
-1. Native Window Rendering: Launches real AksaraSight.exe, queries OS window table via
-   Win32 EnumWindows/IsWindowVisible/GetWindowTextW to confirm the main studio window
-   is actually rendered and visible on-screen, then gracefully closes it via WM_CLOSE.
-2. File-based Logging: Confirms %LOCALAPPDATA%\\AksaraSight\\logs\\app.log was created and
+1. CLI Functionality: Confirms AksaraSight-CLI.exe --version, --detect-hardware, and input validation.
+2. Web UI Desktop Server: Launches AksaraSight.exe on an ephemeral loopback port with --no-browser,
+   verifies /api/server/status, root HTML, and CSS assets, then terminates cleanly.
+3. File-based Logging: Confirms %LOCALAPPDATA%\\AksaraSight\\logs\\app.log was created and
    recorded startup telemetry and version.
-3. Subprocess & Job Object Handling: Invokes AksaraSight-CLI.exe --test-server-supervision to
-   verify that Win32 Job Object creation, process assignment, CREATE_NO_WINDOW, and cwd
-   isolation function under a frozen parent process.
-4. CLI Functionality: Confirms AksaraSight-CLI.exe --version, --help, and --detect-hardware.
-5. Zero-Network Invariant: Asserts hardware detection and startup complete with zero external calls.
 """
 
-import ctypes
-from ctypes import wintypes
+import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import time
+import urllib.request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -29,9 +25,6 @@ from core.constants import __version__
 DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
 GUI_EXE = DIST_DIR / "AksaraSight.exe"
 CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
-
-# Win32 API Constants
-WM_CLOSE = 0x0010
 
 
 def test_cli_version() -> bool:
@@ -72,134 +65,96 @@ def test_cli_input_validation() -> bool:
     return True
 
 
+def test_web_server_startup_and_endpoints() -> bool:
+    """Launch real AksaraSight.exe on ephemeral port with --no-browser and verify HTTP endpoints."""
+    print("\n[4/5] Testing Web UI desktop server startup and endpoints (ephemeral port)...")
 
-def test_gui_window_rendering_and_logging() -> bool:
-    """Launch real AksaraSight.exe, confirm window visibility via Win32 API, then close cleanly."""
-    print("\n[4/5] Testing real GUI window rendering and visibility via Win32 API...")
+    # Allocate an ephemeral loopback port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
 
-    if sys.platform != "win32":
-        print("  [SKIP] Non-Windows platform")
-        return True
+    cmd = [
+        str(GUI_EXE),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--no-browser",
+    ]
+    proc = subprocess.Popen(cmd, cwd=str(DIST_DIR))
+    print(f"  Launched {GUI_EXE.name} on port {port} (PID: {proc.pid})")
 
-    user32 = ctypes.windll.user32
-    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    try:
+        status_url = f"http://127.0.0.1:{port}/api/server/status"
+        root_url = f"http://127.0.0.1:{port}/"
+        css_url = f"http://127.0.0.1:{port}/assets/index.css"
 
-    # Launch GUI process
-    proc = subprocess.Popen([str(GUI_EXE)], cwd=str(DIST_DIR))
-    pid = proc.pid
-    print(f"  Launched {GUI_EXE.name} (PID: {pid})")
+        # Poll status endpoint until ready (up to 25s)
+        deadline = time.time() + 25.0
+        server_ready = False
+        last_error = ""
 
-    found_window = []
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                print(f"  [FAIL] Server process exited prematurely with code {proc.returncode}")
+                return False
+            try:
+                req = urllib.request.Request(status_url)
+                with urllib.request.urlopen(req, timeout=5.0) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        if "status" in data:
+                            server_ready = True
+                            print(f"  [PASS] Server status endpoint responsive: {data.get('status')}")
+                            break
+            except Exception as e:
+                last_error = str(e)
+                time.sleep(0.5)
 
-    def enum_cb(hwnd, lparam):
-        if not user32.IsWindowVisible(hwnd):
-            return True
-        proc_id = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
-        if proc_id.value == pid:
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length > 0:
-                buff = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buff, length + 1)
-                title = buff.value
-                if "AksaraSight" in title:
-                    found_window.append((hwnd, title))
-                    return False
-        return True
-
-    cb = WNDENUMPROC(enum_cb)
-
-    # Poll for window up to 15 seconds
-    deadline = time.time() + 15.0
-    verified_hwnd = None
-    window_title = None
-
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            print(f"  [FAIL] Process exited prematurely with code {proc.returncode}")
+        if not server_ready:
+            print(f"  [FAIL] Server did not become ready within 25s (last error: {last_error})")
             return False
 
-        user32.EnumWindows(cb, 0)
-        if found_window:
-            verified_hwnd, window_title = found_window[0]
-            break
-        time.sleep(0.5)
+        # Verify root HTML endpoint
+        req_root = urllib.request.Request(root_url)
+        with urllib.request.urlopen(req_root, timeout=2.0) as resp:
+            if resp.status != 200:
+                print(f"  [FAIL] Root endpoint returned status {resp.status}")
+                return False
+            content_type = resp.headers.get("Content-Type", "")
+            body = resp.read().decode("utf-8", errors="replace")
+            if "text/html" not in content_type:
+                print(f"  [FAIL] Root endpoint content-type is not text/html: {content_type}")
+                return False
+            if "<html" not in body.lower() and "<!doctype html>" not in body.lower():
+                print("  [FAIL] Root endpoint body does not contain valid HTML document")
+                return False
+            print("  [PASS] Root static HTML endpoint verified (200 OK, text/html)")
 
-    if not verified_hwnd:
-        print("  [FAIL] Timed out waiting for AksaraSight window to render and become visible")
-        proc.kill()
-        return False
+        # Verify static CSS endpoint
+        req_css = urllib.request.Request(css_url)
+        with urllib.request.urlopen(req_css, timeout=2.0) as resp:
+            if resp.status != 200:
+                print(f"  [FAIL] CSS asset endpoint returned status {resp.status}")
+                return False
+            css_body = resp.read()
+            if len(css_body) == 0:
+                print("  [FAIL] CSS asset body is empty")
+                return False
+            print(f"  [PASS] Static CSS asset endpoint verified ({len(css_body)} bytes)")
 
-    print("  [PASS] Main window verified on-screen:")
-    print(f"         HWND:  {hex(verified_hwnd)}")
-    print(f"         Title: '{window_title}'")
-    print("         State: IsWindowVisible = True")
-
-    # Capture visual proof screenshot of real running window
-    try:
-        from PIL import Image
-        rect = wintypes.RECT()
-        user32.GetWindowRect(verified_hwnd, ctypes.byref(rect))
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        if w > 0 and h > 0:
-            gdi32 = ctypes.windll.gdi32
-            hdc_win = user32.GetWindowDC(verified_hwnd)
-            hdc_mem = gdi32.CreateCompatibleDC(hdc_win)
-            hbm = gdi32.CreateCompatibleBitmap(hdc_win, w, h)
-            gdi32.SelectObject(hdc_mem, hbm)
-            user32.PrintWindow(verified_hwnd, hdc_mem, 2)
-
-            class BITMAPINFOHEADER(ctypes.Structure):
-                _fields_ = [
-                    ("biSize", wintypes.DWORD),
-                    ("biWidth", wintypes.LONG),
-                    ("biHeight", wintypes.LONG),
-                    ("biPlanes", wintypes.WORD),
-                    ("biBitCount", wintypes.WORD),
-                    ("biCompression", wintypes.DWORD),
-                    ("biSizeImage", wintypes.DWORD),
-                    ("biXPelsPerMeter", wintypes.LONG),
-                    ("biYPelsPerMeter", wintypes.LONG),
-                    ("biClrUsed", wintypes.DWORD),
-                    ("biClrImportant", wintypes.DWORD),
-                ]
-
-            bmi = BITMAPINFOHEADER()
-            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-            bmi.biWidth = w
-            bmi.biHeight = -h
-            bmi.biPlanes = 1
-            bmi.biBitCount = 32
-            bmi.biCompression = 0
-
-            buf = ctypes.create_string_buffer(w * h * 4)
-            gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
-            img = Image.frombuffer("RGBA", (w, h), bytes(buf), "raw", "BGRA", 0, 1)
-            gdi32.DeleteObject(hbm)
-            gdi32.DeleteDC(hdc_mem)
-            user32.ReleaseDC(verified_hwnd, hdc_win)
-
-            import tempfile
-
-            screenshot_path = Path(tempfile.gettempdir()) / "frozen_gui_preview.png"
-            img.save(str(screenshot_path))
-            print(f"         Screenshot: {screenshot_path.name} ({w}x{h} px) [saved to temp]")
-    except Exception as cap_err:
-        print(f"         [WARN] Window screenshot capture skipped: {cap_err}")
-
-    # Send WM_CLOSE to gracefully terminate GUI
-    print("  Closing window via WM_CLOSE...")
-    user32.PostMessageW(verified_hwnd, WM_CLOSE, 0, 0)
-
-    try:
-        proc.wait(timeout=8.0)
-        print("  [PASS] Application shut down cleanly")
-    except subprocess.TimeoutExpired:
-        print("  [WARN] Window did not exit within 8s; terminating")
-        proc.kill()
-
-    return True
+        return True
+    finally:
+        print("  Terminating server process...")
+        proc.terminate()
+        try:
+            proc.wait(timeout=8.0)
+            print("  [PASS] Server process terminated cleanly")
+        except subprocess.TimeoutExpired:
+            print("  [WARN] Server did not exit within 8s; killing")
+            proc.kill()
+            proc.wait(timeout=2.0)
 
 
 def test_frozen_log_file() -> bool:
@@ -237,7 +192,7 @@ def main() -> None:
         test_cli_version,
         test_cli_hardware_detection,
         test_cli_input_validation,
-        test_gui_window_rendering_and_logging,
+        test_web_server_startup_and_endpoints,
         test_frozen_log_file,
     ]
 

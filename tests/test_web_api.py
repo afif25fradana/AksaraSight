@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -3901,6 +3902,78 @@ def test_lifespan_shutdown_unlinks_only_own_jobs(tmp_path: Path) -> None:
 
     assert not own_file.exists()
     assert foreign_file.exists()
+
+
+def test_create_app_resolves_meipass_static_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify create_app resolves static directory from sys._MEIPASS when frozen."""
+    meipass_dir = tmp_path / "bundle"
+    static_dir = meipass_dir / "web" / "static"
+    static_dir.mkdir(parents=True)
+    index_file = static_dir / "index.html"
+    index_file.write_text("<!doctype html><html><body>MEIPASS Bundle</body></html>", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass_dir), raising=False)
+
+    app = create_app()
+    client = AsgiClient(app)
+    status, _, body = client.get("/")
+    assert status == 200
+    assert "MEIPASS Bundle" in body.decode("utf-8")
+
+
+def test_build_parser_no_browser_flag() -> None:
+    """Verify build_parser supports and correctly parses --no-browser flag."""
+    from web.__main__ import build_parser
+
+    parser = build_parser()
+    args_true = parser.parse_args(["--no-browser"])
+    assert args_true.no_browser is True
+
+    args_default = parser.parse_args([])
+    assert args_default.no_browser is False
+
+
+def test_setup_frozen_logging_idempotency_and_oserror_resilience(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify _setup_frozen_logging is idempotent and resilient to OSError."""
+    import logging
+    from web.__main__ import _setup_frozen_logging
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    # First call sets up logging
+    log_path_1 = _setup_frozen_logging()
+    assert log_path_1 is not None
+    assert log_path_1.is_file()
+
+    # Count file handlers on root logger
+    root_logger = logging.getLogger()
+    file_handlers_before = [
+        h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+    ]
+    assert len(file_handlers_before) >= 1
+
+    # Second call should be idempotent (no duplicate file handlers added)
+    log_path_2 = _setup_frozen_logging()
+    assert log_path_2 == log_path_1
+    file_handlers_after = [
+        h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+    ]
+    assert len(file_handlers_after) == len(file_handlers_before)
+
+    # Cleanup attached file handlers so tmp_path file locks are released on Windows
+    for h in file_handlers_after:
+        h.close()
+        root_logger.removeHandler(h)
+
+    # Test OSError resilience: e.g. Path.mkdir raises OSError
+    with patch("pathlib.Path.mkdir", side_effect=OSError("Disk full or read-only")):
+        res = _setup_frozen_logging()
+        assert res is None
+
 
 
 

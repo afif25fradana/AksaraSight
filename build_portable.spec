@@ -2,7 +2,7 @@
 """PyInstaller spec file for AksaraSight Local Portable Windows Distribution.
 
 Builds a unified, zero-installer portable bundle containing:
-1. AksaraSight.exe: Desktop Studio GUI (windowed mode, console=False).
+1. AksaraSight.exe: Web UI Desktop Server (console mode, console=True).
 2. AksaraSight-CLI.exe: Command Line Interface (console mode, console=True).
 Both executables reside in dist/AksaraSight/ and share dist/AksaraSight/_internal/.
 """
@@ -15,8 +15,9 @@ block_cipher = None
 
 # Collect all non-Python data files and native C-extensions
 all_datas = [
-    ('gui/assets/icon.ico', 'gui/assets'),
-    ('gui/assets/icon.png', 'gui/assets'),
+    ('assets/icon.ico', 'assets'),
+    ('assets/icon.png', 'assets'),
+    ('web/static', 'web/static'),
 ]
 all_binaries = []
 all_hiddenimports = [
@@ -32,30 +33,25 @@ all_hiddenimports = [
     'core.docx_export',
     'core.models',
     'core.constants',
-    'gui.theme',
-    'gui.app',
-    'gui.queue_manager',
-    'gui.export_controller',
-    'gui.server_controller',
-    'gui.worker_coordinator',
-    'gui.image_preview',
-    'gui.preview_highlighter',
-    'gui.security_dialog',
-    'gui.settings_window',
+    'core.model_manager',
+    'core.diagnostics',
+    'web.app',
+    'web.orchestrator',
+    'web.security',
 ]
 
-# Explicitly collect packages with native DLLs, themes, fonts, data templates, or Tcl scripts
-for pkg in ['customtkinter', 'tkinterdnd2', 'pypdfium2', 'pypdfium2_raw', 'docx', 'markdown_it', 'mdurl', 'lxml']:
+# Explicitly collect packages with native DLLs, themes, fonts, data templates, or web dependencies
+for pkg in ['pypdfium2', 'pypdfium2_raw', 'docx', 'markdown_it', 'mdurl', 'lxml', 'fastapi', 'starlette', 'uvicorn', 'sse_starlette', 'python_multipart', 'multipart', 'anyio']:
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(pkg)
     all_datas.extend(pkg_datas)
     all_binaries.extend(pkg_binaries)
     all_hiddenimports.extend(pkg_hiddenimports)
 
 # ------------------------------------------------------------------------------
-# 1. Target: Desktop Studio GUI (AksaraSight.exe, windowed, console=False)
+# 1. Target: Web UI Desktop Server (AksaraSight.exe, console mode, console=True)
 # ------------------------------------------------------------------------------
-a_gui = Analysis(
-    ['gui/__main__.py'],
+a_web = Analysis(
+    ['web/__main__.py'],
     pathex=['.'],
     binaries=all_binaries,
     datas=all_datas,
@@ -70,11 +66,11 @@ a_gui = Analysis(
     noarchive=False,
 )
 
-pyz_gui = PYZ(a_gui.pure, a_gui.zipped_data, cipher=block_cipher)
+pyz_web = PYZ(a_web.pure, a_web.zipped_data, cipher=block_cipher)
 
-exe_gui = EXE(
-    pyz_gui,
-    a_gui.scripts,
+exe_web = EXE(
+    pyz_web,
+    a_web.scripts,
     [],
     exclude_binaries=True,
     name='AksaraSight',
@@ -82,13 +78,13 @@ exe_gui = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='gui/assets/icon.ico',
+    icon='assets/icon.ico',
 )
 
 # ------------------------------------------------------------------------------
@@ -128,17 +124,17 @@ exe_cli = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='gui/assets/icon.ico',
+    icon='assets/icon.ico',
 )
 
 # ------------------------------------------------------------------------------
 # 3. Unified Distribution Collector (dist/AksaraSight/)
 # ------------------------------------------------------------------------------
 coll = COLLECT(
-    exe_gui,
-    a_gui.binaries,
-    a_gui.zipfiles,
-    a_gui.datas,
+    exe_web,
+    a_web.binaries,
+    a_web.zipfiles,
+    a_web.datas,
     exe_cli,
     a_cli.binaries,
     a_cli.zipfiles,

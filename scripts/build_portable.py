@@ -38,6 +38,11 @@ def check_environment() -> None:
         sys.stderr.write("ERROR: PyInstaller is not installed. Run 'pip install -r requirements-build.txt'\n")
         sys.exit(1)
 
+    web_static_html = REPO_ROOT / "web" / "static" / "index.html"
+    if not web_static_html.is_file():
+        sys.stderr.write(f"ERROR: Web UI static bundle not found at {web_static_html}. Build frontend before packaging.\n")
+        sys.exit(1)
+
 
 def clean_build_directories() -> None:
     """Remove previous build artifacts and dist/AksaraSight directory."""
@@ -89,7 +94,7 @@ def verify_bundle_integrity() -> Path:
     gui_exe = dist_dir / "AksaraSight.exe"
     cli_exe = dist_dir / "AksaraSight-CLI.exe"
 
-    for exe, label in [(gui_exe, "Desktop Studio GUI"), (cli_exe, "Console CLI")]:
+    for exe, label in [(gui_exe, "Web UI Desktop Server"), (cli_exe, "Console CLI")]:
         if not exe.is_file():
             sys.stderr.write(f"ERROR: Missing executable: {exe.name} ({label})\n")
             sys.exit(1)
@@ -107,17 +112,23 @@ def verify_bundle_integrity() -> Path:
         sys.exit(1)
     print(f"  [OK] Native PDFium DLL: {pdfium_matches[0].relative_to(dist_dir)}")
 
-    ctk_themes = list(internal_dir.rglob("assets/themes")) + list(internal_dir.rglob("themes"))
-    if not ctk_themes:
-        sys.stderr.write("ERROR: customtkinter theme assets not found in _internal!\n")
+    web_static_html = internal_dir / "web" / "static" / "index.html"
+    if not web_static_html.is_file():
+        sys.stderr.write(f"ERROR: Web UI index.html not found in _internal: {web_static_html}\n")
         sys.exit(1)
-    print(f"  [OK] CustomTkinter assets: {ctk_themes[0].relative_to(dist_dir)}")
+    print(f"  [OK] Web UI HTML entrypoint: {web_static_html.relative_to(dist_dir)}")
 
-    tkdnd_dirs = list(internal_dir.rglob("tkdnd"))
-    if not tkdnd_dirs:
-        sys.stderr.write("ERROR: tkinterdnd2 tkdnd binaries not found in _internal!\n")
+    web_static_css = internal_dir / "web" / "static" / "assets" / "index.css"
+    if not web_static_css.is_file():
+        sys.stderr.write(f"ERROR: Web UI index.css not found in _internal: {web_static_css}\n")
         sys.exit(1)
-    print(f"  [OK] TkinterDnD2 binaries: {tkdnd_dirs[0].relative_to(dist_dir)}")
+    print(f"  [OK] Web UI stylesheet: {web_static_css.relative_to(dist_dir)}")
+
+    web_static_js = internal_dir / "web" / "static" / "assets" / "index.js"
+    if not web_static_js.is_file():
+        sys.stderr.write(f"ERROR: Web UI JavaScript bundle not found in _internal: {web_static_js}\n")
+        sys.exit(1)
+    print(f"  [OK] Web UI script bundle: {web_static_js.relative_to(dist_dir)}")
 
     docx_templates = list(internal_dir.rglob("default.docx"))
     if not docx_templates:

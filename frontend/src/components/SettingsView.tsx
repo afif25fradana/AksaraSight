@@ -782,7 +782,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           )}
                         </div>
                         <div className="font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate bg-[#F9F8F5] dark:bg-[var(--bg-base)] px-2.5 py-1.5 rounded border border-[#E5E2D9] dark:border-[var(--border)]" title={effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || ''}>
-                          {effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || '%LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-server.exe'}
+                          {effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || `%LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-cpp\\b11361-${formData.managed_backend_override || 'auto'}\\llama-server.exe`}
                         </div>
                       </div>
 

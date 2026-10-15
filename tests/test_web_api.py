@@ -3919,10 +3919,13 @@ def test_create_app_resolves_meipass_static_dir(tmp_path: Path, monkeypatch: pyt
     upload_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(upload_dir=upload_dir)
     try:
-        client = AsgiClient(app)
-        status, _, body = client.get("/")
-        assert status == 200
-        assert "MEIPASS Bundle" in body.decode("utf-8")
+        static_routes = [r for r in app.routes if getattr(r, "name", None) == "static"]
+        assert len(static_routes) == 1
+        mounted_dir = getattr(static_routes[0].app, "directory", None)
+        assert mounted_dir is not None
+        assert Path(mounted_dir).resolve() == static_dir.resolve()
+        assert (Path(mounted_dir) / "index.html").is_file()
+        assert "MEIPASS Bundle" in (Path(mounted_dir) / "index.html").read_text(encoding="utf-8")
     finally:
         if hasattr(app.state, "orchestrator") and app.state.orchestrator:
             app.state.orchestrator.shutdown()

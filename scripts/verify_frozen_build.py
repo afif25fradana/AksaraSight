@@ -22,7 +22,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from core.constants import __version__
 
-DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
+_dist_override = os.environ.get("AKSARASIGHT_DIST_DIR") or (sys.argv[1] if len(sys.argv) > 1 else None)
+DIST_DIR = Path(_dist_override).resolve() if _dist_override else REPO_ROOT / "dist" / "AksaraSight"
 GUI_EXE = DIST_DIR / "AksaraSight.exe"
 CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
 

@@ -15,6 +15,7 @@ Verifies at the packaged executable level:
 
 import http.server
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,7 +28,8 @@ from docx import Document
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DIST_DIR = REPO_ROOT / "dist" / "AksaraSight"
+_dist_override = os.environ.get("AKSARASIGHT_DIST_DIR") or (sys.argv[1] if len(sys.argv) > 1 else None)
+DIST_DIR = Path(_dist_override).resolve() if _dist_override else REPO_ROOT / "dist" / "AksaraSight"
 CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
 INTERNAL_DIR = DIST_DIR / "_internal"
 

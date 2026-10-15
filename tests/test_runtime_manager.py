@@ -382,6 +382,12 @@ def test_validate_runtime_binary(tmp_path: Path) -> None:
     # Missing file
     assert validate_runtime_binary(tmp_path / "missing.exe") is False
 
+    # Missing VC++ DLL case: returns -1073741515 (0xC0000135 / STATUS_DLL_NOT_FOUND)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=-1073741515)
+        with pytest.raises(RuntimeValidationError, match="Microsoft Visual C\\+\\+ 2015–2022 Redistributable \\(x64\\)"):
+            validate_runtime_binary(exe)
+
 
 def test_validate_runtime_binary_timeout_hang(tmp_path: Path) -> None:
     """Verify that a hanging binary triggers the 5s timeout, aborts cleanly, and returns False."""
@@ -597,6 +603,43 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
             # Temporary downloaded archives in downloads_dir must be wiped
             downloaded_zips = list((tmp_path / "downloads").glob("*.zip"))
             assert len(downloaded_zips) == 0
+
+
+def test_ensure_runtime_missing_vc_redistributable_raises(tmp_path: Path) -> None:
+    """Verify that a missing VC++ redistributable status code raises actionable RuntimeValidationError."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+        zip_bytes = _create_test_zip({exe_name: b"valid binary"})
+        zip_digest = hashlib.sha256(zip_bytes).hexdigest()
+
+        mock_meta = {
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
+                download_url="https://example.com/cpu.zip",
+                size=len(zip_bytes),
+                digest=f"sha256:{zip_digest}",
+            )
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Length": str(len(zip_bytes))}
+        mock_resp.iter_content.return_value = [zip_bytes]
+        mock_resp.__enter__.return_value = mock_resp
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = mock_resp
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("subprocess.run", return_value=MagicMock(returncode=-1073741515)),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b11361-bin-win-cpu-x64.zip": zip_digest}),
+        ):
+            with pytest.raises(RuntimeValidationError, match="Microsoft Visual C\\+\\+ 2015–2022 Redistributable \\(x64\\)"):
+                ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
+
+            assert not get_runtime_dir("b11361", "cpu").exists()
+            assert len(list(tmp_path.glob("staging_*"))) == 0
 
 
 def test_ensure_runtime_cleanup_on_extraction_failure(tmp_path: Path) -> None:

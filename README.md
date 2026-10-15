@@ -23,13 +23,13 @@ I built this because most modern OCR tools require uploading files to third-part
 
 ### Option 1: Portable Windows Build (No Python needed)
 
-Download the pre-compiled portable zip package from the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page (`AksaraSight-v<version>-windows-x64.zip`). Extract the folder and launch `AksaraSight.exe` to run the Web UI desktop workspace, or use `AksaraSight-CLI.exe` directly from PowerShell or Command Prompt. No Python installation required.
+Download the pre-compiled portable zip package from the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page (`AksaraSight-v<version>-windows-x64.zip`). Extract the folder and launch `AksaraSight.exe` to run the Web UI desktop workspace, or use `AksaraSight-CLI.exe` directly from PowerShell or Command Prompt. No Python installation required (requires standard Microsoft Visual C++ 2015–2022 Redistributable x64).
 
 ### Option 2: Running from source
 
 If you prefer running from source or want to inspect the code:
 
-Requirements: Windows 10/11 and Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended).
+Requirements: Windows 10/11, Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended), and Microsoft Visual C++ 2015–2022 Redistributable (x64).
 
 ```powershell
 git clone https://github.com/afif25fradana/AksaraSight
@@ -65,7 +65,7 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
 AksaraSight is a personal open-source project with real-world limitations:
 
 - **Hardware and testing**: I built and tested this primarily on my personal laptop (NVIDIA GeForce RTX 3050 6GB Laptop GPU, 16GB RAM). Around 2.2 GB VRAM is recommended for GPU inference; CPU fallback works if you don't have a dedicated GPU, but it is noticeably slower. While the underlying engine includes support for Vulkan as well, I don't own other PCs, laptops, or AMD/Intel graphics cards to test every hardware setup myself. If you run into issues on other hardware, bug reports and feedback are very welcome.
-- **First-launch download requirements**: AksaraSight itself is lightweight, but the first launch requires an internet connection to download the local inference engine and weights: ~1.43 GB for the GLM-OCR model weights and between ~35 MB and ~655 MB for the llama.cpp runtime binary depending on your backend (CPU ~47 MB, Vulkan ~35 MB, CUDA ~655 MB including companion CUDA runtime libraries). Once downloaded, all processing is 100% offline.
+- **First-launch download requirements**: AksaraSight itself is lightweight, but the first launch requires an internet connection to download the local inference engine and weights: ~1.43 GB for the GLM-OCR model weights (GLM-OCR-Q8_0.gguf ~950 MB + mmproj-GLM-OCR-Q8_0.gguf ~484 MB) and between ~26 MB and ~655 MB for the llama.cpp runtime archives depending on your backend (CPU ~26 MB, Vulkan ~35 MB, CUDA ~655 MB total across llama ~263 MB + cudart ~391 MB). Once downloaded, all processing is 100% offline.
 - **Scan quality and resolution cap**: It handles cleanly printed sheets, forms, and receipts well. Documents and images are automatically normalized and capped to a maximum dimension of 2048px before model inference; this resolution cap has not been exhaustively tested on very high-resolution phone camera photos (e.g., 48MP+ captures). Heavily skewed photos, bad lighting, crumpled paper, or messy handwriting will likely have transcription mistakes.
 - **Speed**: On my laptop with an NVIDIA GPU, processing takes about 2 to 3 seconds per page. On CPU, it works reliably, but it takes noticeably longer.
 - **Dollar signs and currency formatting**: Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, the model may interpret `$` as a LaTeX delimiter, which can occasionally cause token-spaced formatting like `$ 1 0 0 . 0 0`. If you encounter math spacing in financial scans, verify formulas and currency formatting in the preview.

@@ -411,10 +411,18 @@ def validate_runtime_binary(exe_path: Path) -> bool:
                 )
                 if res.returncode == 0:
                     return True
+                # Detect missing DLL (STATUS_DLL_NOT_FOUND = 0xC0000135 on Windows)
+                if (res.returncode & 0xFFFFFFFF) == 0xC0000135 or res.returncode in (-1073741515, 3221225781, 0xC0000135):
+                    raise RuntimeValidationError(
+                        "Runtime failed to launch because Microsoft Visual C++ 2015–2022 Redistributable (x64) is missing. "
+                        "Please install the free Microsoft Visual C++ Redistributable (x64) from Microsoft and retry."
+                    )
             except subprocess.TimeoutExpired:
                 logger.warning("Runtime validation timed out after 5.0s for %s with %s", exe_path, flag)
                 # On hang/timeout, abort immediately; do not wait another 5s for -h
                 return False
+            except RuntimeValidationError:
+                raise
             except Exception as exc:
                 logger.debug("Runtime validation check '%s' failed: %s", flag, exc)
 

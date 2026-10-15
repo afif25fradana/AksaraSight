@@ -169,7 +169,9 @@ def main() -> None:
         os.environ["AKSARA_WEB_DEV_MODE"] = "1"
 
     if getattr(sys, "frozen", False) and not args.no_browser:
-        threading.Timer(0.8, lambda: webbrowser.open(f"http://{args.host}:{args.port}")).start()
+        timer = threading.Timer(0.8, lambda: webbrowser.open(f"http://{args.host}:{args.port}"))
+        timer.daemon = True
+        timer.start()
 
     if args.reload:
         os.environ["AKSARA_WEB_PORT"] = str(args.port)

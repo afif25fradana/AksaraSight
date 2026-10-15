@@ -3915,11 +3915,17 @@ def test_create_app_resolves_meipass_static_dir(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(meipass_dir), raising=False)
 
-    app = create_app()
-    client = AsgiClient(app)
-    status, _, body = client.get("/")
-    assert status == 200
-    assert "MEIPASS Bundle" in body.decode("utf-8")
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(upload_dir=upload_dir)
+    try:
+        client = AsgiClient(app)
+        status, _, body = client.get("/")
+        assert status == 200
+        assert "MEIPASS Bundle" in body.decode("utf-8")
+    finally:
+        if hasattr(app.state, "orchestrator") and app.state.orchestrator:
+            app.state.orchestrator.shutdown()
 
 
 def test_build_parser_no_browser_flag() -> None:
@@ -3944,35 +3950,41 @@ def test_setup_frozen_logging_idempotency_and_oserror_resilience(
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
 
-    # First call sets up logging
-    log_path_1 = _setup_frozen_logging()
-    assert log_path_1 is not None
-    assert log_path_1.is_file()
-
-    # Count file handlers on root logger
     root_logger = logging.getLogger()
-    file_handlers_before = [
-        h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
-    ]
-    assert len(file_handlers_before) >= 1
+    original_handlers = list(root_logger.handlers)
+    original_level = root_logger.level
+    original_excepthook = sys.excepthook
 
-    # Second call should be idempotent (no duplicate file handlers added)
-    log_path_2 = _setup_frozen_logging()
-    assert log_path_2 == log_path_1
-    file_handlers_after = [
-        h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
-    ]
-    assert len(file_handlers_after) == len(file_handlers_before)
+    try:
+        log_path_1 = _setup_frozen_logging()
+        assert log_path_1 is not None
+        assert log_path_1.is_file()
 
-    # Cleanup attached file handlers so tmp_path file locks are released on Windows
-    for h in file_handlers_after:
-        h.close()
-        root_logger.removeHandler(h)
+        file_handlers_before = [
+            h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+        ]
+        assert len(file_handlers_before) >= 1
 
-    # Test OSError resilience: e.g. Path.mkdir raises OSError
-    with patch("pathlib.Path.mkdir", side_effect=OSError("Disk full or read-only")):
-        res = _setup_frozen_logging()
-        assert res is None
+        log_path_2 = _setup_frozen_logging()
+        assert log_path_2 == log_path_1
+        file_handlers_after = [
+            h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+        ]
+        assert len(file_handlers_after) == len(file_handlers_before)
+
+        with patch("pathlib.Path.mkdir", side_effect=OSError("Disk full or read-only")):
+            res = _setup_frozen_logging()
+            assert res is None
+    finally:
+        for h in list(root_logger.handlers):
+            if h not in original_handlers:
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        root_logger.handlers = original_handlers
+        root_logger.setLevel(original_level)
+        sys.excepthook = original_excepthook
 
 
 

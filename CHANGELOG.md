@@ -6,19 +6,19 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
-### Added
-- **Local Web UI (`web/`, `frontend/`)**: Added browser-based local workspace powered by FastAPI and React. Serves from loopback (`http://127.0.0.1:8000`) with real-time SSE progress streaming, multi-file queue ingestion, side-by-side original scan inspection, and batch artifact export.
-
-### Changed
-- **Retired Native Desktop GUI (`gui/`)**: Removed legacy CustomTkinter desktop interface (`gui/`) and Tkinter dependencies (`customtkinter`, `tkinterdnd2`) from `main`. The native desktop GUI remains preserved on the `release/1.2` branch.
-- **Managed Runtime**: Bumped pinned llama.cpp runtime from `b10930` to `b11361` for Windows (CUDA 12.4, CPU, Vulkan). Users relying on managed runtime mode will need to click "Install Runtime" once in Settings. Existing `b10930-cuda` runtime folders in `%LOCALAPPDATA%\AksaraSight\runtimes\` are not automatically deleted and can be safely removed manually to reclaim disk space.
-- **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
-- **CI & Workflow Modernization**: Removed Xvfb and Tkinter dependencies from Linux CI matrix legs; headless test suite now runs directly under Python.
-- **Dependencies**: Updated `requests` to `~=2.34.2` and `python-dotenv` to `~=1.2.4`.
-
 ---
 
 ## Milestones
+
+### v1.3.0: Web UI & Portable Distribution (October 16, 2026)
+*Focus: Browser-based local workspace Web UI, managed runtime downloader, and portable packaging.*
+
+- **Local Web UI (`web/`, `frontend/`)**: Added browser-based local workspace powered by FastAPI and React. Serves from loopback (`http://127.0.0.1:8000`) with real-time SSE progress streaming, multi-file queue ingestion, side-by-side original scan inspection, and batch artifact export.
+- **Retired Native Desktop GUI (`gui/`)**: Removed legacy CustomTkinter desktop interface (`gui/`) and Tkinter dependencies (`customtkinter`, `tkinterdnd2`) from `main`. The native desktop GUI remains preserved on the `release/1.2` branch.
+- **Managed Runtime Downloader (`core/runtime_manager.py`)**: Added verified runtime downloader for pinned llama.cpp build `b11361` across Windows backends (CUDA 12.4, CPU, Vulkan) with SHA-256 verification and fail-closed integrity. Existing `b10930-cuda` runtime folders in `%LOCALAPPDATA%\AksaraSight\runtimes\` are not automatically deleted and can be safely removed manually to reclaim disk space.
+- **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
+- **CI & Workflow Modernization**: Removed Xvfb and Tkinter dependencies from Linux CI matrix legs; headless test suite now runs directly under Python.
+- **Dependencies**: Updated `requests` to `~=2.34.2` and `python-dotenv` to `~=1.2.4`.
 
 ### v1.2.1: Diagnostics & Maintenance Update (October 5, 2026)
 *Focus: Runtime diagnostics, logging architecture, hardware pre-flight warnings, export collision isolation, and configuration persistence.*

@@ -32,6 +32,7 @@ from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
+from core.hardware import PINNED_LLAMA_BUILD, get_cached_hardware_profile
 from core.model_manager import (
     PINNED_MODEL_REPO,
     PINNED_MODEL_REVISION,
@@ -41,6 +42,12 @@ from core.model_manager import (
 )
 from core.models import PROMPT_PRESETS
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
+from core.runtime_manager import (
+    _EXE_NAME,
+    ensure_runtime,
+    get_installed_runtime_path,
+    get_runtime_dir,
+)
 from core.server_manager import (
     ServerManager,
     ServerOwnership,
@@ -419,6 +426,8 @@ def create_app(
     app.state.instance_lock = None
     app.state.last_doctor_report = None
     app.state.last_model_download_status = None
+    app.state.is_runtime_downloading = False
+    app.state.last_runtime_download_status = None
     app.state.env_path = Path(env_path).resolve() if env_path is not None else None
     app.state.output_dir = Path(output_dir).resolve() if output_dir else None
 
@@ -1253,6 +1262,212 @@ def create_app(
             downloader.cancel()
 
         return {"cancelled": True, "message": "Download cancellation requested"}
+
+    @app.get("/api/runtime/status")
+    async def get_runtime_status() -> Dict[str, Any]:
+        """Return pinned llama.cpp runtime installation status and active download progress."""
+        settings: Settings = getattr(app.state, "settings", app_settings)
+        target_backend = getattr(settings, "managed_backend_override", "auto")
+        if target_backend == "auto":
+            profile = get_cached_hardware_profile()
+            target_backend = profile.recommended_backend if profile else "cpu"
+        target_backend = str(target_backend).lower()
+
+        installed_path = get_installed_runtime_path(PINNED_LLAMA_BUILD, target_backend)
+        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _EXE_NAME
+        is_dl = getattr(app.state, "is_runtime_downloading", False)
+        last_status: Optional[Dict[str, Any]] = getattr(app.state, "last_runtime_download_status", None)
+
+        if is_dl and last_status:
+            return {
+                "installed": False,
+                "is_downloading": True,
+                "tag": PINNED_LLAMA_BUILD,
+                "backend": target_backend,
+                "executable_path": None,
+                "expected_path": str(expected_path),
+                "message": last_status.get("message", "Downloading runtime..."),
+                "bytes_downloaded": last_status.get("bytes_downloaded", 0),
+                "total_bytes": last_status.get("total_bytes", 0),
+                "percent": last_status.get("percent", 0.0),
+                "error": None,
+            }
+
+        installed = installed_path is not None
+        default_message = (
+            "Installed (Verified Local Binary)"
+            if installed
+            else "Runtime is not installed"
+        )
+        msg = default_message
+        if last_status:
+            if last_status.get("error"):
+                msg = last_status.get("message", "Download failed")
+            elif installed:
+                msg = last_status.get("message", default_message)
+
+        return {
+            "installed": installed,
+            "is_downloading": is_dl,
+            "tag": PINNED_LLAMA_BUILD,
+            "backend": target_backend,
+            "executable_path": str(installed_path) if installed else None,
+            "expected_path": str(expected_path),
+            "message": msg,
+            "bytes_downloaded": last_status.get("bytes_downloaded", 0) if last_status else 0,
+            "total_bytes": last_status.get("total_bytes", 0) if last_status else 0,
+            "percent": 100.0 if installed else (last_status.get("percent", 0.0) if last_status else 0.0),
+            "error": last_status.get("error") if last_status else None,
+        }
+
+    @app.post("/api/runtime/download", status_code=status.HTTP_202_ACCEPTED)
+    async def post_runtime_download(request: Request) -> Dict[str, Any]:
+        """Initiate background download and verification of pinned llama.cpp runtime binary."""
+        query_keys = {str(k).strip().lower() for k in request.query_params.keys()}
+        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in query_keys):
+            raise HTTPException(
+                status_code=400,
+                detail="Client-controlled download targets are strictly prohibited",
+            )
+
+        body_bytes = await request.body()
+        if body_bytes:
+            try:
+                body_json = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+            if isinstance(body_json, dict):
+                body_keys = {str(k).strip().lower() for k in body_json.keys()}
+                if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in body_keys):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Client-controlled download targets are strictly prohibited",
+                    )
+            elif isinstance(body_json, list):
+                for item in body_json:
+                    if isinstance(item, str) and item.strip().lower() in FORBIDDEN_DOWNLOAD_PARAMS:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Client-controlled download targets are strictly prohibited",
+                        )
+                    elif isinstance(item, dict):
+                        item_keys = {str(k).strip().lower() for k in item.keys()}
+                        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in item_keys):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Client-controlled download targets are strictly prohibited",
+                            )
+
+        if getattr(app.state, "is_runtime_downloading", False):
+            raise HTTPException(
+                status_code=409,
+                detail="Runtime download is already in progress",
+            )
+
+        settings: Settings = getattr(app.state, "settings", app_settings)
+        target_backend = getattr(settings, "managed_backend_override", "auto")
+        if target_backend == "auto":
+            profile = get_cached_hardware_profile()
+            target_backend = profile.recommended_backend if profile else "cpu"
+        target_backend = str(target_backend).lower()
+
+        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _EXE_NAME
+
+        app.state.is_runtime_downloading = True
+
+        def on_progress(stage_msg: str, bytes_done: int, total_bytes: int) -> None:
+            pct = round((bytes_done / total_bytes) * 100.0, 1) if total_bytes > 0 else 0.0
+            progress_payload = {
+                "installed": False,
+                "is_downloading": True,
+                "tag": PINNED_LLAMA_BUILD,
+                "backend": target_backend,
+                "executable_path": None,
+                "expected_path": str(expected_path),
+                "message": stage_msg,
+                "bytes_downloaded": bytes_done,
+                "total_bytes": total_bytes,
+                "percent": pct,
+                "error": None,
+            }
+            app.state.last_runtime_download_status = progress_payload
+            payload_str = json.dumps(progress_payload)
+            if hasattr(app_orchestrator, "_broadcast"):
+                app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
+            elif hasattr(app_orchestrator, "broadcast"):
+                app_orchestrator.broadcast("runtime_download_progress", progress_payload)
+
+        on_progress("Starting runtime download...", 0, 0)
+
+        def _bg_runtime_download() -> None:
+            try:
+                installed = ensure_runtime(
+                    backend=target_backend,
+                    tag=PINNED_LLAMA_BUILD,
+                    progress_callback=on_progress,
+                )
+                success_payload = {
+                    "installed": True,
+                    "is_downloading": False,
+                    "tag": PINNED_LLAMA_BUILD,
+                    "backend": target_backend,
+                    "executable_path": str(installed),
+                    "expected_path": str(expected_path),
+                    "message": "Runtime downloaded and verified successfully.",
+                    "bytes_downloaded": 0,
+                    "total_bytes": 0,
+                    "percent": 100.0,
+                    "error": None,
+                }
+                app.state.is_runtime_downloading = False
+                app.state.last_runtime_download_status = success_payload
+                payload_str = json.dumps(success_payload)
+                if hasattr(app_orchestrator, "_broadcast"):
+                    app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
+                elif hasattr(app_orchestrator, "broadcast"):
+                    app_orchestrator.broadcast("runtime_download_progress", success_payload)
+            except Exception as exc:
+                logger.exception("Background runtime download encountered an error: %s", exc)
+                err_payload = {
+                    "installed": False,
+                    "is_downloading": False,
+                    "tag": PINNED_LLAMA_BUILD,
+                    "backend": target_backend,
+                    "executable_path": None,
+                    "expected_path": str(expected_path),
+                    "message": f"Download failed: {exc}",
+                    "bytes_downloaded": 0,
+                    "total_bytes": 0,
+                    "percent": 0.0,
+                    "error": str(exc),
+                }
+                app.state.is_runtime_downloading = False
+                app.state.last_runtime_download_status = err_payload
+                payload_str = json.dumps(err_payload)
+                if hasattr(app_orchestrator, "_broadcast"):
+                    app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
+                elif hasattr(app_orchestrator, "broadcast"):
+                    app_orchestrator.broadcast("runtime_download_progress", err_payload)
+            finally:
+                app.state.is_runtime_downloading = False
+
+        thread = threading.Thread(
+            target=_bg_runtime_download,
+            daemon=True,
+            name="AksaraSight-RuntimeDownloadWorker",
+        )
+        thread.start()
+
+        return {"started": True, "message": "Runtime download initiated"}
+
+    @app.post("/api/runtime/download/cancel")
+    async def post_runtime_download_cancel() -> Dict[str, Any]:
+        """Signal cooperative cancellation of runtime download."""
+        return {
+            "cancelled": False,
+            "message": "Runtime download does not support mid-flight cancellation",
+        }
 
     @app.get("/api/events", response_class=EventSourceResponse)
     async def sse_events(request: Request):

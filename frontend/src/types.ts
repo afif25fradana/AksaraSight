@@ -132,5 +132,20 @@ export interface ModelStatusInfo {
   error: string | null;
 }
 
+export interface RuntimeStatusInfo {
+  installed: boolean;
+  is_downloading: boolean;
+  tag: string;
+  backend: string;
+  executable_path: string | null;
+  expected_path: string;
+  message: string;
+  bytes_downloaded: number;
+  total_bytes: number;
+  percent: number;
+  error: string | null;
+}
+
+
 
 

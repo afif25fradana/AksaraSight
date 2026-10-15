@@ -2631,6 +2631,260 @@ def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
     assert "48.79" in full_body
 
 
+def test_get_runtime_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /api/runtime/status returns runtime installation metadata and download state."""
+    from core.hardware import PINNED_LLAMA_BUILD, HardwareProfile
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # Mock hardware profile to return "cpu" recommended backend
+    fake_profile = HardwareProfile(
+        cpu_name="Test CPU",
+        recommended_backend="cpu",
+    )
+    monkeypatch.setattr("web.app.get_cached_hardware_profile", lambda *args, **kwargs: fake_profile)
+
+    # 1. When runtime is not installed
+    monkeypatch.setattr("web.app.get_installed_runtime_path", lambda *args, **kwargs: None)
+    status, _, body = client.get("/api/runtime/status")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["installed"] is False
+    assert data["is_downloading"] is False
+    assert data["tag"] == PINNED_LLAMA_BUILD
+    assert data["backend"] == "cpu"
+    assert data["executable_path"] is None
+    assert "llama-server" in data["expected_path"]
+    assert "not installed" in data["message"].lower()
+
+    # 2. When runtime is installed
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.touch()
+    monkeypatch.setattr("web.app.get_installed_runtime_path", lambda *args, **kwargs: fake_exe)
+    status, _, body = client.get("/api/runtime/status")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["installed"] is True
+    assert data["is_downloading"] is False
+    assert data["tag"] == PINNED_LLAMA_BUILD
+    assert data["backend"] == "cpu"
+    assert data["executable_path"] == str(fake_exe)
+    assert data["percent"] == 100.0
+
+
+def test_post_runtime_download_starts_and_reports_202(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify POST /api/runtime/download initiates background download and invokes ensure_runtime."""
+    from core.hardware import HardwareProfile
+
+    download_started = threading.Event()
+    download_finished = threading.Event()
+    fake_exe = tmp_path / "llama-server.exe"
+
+    def mock_ensure_runtime(backend: str, tag: str, progress_callback: Any = None, **kwargs: Any) -> Path:
+        download_started.set()
+        if progress_callback:
+            progress_callback("Downloading test-archive...", 500, 1000)
+        download_finished.wait(timeout=2.0)
+        return fake_exe
+
+    monkeypatch.setattr("web.app.ensure_runtime", mock_ensure_runtime)
+    monkeypatch.setattr(
+        "web.app.get_cached_hardware_profile",
+        lambda *args, **kwargs: HardwareProfile(cpu_name="Test CPU", recommended_backend="cpu"),
+    )
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        status, _, body = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+        resp_data = json.loads(body.decode("utf-8"))
+        assert resp_data["started"] is True
+        assert "Runtime download initiated" in resp_data["message"]
+
+        assert download_started.wait(timeout=2.0) is True
+
+        # While downloading, GET /api/runtime/status should report is_downloading=True
+        status, _, body = client.get("/api/runtime/status")
+        assert status == 200
+        status_data = json.loads(body.decode("utf-8"))
+        assert status_data["is_downloading"] is True
+        assert status_data["percent"] == 50.0
+        assert "Downloading test-archive..." in status_data["message"]
+    finally:
+        download_finished.set()
+
+    # Wait for background thread to complete
+    for _ in range(50):
+        if not getattr(app.state, "is_runtime_downloading", False):
+            break
+        time.sleep(0.02)
+
+    assert getattr(app.state, "is_runtime_downloading", False) is False
+
+
+def test_post_runtime_download_conflict_409(tmp_path: Path) -> None:
+    """Verify POST /api/runtime/download returns 409 Conflict if download is already in progress."""
+    app = create_app(upload_dir=tmp_path)
+    app.state.is_runtime_downloading = True
+    client = AsgiClient(app)
+
+    status, _, body = client.post(
+        "/api/runtime/download",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+    )
+    assert status == 409
+    resp_data = json.loads(body.decode("utf-8"))
+    assert "Runtime download is already in progress" in resp_data["detail"]
+
+
+def test_post_runtime_download_cancel(tmp_path: Path) -> None:
+    """Verify POST /api/runtime/download/cancel returns non-cancellable notice."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    status, _, body = client.post("/api/runtime/download/cancel")
+    assert status == 200
+    resp_data = json.loads(body.decode("utf-8"))
+    assert resp_data["cancelled"] is False
+    assert "does not support mid-flight cancellation" in resp_data["message"]
+
+
+def test_post_runtime_download_forbidden_params(tmp_path: Path) -> None:
+    """Verify POST /api/runtime/download rejects client-controlled targets with 400 Bad Request."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    # 1. Body forbidden param
+    status, _, body = client.post(
+        "/api/runtime/download",
+        headers={"content-type": "application/json"},
+        body=b'{"url": "http://malicious.example.com/binary.zip"}',
+    )
+    assert status == 400
+    resp_data = json.loads(body.decode("utf-8"))
+    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+    # 2. Query param forbidden param
+    status, _, body = client.request(
+        "POST",
+        "/api/runtime/download",
+        query_string="path=/etc/shadow",
+    )
+    assert status == 400
+    resp_data = json.loads(body.decode("utf-8"))
+    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+
+def test_runtime_download_sse_progress_broadcasting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify runtime download progress events are broadcast over /api/events SSE stream."""
+    from core.hardware import HardwareProfile
+
+    mock_engine = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    fake_exe = tmp_path / "llama-server.exe"
+
+    def mock_ensure_runtime(backend: str, tag: str, progress_callback: Any = None, **kwargs: Any) -> Path:
+        if progress_callback:
+            progress_callback("Extracting llama-server...", 750, 1000)
+        return fake_exe
+
+    monkeypatch.setattr("web.app.ensure_runtime", mock_ensure_runtime)
+    monkeypatch.setattr(
+        "web.app.get_cached_hardware_profile",
+        lambda *args, **kwargs: HardwareProfile(cpu_name="Test CPU", recommended_backend="cpu"),
+    )
+
+    app = create_app(
+        engine=mock_engine,  # type: ignore[arg-type]
+        orchestrator=orchestrator,
+        upload_dir=tmp_path,
+    )
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events",
+        "raw_path": b"/api/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    resp_headers: Dict[str, str] = {}
+    resp_status = 0
+    resp_body_chunks = []
+    progress_received = asyncio.Event()
+
+    async def receive() -> Dict[str, Any]:
+        await progress_received.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        nonlocal resp_status, resp_headers
+        if message["type"] == "http.response.start":
+            resp_status = message["status"]
+            for k, v in message.get("headers", []):
+                resp_headers[k.decode("latin-1").lower()] = v.decode("latin-1")
+        elif message["type"] == "http.response.body":
+            body = message.get("body", b"")
+            resp_body_chunks.append(body)
+            if b"runtime_download_progress" in body and b"Extracting llama-server" in body:
+                progress_received.set()
+
+    async def _run() -> None:
+        app_task = asyncio.create_task(app(scope, receive, send))
+
+        # Wait until SSE listener is registered
+        for _ in range(50):
+            with orchestrator._lock:
+                if len(orchestrator._subscribers) > 0:
+                    break
+            await asyncio.sleep(0.02)
+
+        # Trigger download which notifies progress callback
+        client = AsgiClient(app)
+        await asyncio.to_thread(
+            client.post,
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+
+        try:
+            await asyncio.wait_for(progress_received.wait(), timeout=3.0)
+        finally:
+            orchestrator.stop()
+            app_task.cancel()
+            try:
+                await app_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    try:
+        asyncio.run(_run())
+    finally:
+        orchestrator.stop()
+
+    assert resp_status == 200
+    assert "text/event-stream" in resp_headers.get("content-type", "")
+    full_body = b"".join(resp_body_chunks).decode("utf-8")
+    assert "runtime_download_progress" in full_body
+    assert "Extracting llama-server" in full_body
+    assert "75.0" in full_body
+
+
 def test_server_lifecycle_starting_state_guards(tmp_path: Path) -> None:
     """Verify server lifecycle guard routes when server is in STARTING state."""
     mock_mgr = MockServerManager(

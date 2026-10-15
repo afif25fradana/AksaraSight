@@ -23,7 +23,7 @@ I built this because most modern OCR tools require uploading files to third-part
 
 ### Option 1: Portable Windows Build (No Python needed)
 
-Standalone portable binary packaging for the Web UI workspace is planned for a subsequent update. In the meantime, the v1.2.1 native desktop standalone executable (`AksaraSight-v1.2.1-windows-x64.zip`) remains available on the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page.
+Download the pre-compiled portable zip package from the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page (`AksaraSight-v<version>-windows-x64.zip`). Extract the folder and launch `AksaraSight.exe` to run the Web UI desktop workspace, or use `AksaraSight-CLI.exe` directly from PowerShell or Command Prompt. No Python installation required.
 
 ### Option 2: Running from source
 

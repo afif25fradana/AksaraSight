@@ -11,7 +11,7 @@ import {
   Download,
   HardDrive
 } from 'lucide-react';
-import { BackendSettings, DoctorReport, EngineSettings, ModelStatusInfo } from '../types';
+import { BackendSettings, DoctorReport, EngineSettings, ModelStatusInfo, RuntimeStatusInfo } from '../types';
 
 interface SettingsViewProps {
   settings?: EngineSettings;
@@ -20,6 +20,8 @@ interface SettingsViewProps {
   modelStatus?: ModelStatusInfo | null;
   onDownloadModel?: () => void | Promise<void>;
   onCancelModelDownload?: () => void | Promise<void>;
+  runtimeStatus?: RuntimeStatusInfo | null;
+  onDownloadRuntime?: () => void | Promise<void>;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -73,9 +75,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   modelStatus,
   onDownloadModel,
   onCancelModelDownload,
+  runtimeStatus: propRuntimeStatus,
+  onDownloadRuntime,
 }) => {
   const [internalModelStatus, setInternalModelStatus] = useState<ModelStatusInfo | null>(null);
   const effectiveModelStatus = modelStatus !== undefined ? modelStatus : internalModelStatus;
+
+  const [internalRuntimeStatus, setInternalRuntimeStatus] = useState<RuntimeStatusInfo | null>(null);
+  const effectiveRuntimeStatus = propRuntimeStatus !== undefined ? propRuntimeStatus : internalRuntimeStatus;
+  const [isStartingRuntimeDownload, setIsStartingRuntimeDownload] = useState(false);
 
   const [formData, setFormData] = useState<BackendSettings>(() => {
     return {
@@ -287,6 +295,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  // Fetch runtime status and subscribe to SSE progress events
+  useEffect(() => {
+    let isMounted = true;
+
+    if (propRuntimeStatus === undefined) {
+      fetch('/api/runtime/status')
+        .then(async (res) => {
+          if (res.ok) {
+            const data: RuntimeStatusInfo = await res.json();
+            if (isMounted && data) {
+              setInternalRuntimeStatus(data);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch /api/runtime/status:', err);
+        });
+    }
+
+    const eventSource = (typeof window !== 'undefined' && (window as any).__eventSource)
+      ? (window as any).__eventSource
+      : (typeof window !== 'undefined' ? new EventSource('/api/events') : null);
+
+    if (!eventSource) return;
+
+    const handleRuntimeProgress = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (isMounted) {
+          setInternalRuntimeStatus((prev) => ({
+            ...prev,
+            ...data,
+            installed: data.installed ?? prev?.installed ?? false,
+            is_downloading: data.is_downloading ?? true,
+            bytes_downloaded: data.bytes_downloaded ?? prev?.bytes_downloaded ?? 0,
+            total_bytes: data.total_bytes ?? prev?.total_bytes ?? 0,
+            percent: data.percent ?? prev?.percent ?? 0,
+            message: data.message ?? prev?.message ?? '',
+            executable_path: data.executable_path ?? prev?.executable_path ?? null,
+            expected_path: data.expected_path ?? prev?.expected_path ?? '',
+            error: data.error ?? null,
+          }));
+        }
+      } catch (err) {
+        console.error('Error handling runtime_download_progress event', err);
+      }
+    };
+
+    eventSource.addEventListener('runtime_download_progress', handleRuntimeProgress);
+
+    return () => {
+      isMounted = false;
+      eventSource.removeEventListener('runtime_download_progress', handleRuntimeProgress);
+      if (typeof window !== 'undefined' && eventSource !== (window as any).__eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [propRuntimeStatus]);
+
+  // Runtime download handler
+  const handleDownloadRuntimeAction = async () => {
+    if (onDownloadRuntime) {
+      await onDownloadRuntime();
+    } else {
+      setIsStartingRuntimeDownload(true);
+      try {
+        setInternalRuntimeStatus((prev) => (prev ? { ...prev, is_downloading: true, error: null } : null));
+        const res = await fetch('/api/runtime/download', { method: 'POST' });
+        if (res.ok) {
+          const statusRes = await fetch('/api/runtime/status');
+          if (statusRes.ok) {
+            const data: RuntimeStatusInfo = await statusRes.json();
+            setInternalRuntimeStatus(data);
+          }
+        } else {
+          const errData = await res.json().catch(() => ({ detail: 'Failed to start runtime download' }));
+          setInternalRuntimeStatus((prev) => (prev ? { ...prev, is_downloading: false, error: errData.detail || 'Failed to start download' } : null));
+        }
+      } catch (err: any) {
+        console.error('Failed to trigger runtime download:', err);
+        setInternalRuntimeStatus((prev) => (prev ? { ...prev, is_downloading: false, error: err?.message || 'Network error triggering download' } : null));
+      } finally {
+        setIsStartingRuntimeDownload(false);
+      }
+    }
+  };
+
 
   // Compute dirty state: true only when mutable fields differ from savedSettings
   const isDirty = useMemo(() => {
@@ -350,6 +445,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setFormData(updatedSettings);
         setSaveSuccess(true);
         onSave?.(updatedSettings);
+        // Re-fetch runtime status after settings change (e.g. backend override changed)
+        fetch('/api/runtime/status')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d: RuntimeStatusInfo | null) => {
+            if (d) setInternalRuntimeStatus(d);
+          })
+          .catch(() => {});
         if (saveToastTimerRef.current) {
           clearTimeout(saveToastTimerRef.current);
         }
@@ -667,11 +769,73 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           <span className="font-medium text-[#14213D] dark:text-[var(--text-1)]">
                             Executable Location:
                           </span>
+                          {effectiveRuntimeStatus?.installed ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#15803D]/10 text-[#14532D] dark:bg-[var(--success)]/10 dark:text-[var(--success)] border border-[#15803D]/25 dark:border-[var(--success)]/30">
+                              <CheckCircle2 className="w-3 h-3 text-[#15803D] dark:text-[var(--success)]" aria-hidden="true" />
+                              Installed (Verified Local Binary)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 border border-amber-500/25 dark:border-amber-500/30">
+                              <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                              Not Installed
+                            </span>
+                          )}
                         </div>
-                        <div className="font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate bg-[#F9F8F5] dark:bg-[var(--bg-base)] px-2.5 py-1.5 rounded border border-[#E5E2D9] dark:border-[var(--border)]">
-                          %LOCALAPPDATA%\AksaraSight\runtimes\llama-server.exe
+                        <div className="font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate bg-[#F9F8F5] dark:bg-[var(--bg-base)] px-2.5 py-1.5 rounded border border-[#E5E2D9] dark:border-[var(--border)]" title={effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || ''}>
+                          {effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || '%LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-server.exe'}
                         </div>
                       </div>
+
+                      {/* Error Alert */}
+                      {effectiveRuntimeStatus?.error && (
+                        <div role="alert" className="p-2.5 bg-red-50 dark:bg-[var(--danger)]/10 border border-red-200 dark:border-[var(--danger)]/30 text-red-700 dark:text-[var(--danger)] rounded-lg text-xs flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 dark:text-[var(--danger)]" aria-hidden="true" />
+                          <span>{effectiveRuntimeStatus.error}</span>
+                        </div>
+                      )}
+
+                      {/* Download Progress or Action Button */}
+                      {effectiveRuntimeStatus?.is_downloading ? (
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1.5 font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate max-w-[65%]">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#0F766E] dark:text-[var(--accent)] shrink-0" aria-hidden="true" />
+                              <span className="truncate">{effectiveRuntimeStatus.message || 'Downloading runtime...'}</span>
+                            </div>
+                            <div className="font-mono text-[11.5px] text-[#14213D] dark:text-[var(--text-1)] font-semibold shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {effectiveRuntimeStatus.total_bytes > 0
+                                ? `${formatBytes(effectiveRuntimeStatus.bytes_downloaded)} / ${formatBytes(effectiveRuntimeStatus.total_bytes)} (${Math.round(effectiveRuntimeStatus.percent)}%)`
+                                : `${Math.round(effectiveRuntimeStatus.percent)}%`}
+                            </div>
+                          </div>
+
+                          <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden">
+                            <div
+                              className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full"
+                              style={{ width: `${Math.min(100, Math.max(0, effectiveRuntimeStatus.percent))}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between pt-1">
+                          <div className="text-xs text-[#5A6478] dark:text-[var(--text-2)]">
+                            {effectiveRuntimeStatus?.installed
+                              ? 'Managed llama.cpp runtime binary is verified and ready.'
+                              : 'Download the pinned llama.cpp build for optimal local performance.'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleDownloadRuntimeAction}
+                            disabled={isStartingRuntimeDownload}
+                            className="h-8 px-3.5 bg-[#0F766E] dark:bg-[var(--accent)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 active:bg-[#0d4f4b] text-white dark:text-[var(--bg-base)] rounded-lg text-xs font-semibold active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0 disabled:opacity-50"
+                          >
+                            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>
+                              {effectiveRuntimeStatus?.installed ? 'Re-download / Verify Runtime' : 'Download Runtime'}
+                            </span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     /* Custom Path Inset Block */

@@ -235,7 +235,7 @@ CI lints the codebase with Ruff (`ruff check .`). No static type checker is conf
 
 ### Build Verification Scripts
 For standalone binary distributions created with `scripts/build_portable.py`:
-- `python scripts/verify_frozen_build.py`: Validates CLI version output, offline hardware detection, input error handling, Win32 window table rendering/visibility, and file logging in `%LOCALAPPDATA%\AksaraSight\logs\app.log`.
+- `python scripts/verify_frozen_build.py`: Validates CLI version output, offline hardware detection, input error handling, Web UI desktop server startup and HTTP endpoints, and file logging in `%LOCALAPPDATA%\AksaraSight\logs\app.log`.
 - `python scripts/verify_frozen_docx.py`: Asserts OOXML table structure, `_internal` asset bundling, and performs a 100% AST parity diff between source and frozen DOCX exports.
 
 ### Compiling Standalone Portable Distribution

@@ -316,7 +316,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     const eventSource = (typeof window !== 'undefined' && (window as any).__eventSource)
       ? (window as any).__eventSource
-      : (typeof window !== 'undefined' ? new EventSource('/api/events') : null);
+      : (typeof EventSource !== 'undefined' ? new EventSource('/api/events') : null);
 
     if (!eventSource) return;
 

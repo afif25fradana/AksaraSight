@@ -146,7 +146,7 @@ export const INITIAL_SETTINGS: EngineSettings = {
   status: 'running',
   backend: 'llama-cpp',
   runtimeSource: 'managed',
-  customLlamaServerPath: 'C:\\Users\\Fradana\\AppData\\Local\\AksaraSight\\runtimes\\b10930-cuda\\llama-server.exe',
+  customLlamaServerPath: '',
   targetBackend: 'cuda',
   autoStart: false,
   renderDpi: 100, // documented step: 72, 100, 150, 200

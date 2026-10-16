@@ -222,19 +222,13 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           ? pageData?.text || (pageNum === 1 ? document.extractedText : `[Page ${pageNum} extracted content]`)
           : '',
         error: null,
-        raw_json: isProcessed
-          ? {
-              model: 'glm-ocr-q4_k_m',
-              task: taskMode,
-              finish_reason: pageData?.isTruncated ? 'length' : 'stop',
-            }
-          : null,
+        raw_json: null,
         truncated: Boolean(pageData?.isTruncated),
       };
     });
 
     return {
-      file_path: `C:\\Users\\Fradana\\Documents\\AksaraSight\\input\\${document.name}`,
+      file_path: document.name,
       status: isDone ? 'SUCCESS' : isTrunc ? 'PARTIAL' : document.status === 'Failed' ? 'FAILED' : 'PROCESSING',
       total_duration: +(
         pagesList.filter((p) => p.status !== 'WAITING').reduce((acc, p) => acc + p.latency, 0)
@@ -243,8 +237,6 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       aborted: false,
       cancelled: false,
       page_count: document.pages,
-      prompt_mode: taskMode,
-      backend: 'llama-cpp (cuda)',
       pages: pagesList,
     };
   }, [document, taskMode]);

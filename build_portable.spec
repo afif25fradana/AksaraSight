@@ -41,7 +41,7 @@ all_hiddenimports = [
 ]
 
 # Explicitly collect packages with native DLLs, themes, fonts, data templates, or web dependencies
-for pkg in ['pypdfium2', 'pypdfium2_raw', 'docx', 'markdown_it', 'mdurl', 'lxml', 'fastapi', 'starlette', 'uvicorn', 'sse_starlette', 'python_multipart', 'multipart', 'anyio']:
+for pkg in ['pypdfium2', 'pypdfium2_raw', 'docx', 'markdown_it', 'mdurl', 'lxml', 'fastapi', 'starlette', 'uvicorn', 'python_multipart', 'multipart', 'anyio']:
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(pkg)
     all_datas.extend(pkg_datas)
     all_binaries.extend(pkg_binaries)

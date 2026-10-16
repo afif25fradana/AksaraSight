@@ -238,7 +238,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           className="h-8 px-3 rounded-lg border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white/70 dark:bg-[var(--bg-elevated)] hover:bg-white hover:dark:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 text-[12px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer shadow-2xs"
           type="button"
           aria-label="Output Folder"
-          title="Local disk folder: C:\Users\Fradana\Documents\AksaraSight\output"
+          title="Local output folder"
         >
           <FolderOpen className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
           <span className="hidden md:inline">Output Folder</span>

@@ -38,6 +38,9 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python -m web
+
+# Or run CLI batch OCR
+python -m cli.main sample.pdf
 ```
 
 Open your web browser and navigate to `http://127.0.0.1:8000`.
@@ -57,7 +60,7 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
   <img src="docs/images/security_confirmation_preview.png" alt="Security Notice: Remote Endpoint Confirmation Modal" width="55%">
 </p>
 
-4. Click **Start Server** in the navigation bar. Once the status shows `Engine Online`, switch back to **Workspace** and drop a scan or PDF into the drop zone.
+4. Click **Start Server** in the navigation bar. Once the status shows `Local Engine Ready`, switch back to **Workspace** and drop a scan or PDF into the drop zone.
 5. Check the result in the preview tabs, then click **Export** to save your files.
 
 ## A few things to keep in mind
@@ -73,9 +76,7 @@ AksaraSight is a personal open-source project with real-world limitations:
 
 ## Technical documentation
 
-If you are an engineer looking for CLI flags, environment variables, manual server flags, architecture notes, or the test suite:
-
-Check out [TECHNICAL.md](TECHNICAL.md) for the complete technical manual.
+For CLI options, environment variables, manual server setup, architecture notes, and test suite execution, see [TECHNICAL.md](TECHNICAL.md).
 
 ## License
 

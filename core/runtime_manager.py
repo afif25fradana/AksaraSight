@@ -148,7 +148,7 @@ def fetch_release_assets_metadata(
     fetching unreviewed or breaking upstream commits.
 
     Args:
-        tag: Specific release tag (e.g. 'b10930').
+        tag: Specific release tag (e.g. 'b11361').
         session: Optional HTTP session.
 
     Returns:

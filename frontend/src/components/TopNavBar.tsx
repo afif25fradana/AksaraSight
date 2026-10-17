@@ -225,7 +225,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           type="button"
           onClick={onOpenServerLogs}
           className="h-8 px-2.5 rounded-lg border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white/70 dark:bg-[var(--bg-elevated)] hover:bg-white hover:dark:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] flex items-center gap-1.5 text-[12px] font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out cursor-pointer shadow-2xs focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
-          title="View ServerManager logs"
+          title="View server logs"
           aria-label="Server Logs"
         >
           <Terminal className="w-4 h-4 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />

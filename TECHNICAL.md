@@ -31,7 +31,9 @@ AksaraSight/
 │   ├── formatter.py       # Artifact generation (Markdown, JSON, DOCX) & atomic writes
 │   ├── docx_export.py     # Markdown-to-DOCX conversion with OOXML table fidelity
 │   ├── hardware.py        # NVIDIA CUDA, Vulkan, and CPU hardware probe
+│   ├── diagnostics.py     # 5-stage system diagnostics & hardware health probe (--doctor)
 │   ├── runtime_manager.py # Managed llama-server download, SHA-256 verification, and unpack
+│   ├── model_manager.py   # Pinned GGUF model weight downloader and SHA-256 verifier
 │   ├── server_manager.py  # Local inference process lifecycle supervision and health polling
 │   ├── job_object.py      # Win32 Job Object process containment (KILL_ON_JOB_CLOSE)
 │   ├── models.py          # Strict dataclasses (JobConfig, PageResult, OCRResult)
@@ -44,6 +46,7 @@ AksaraSight/
 │   ├── security.py        # Loopback-only Host header, port pinning, and origin security middleware
 │   ├── __main__.py        # Module entrypoint (`python -m web`)
 │   └── static/            # Pre-built React production frontend SPA assets
+├── frontend/              # Local Web UI Single Page Application source (React 19, TS, Vite)
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
@@ -120,7 +123,7 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | `OCR_MANAGED_BACKEND_OVERRIDE` | `auto` | Force managed backend: `auto`, `cuda`, `vulkan`, or `cpu`. |
 | `OCR_LLAMA_SERVER_PATH` | None | Absolute path to `llama-server.exe` when in `custom` mode. |
 | `OCR_MODEL_REPO` | `ggml-org/GLM-OCR-GGUF` | Hugging Face repository for GGUF model weights. |
-| `OCR_AUTO_START_SERVER` | `false` | Automatically start the managed server when the GUI launches. |
+| `OCR_AUTO_START_SERVER` | `false` | Automatically start the managed server when the Web UI server starts. |
 | `OCR_BACKEND` | `llama-cpp` | Inference engine type: `llama-cpp`, `ollama`, or `vllm`. |
 | `OCR_ENDPOINT` | `http://localhost:8080/v1` | Local OpenAI-compatible API endpoint URL. |
 | `OCR_TIMEOUT` | `60.0` | Network request timeout in seconds. |
@@ -129,6 +132,7 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | `OCR_DPI` | `100` | Rasterization DPI for PDF pages. |
 | `OCR_MAX_PAGES` | None | Global page cap per document (`None` = all pages). |
 | `OCR_MAX_IMAGE_DIMENSION` | `2048` | Longest-edge dimension cap (512–8192 px) to protect VRAM. |
+| `OCR_MAX_TOKENS` | `4096` | Maximum completion tokens allocated per OCR page (128–16384). |
 
 A documented template is provided in [`.env.example`](.env.example).
 
@@ -159,7 +163,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 - **Loopback Restriction by Default**: AksaraSight restricts network requests to loopback interfaces (`127.0.0.1`, `localhost`, `::1`). External endpoints require explicit `--allow-remote` or `OCR_ALLOW_REMOTE=true`.
 - **Explicit IPv4 Loopback Binding (`--host 127.0.0.1`)**: When spawning managed `llama-server` instances, `ServerManager` explicitly passes `--host 127.0.0.1` (`core/server_manager.py`), ensuring the inference server binds strictly to the local host interface rather than wildcard `0.0.0.0`.
 - **Proxy Bypass Prevention (`trust_env = False`)**: HTTP client sessions in `VisionClient` (`core/client.py`) and `ServerManager` (`core/server_manager.py`) explicitly set `trust_env = False` to prevent ambient system proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`) from intercepting or redirecting loopback traffic.
-- **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process runs inside a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. If the GUI or CLI is terminated, the OS kernel terminates child server processes automatically.
+- **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process runs inside a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. If the Web UI or CLI process is terminated, the OS kernel terminates child server processes automatically.
 - **Cryptographic Verification**: Managed runtime binaries and CUDA support DLLs downloaded from GitHub release assets are verified against pinned SHA-256 digests prior to archive extraction.
 - **Zip-Slip Protection**: Directory extraction asserts canonical path boundaries, rejecting archives containing directory traversal attacks (`../`).
 - **Pixel-Bomb Defense**: Images and PDF pages exceeding 89,478,485 pixels (`MAX_RASTER_PIXELS`) are rejected prior to rasterization to eliminate decompression memory bombs.
@@ -244,4 +248,4 @@ To bundle the application into a standalone Windows x64 distribution:
 pip install -r requirements-build.txt
 python scripts/build_portable.py
 ```
-This produces `dist/AksaraSight-v<version>-windows-x64.zip` containing `AksaraSight.exe`.
+This produces `dist/AksaraSight-v<version>-windows-x64.zip` containing `AksaraSight.exe`, `AksaraSight-CLI.exe`, and the `_internal/` runtime directory.

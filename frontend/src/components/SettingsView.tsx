@@ -821,7 +821,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           <div className="text-xs text-[#5A6478] dark:text-[var(--text-2)]">
                             {effectiveRuntimeStatus?.installed
                               ? 'Managed llama.cpp runtime binary is verified and ready.'
-                              : 'Download the pinned llama.cpp build for optimal local performance.'}
+                              : 'Download the pinned llama.cpp build for local inference.'}
                           </div>
                           <button
                             type="button"
@@ -1031,7 +1031,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         <span>System Diagnostic Probe</span>
                       </span>
                       <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
-                        Execute comprehensive hardware, runtime, reachability, and vision verification
+                        Test hardware, runtime, backend reachability, and vision inference
                       </p>
                     </div>
                     <button

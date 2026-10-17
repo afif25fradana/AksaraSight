@@ -4,7 +4,17 @@ React + TypeScript + Tailwind CSS workspace interface for AksaraSight.
 
 ## Development
 
+Start the backend in development mode (allows Vite dev server origins):
+
 ```bash
+# In repository root
+python -m web --dev
+```
+
+Then start the Vite dev server:
+
+```bash
+# In frontend/
 npm install
 npm run dev
 ```

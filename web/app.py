@@ -200,24 +200,29 @@ def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
 
 
 def _pick_executable_file() -> Optional[str]:
-    """Spawn a subprocess with Tkinter to pick an executable file via native file dialog."""
-    script = (
-        "import tkinter as tk\n"
-        "from tkinter import filedialog\n"
-        "root = tk.Tk()\n"
-        "root.withdraw()\n"
-        "root.attributes('-topmost', True)\n"
-        "path = filedialog.askopenfilename(\n"
-        "    title='Select llama-server Executable',\n"
-        "    filetypes=[('Executable files', '*.exe'), ('All files', '*.*')],\n"
-        ")\n"
-        "root.destroy()\n"
-        "if path:\n"
-        "    print(path.strip())\n"
-    )
+    """Spawn a native OS dialog to pick an executable file."""
+    if sys.platform == "win32":
+        cmd = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+                "$f.Filter = 'Executables (*.exe)|*.exe|All files (*.*)|*.*'; "
+                "$f.Title = 'Select llama-server Executable'; "
+                "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"
+            ),
+        ]
+    elif sys.platform == "darwin":
+        cmd = ["osascript", "-e", 'POSIX path of (choose file with prompt "Select llama-server Executable")']
+    else:
+        cmd = ["zenity", "--file-selection", "--title=Select llama-server Executable"]
+
     try:
         result = subprocess.run(
-            [sys.executable, "-c", script],
+            cmd,
             capture_output=True,
             text=True,
             timeout=120,
@@ -896,6 +901,8 @@ def create_app(
             app_orchestrator.enqueue(job_id, prompt_mode=mode)
         except KeyError:
             raise HTTPException(status_code=404, detail="Document job not found")
+        except RuntimeError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         except queue.Full:
             raise HTTPException(
                 status_code=503,

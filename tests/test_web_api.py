@@ -3213,7 +3213,7 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
         assert data["status"] == "OFFLINE"
         assert mock_mgr.status == ServerStatus.OFFLINE
 
-        orchestrator.enqueue(job_id)
+        orchestrator._queue.put_nowait(job_id)
 
         deadline = time.time() + 5.0
         while time.time() < deadline:
@@ -4242,6 +4242,66 @@ def test_setup_frozen_logging_idempotency_and_oserror_resilience(
         root_logger.handlers = original_handlers
         root_logger.setLevel(original_level)
         sys.excepthook = original_excepthook
+
+
+def test_orchestrator_enqueue_rejects_queued_or_processing(tmp_path: Path) -> None:
+    """Verify WebOrchestrator.enqueue() raises RuntimeError if job is already QUEUED or PROCESSING."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    fake_file = tmp_path / "active_test.png"
+    fake_file.write_bytes(b"dummy")
+
+    job_id = "job-active-test"
+    job = JobState(
+        job_id=job_id,
+        filename="active_test.png",
+        file_path=fake_file,
+        status=JobStatus.QUEUED,
+    )
+    orchestrator.register_job(job)
+
+    with pytest.raises(RuntimeError, match=f"Job '{job_id}' is already queued"):
+        orchestrator.enqueue(job_id)
+
+    job.status = JobStatus.PROCESSING
+    with pytest.raises(RuntimeError, match=f"Job '{job_id}' is already processing"):
+        orchestrator.enqueue(job_id)
+
+    orchestrator.stop()
+
+
+def test_post_extract_conflict_when_job_active(tmp_path: Path) -> None:
+    """Verify POST /api/documents/{job_id}/extract returns 409 Conflict when job is already QUEUED or PROCESSING."""
+    mock_eng = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    fake_file = tmp_path / "conflict_test.png"
+    fake_file.write_bytes(b"dummy")
+
+    job_id = "job-conflict-test"
+    job = JobState(
+        job_id=job_id,
+        filename="conflict_test.png",
+        file_path=fake_file,
+        status=JobStatus.PROCESSING,
+    )
+    orchestrator.register_job(job)
+
+    status_code, _, body = client.post(f"/api/documents/{job_id}/extract")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "already processing" in data["detail"].lower()
+
+    job.status = JobStatus.QUEUED
+    status_code, _, body = client.post(f"/api/documents/{job_id}/extract")
+    assert status_code == 409
+    data = json.loads(body.decode("utf-8"))
+    assert "already queued" in data["detail"].lower()
+
+    orchestrator.stop()
+
 
 
 

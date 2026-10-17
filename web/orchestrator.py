@@ -179,6 +179,10 @@ class WebOrchestrator:
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(f"Job '{job_id}' not found")
+            if job.status in (JobStatus.PROCESSING, JobStatus.QUEUED):
+                raise RuntimeError(
+                    f"Job '{job_id}' is already {job.status.value.lower()}"
+                )
             try:
                 self._queue.put_nowait(job_id)
             except queue.Full:

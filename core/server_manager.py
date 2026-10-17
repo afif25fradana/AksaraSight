@@ -541,7 +541,7 @@ class ServerManager:
                         "Configure the path to llama-server.exe in Settings."
                     )
 
-                candidate_name = Path(candidate_path).name.lower()
+                candidate_name = Path(str(candidate_path).replace("\\", "/")).name.lower()
                 if candidate_name not in ("llama-server.exe", "llama-server"):
                     raise ValueError(f"Server binary must be named llama-server, got: '{candidate_name}'")
 

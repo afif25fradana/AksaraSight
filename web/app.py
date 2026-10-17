@@ -725,7 +725,7 @@ def create_app(
                 elif isinstance(val, str):
                     stripped = val.strip()
                     if stripped:
-                        base_name = Path(stripped).name.lower()
+                        base_name = Path(stripped.replace("\\", "/")).name.lower()
                         if base_name not in ("llama-server.exe", "llama-server"):
                             raise HTTPException(
                                 status_code=400,

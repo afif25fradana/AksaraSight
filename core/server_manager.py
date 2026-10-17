@@ -541,6 +541,10 @@ class ServerManager:
                         "Configure the path to llama-server.exe in Settings."
                     )
 
+                candidate_name = Path(candidate_path).name.lower()
+                if candidate_name not in ("llama-server.exe", "llama-server"):
+                    raise ValueError(f"Server binary must be named llama-server, got: '{candidate_name}'")
+
                 resolved_path = str(Path(candidate_path).resolve())
                 repo = model_repo or self.settings.model_repo
 

@@ -60,6 +60,8 @@ from web.security import LoopbackSecurityMiddleware
 logger = logging.getLogger(__name__)
 
 FORBIDDEN_DOWNLOAD_PARAMS = frozenset({"url", "repo", "revision", "filename", "path", "dest"})
+_JOB_ID_REGEX = re.compile(r"^[0-9a-fA-F]{32}$")
+_dialog_lock = asyncio.Lock()
 
 _MAGIC_SIGNATURES: Dict[str, Callable[[bytes], bool]] = {
     ".pdf": lambda b: b"%PDF" in b[:1024],
@@ -202,8 +204,11 @@ def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
 def _pick_executable_file() -> Optional[str]:
     """Spawn a native OS dialog to pick an executable file."""
     if sys.platform == "win32":
+        system_root = os.environ.get("SystemRoot", "C:\\Windows")
+        pwsh_candidate = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        pwsh_exe = str(pwsh_candidate) if pwsh_candidate.is_file() else "powershell.exe"
         cmd = [
-            "powershell.exe",
+            pwsh_exe,
             "-NoProfile",
             "-NonInteractive",
             "-Command",
@@ -318,9 +323,17 @@ def create_app(
     elif os.environ.get("LOCALAPPDATA"):
         target_upload_dir = (Path(os.environ["LOCALAPPDATA"]) / "AksaraSight" / "web_uploads").resolve()
     else:
-        target_upload_dir = (Path(tempfile.gettempdir()) / "aksarasight_web_uploads").resolve()
+        if sys.platform.startswith("win32"):
+            target_upload_dir = (Path(tempfile.gettempdir()) / "aksarasight_web_uploads").resolve()
+        else:
+            target_upload_dir = (Path.home() / ".local" / "share" / "aksarasight" / "web_uploads").resolve()
 
     target_upload_dir.mkdir(parents=True, exist_ok=True)
+    if not sys.platform.startswith("win32"):
+        try:
+            os.chmod(target_upload_dir, 0o700)
+        except OSError:
+            pass
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
@@ -628,7 +641,10 @@ def create_app(
     @app.post("/api/dialog/file")
     async def dialog_pick_file() -> Dict[str, Any]:
         """Open a native Windows file dialog to pick an executable file."""
-        picked = await asyncio.to_thread(_pick_executable_file)
+        if _dialog_lock.locked():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A file dialog is already open")
+        async with _dialog_lock:
+            picked = await asyncio.to_thread(_pick_executable_file)
         return {"path": picked}
 
     @app.get("/api/settings")
@@ -708,6 +724,13 @@ def create_app(
                     updates[key] = None
                 elif isinstance(val, str):
                     stripped = val.strip()
+                    if stripped:
+                        base_name = Path(stripped).name.lower()
+                        if base_name not in ("llama-server.exe", "llama-server"):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Server binary must be named llama-server or llama-server.exe",
+                            )
                     updates[key] = stripped if stripped else None
                 else:
                     raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
@@ -840,7 +863,11 @@ def create_app(
         except Exception as e:
             if target_path.exists():
                 target_path.unlink()
-            raise HTTPException(status_code=400, detail=f"Failed to inspect document pages: {e}")
+            logger.warning("Failed to inspect document pages for job %s: %s", job_id, e)
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to inspect document pages. The file may be corrupt or unreadable.",
+            )
 
         job = JobState(
             job_id=job_id,
@@ -931,9 +958,12 @@ def create_app(
 
         return {"message": "Extraction cancelled", "job_id": job_id}
 
-    @app.delete("/api/documents/{job_id}")
+    @app.delete("/api/documents/{job_id:path}")
     async def delete_document(job_id: str) -> Dict[str, Any]:
         """Delete an uploaded document, remove from orchestrator, and delete file on disk."""
+        if not _JOB_ID_REGEX.match(job_id):
+            raise HTTPException(status_code=400, detail="Invalid job ID format")
+
         job = app_orchestrator.remove_job(job_id)
 
         file_deleted = False
@@ -946,8 +976,9 @@ def create_app(
 
         for f in target_upload_dir.glob(f"{job_id}_*"):
             try:
-                f.unlink()
-                file_deleted = True
+                if f.resolve().is_relative_to(target_upload_dir):
+                    f.unlink()
+                    file_deleted = True
             except OSError as e:
                 logger.warning("Failed to unlink file %s: %s", f, e)
 

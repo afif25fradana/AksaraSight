@@ -563,6 +563,11 @@ def ensure_runtime(
             safe_extract_zip(archive, staging_dir)
 
         staging_exe = staging_dir / exe_name
+        if not sys.platform.startswith("win32") and staging_exe.exists():
+            try:
+                os.chmod(staging_exe, staging_exe.stat().st_mode | 0o755)
+            except OSError:
+                pass
         if not staging_exe.is_file():
             raise RuntimeValidationError(
                 f"Extraction completed but executable '{exe_name}' was not found in archive."

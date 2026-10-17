@@ -1239,7 +1239,7 @@ def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: p
             "backend": "ollama",
             "runtime_mode": "custom",
             "managed_backend_override": "cuda",
-            "llama_server_path": "C:\\tools\\llama.exe",
+            "llama_server_path": "C:\\tools\\llama-server.exe",
             "model_repo": "test/repo",
             "allow_remote": True,
             "local_endpoint": "http://remote.lan:8080/v1",
@@ -1255,7 +1255,7 @@ def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: p
         assert res["settings"]["backend"] == "ollama"
         assert res["settings"]["runtime_mode"] == "custom"
         assert res["settings"]["managed_backend_override"] == "cuda"
-        assert res["settings"]["llama_server_path"] == "C:\\tools\\llama.exe"
+        assert res["settings"]["llama_server_path"] == "C:\\tools\\llama-server.exe"
         assert res["settings"]["model_repo"] == "test/repo"
         assert res["settings"]["allow_remote"] is True
         assert res["settings"]["local_endpoint"] == "http://remote.lan:8080/v1"
@@ -4301,6 +4301,50 @@ def test_post_extract_conflict_when_job_active(tmp_path: Path) -> None:
     assert "already queued" in data["detail"].lower()
 
     orchestrator.stop()
+
+
+@pytest.fixture
+def client(tmp_path: Path) -> AsgiClient:
+    app = create_app(upload_dir=tmp_path)
+    return AsgiClient(app)
+
+
+def test_delete_document_rejects_invalid_job_id_format(client: AsgiClient) -> None:
+    """Verify DELETE /api/documents/{job_id} rejects non-hex job IDs."""
+    for bad_id in ["*", "..", "../etc", "not_a_valid_hex_id"]:
+        status, _, body = client.delete(f"/api/documents/{bad_id}")
+        assert status == 400
+        data = json.loads(body.decode("utf-8"))
+        assert "Invalid job ID format" in data["detail"]
+
+
+def test_patch_settings_rejects_non_llama_server_binary(client: AsgiClient) -> None:
+    """Verify PATCH /api/settings rejects executables not named llama-server."""
+    body = json.dumps({"llama_server_path": "C:\\Windows\\System32\\cmd.exe"}).encode("utf-8")
+    status, _, resp = client.patch(
+        "/api/settings",
+        headers={"content-type": "application/json"},
+        body=body,
+    )
+    assert status == 400
+    data = json.loads(resp.decode("utf-8"))
+    assert "Server binary must be named llama-server or llama-server.exe" in data["detail"]
+
+
+def test_dialog_file_returns_409_when_locked(client: AsgiClient) -> None:
+    """Verify POST /api/dialog/file returns 409 Conflict when a dialog is already open."""
+    from web.app import _dialog_lock
+
+    asyncio.run(_dialog_lock.acquire())
+    try:
+        status, _, body = client.post("/api/dialog/file")
+        assert status == 409
+        data = json.loads(body.decode("utf-8"))
+        assert "already open" in data["detail"].lower()
+    finally:
+        if _dialog_lock.locked():
+            _dialog_lock.release()
+
 
 
 

@@ -1,6 +1,7 @@
 # AksaraSight
 
 [![Tests](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml/badge.svg)](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 AksaraSight is a local OCR workspace running on your computer. It takes scanned documents, PDFs, receipts, or images and converts them into Markdown, Word documents (.docx), or structured JSON.
 
@@ -23,13 +24,11 @@ I built this because most modern OCR tools require uploading files to third-part
 
 ### Option 1: Portable Windows Build (No Python needed)
 
-Download the pre-compiled portable zip package from the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page (`AksaraSight-v<version>-windows-x64.zip`). Extract the folder and launch `AksaraSight.exe` to run the Web UI desktop workspace, or use `AksaraSight-CLI.exe` directly from PowerShell or Command Prompt. No Python installation required (requires standard Microsoft Visual C++ 2015–2022 Redistributable x64).
+Download the pre-compiled portable zip package from the [Releases](https://github.com/afif25fradana/AksaraSight/releases) page (`AksaraSight-v<version>-windows-x64.zip`). Extract the folder and launch `AksaraSight.exe` to run the Web UI desktop workspace, or use `AksaraSight-CLI.exe` directly from PowerShell or Command Prompt. No Python installation required (requires standard Microsoft Visual C++ 2015-2022 Redistributable x64).
 
 ### Option 2: Running from source
 
-If you prefer running from source or want to inspect the code:
-
-Requirements: Windows 10/11, Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended), and Microsoft Visual C++ 2015–2022 Redistributable (x64).
+Prerequisites: Windows 10/11 or Linux, Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended), and Microsoft Visual C++ 2015-2022 Redistributable (x64).
 
 ```powershell
 git clone https://github.com/afif25fradana/AksaraSight
@@ -38,12 +37,22 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python -m web
-
-# Or run CLI batch OCR
-python -m cli.main sample.pdf
 ```
 
 Open your web browser and navigate to `http://127.0.0.1:8000`.
+
+## Verified Commands
+
+| Command | Description |
+|---|---|
+| `python -m web` | Start local Web UI workspace server (default: `http://127.0.0.1:8000`) |
+| `python -m web --dev` | Start Web UI in development mode (permits Vite dev server on port 5173) |
+| `python -m cli.main <file>` | Run OCR on a single file, streaming Markdown to stdout |
+| `python -m cli.main <dir> -o <out> -f docx -r` | Batch convert directory recursively to Word (.docx) files |
+| `python -m cli.main --doctor` | Run 5-stage diagnostics check (settings, hardware, runtime, model, API) |
+| `python -m cli.main --detect-hardware` | Probe GPU acceleration and display recommended backend |
+| `python -m pytest` | Run backend test suite (583 tests) |
+| `cd frontend && npm test -- --run` | Run frontend Vitest test suite (37 tests) |
 
 ## First run walkthrough
 
@@ -76,7 +85,9 @@ AksaraSight is a personal open-source project with real-world limitations:
 
 ## Technical documentation
 
-For CLI options, environment variables, manual server setup, architecture notes, and test suite execution, see [TECHNICAL.md](TECHNICAL.md).
+AksaraSight strictly isolates presentation layers from domain logic. The Web UI and CLI are thin frontends that route all document rasterization, image downscaling, and inference streaming through a shared engine (`core/`).
+
+For CLI reference options, environment variable configuration, custom server commands, and packaging scripts, see [TECHNICAL.md](TECHNICAL.md).
 
 ## License
 

@@ -335,7 +335,7 @@ class ServerManager:
                 # Process is actively being terminated by stop(). Do not probe or adopt.
                 return self._build_status_info_locked()
 
-            # 1. Check managed subprocess if one was launched
+            # Check managed subprocess exit status if one was launched
             if self._process is not None:
                 ret = self._process.poll()
                 if ret is not None:
@@ -354,14 +354,13 @@ class ServerManager:
             endpoint = self.settings.local_endpoint
             session = self._session
 
-        # 2. Probe endpoint outside lock
+        # Probe health outside lock to avoid blocking UI queries during network I/O
         probe_status, probe_msg = probe_server_health(
             endpoint,
             timeout=1.5,
             session=session,
         )
 
-        # 3. Update status under lock
         with self._lock:
             if self._stopping:
                 # stop() was invoked during probe; preserve stop state

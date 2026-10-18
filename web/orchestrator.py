@@ -18,6 +18,7 @@ from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageRe
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_QUEUE_SIZE: int = 50
+MAX_STORED_JOBS: int = 50
 
 
 class JobStatus(str, Enum):
@@ -56,9 +57,11 @@ class WebOrchestrator:
         self,
         engine: OCREngine,
         max_queue_size: Optional[int] = None,
+        max_stored_jobs: Optional[int] = None,
     ) -> None:
         self.engine = engine
         self.jobs: Dict[str, JobState] = {}
+        self.max_stored_jobs = max_stored_jobs or MAX_STORED_JOBS
         self._queue: queue.Queue[str] = queue.Queue(
             maxsize=max_queue_size or DEFAULT_MAX_QUEUE_SIZE
         )
@@ -155,10 +158,35 @@ class WebOrchestrator:
 
             return snapshot
 
+    def _prune_terminal_jobs(self) -> None:
+        """Prune oldest terminal jobs (SUCCESS, FAILED, CANCELLED) if total jobs exceed capacity."""
+        pruned: List[JobState] = []
+        with self._lock:
+            if len(self.jobs) <= self.max_stored_jobs:
+                return
+            for job in list(self.jobs.values()):
+                if job.status in (JobStatus.SUCCESS, JobStatus.FAILED, JobStatus.CANCELLED):
+                    self.jobs.pop(job.job_id, None)
+                    pruned.append(job)
+                    if len(self.jobs) <= self.max_stored_jobs:
+                        break
+
+        for job in pruned:
+            if job.file_path and job.file_path.exists():
+                try:
+                    job.file_path.unlink()
+                except OSError as unlink_err:
+                    logger.warning(
+                        "Failed to clean up upload file for pruned job %s: %s",
+                        job.job_id,
+                        unlink_err,
+                    )
+
     def register_job(self, job: JobState) -> None:
         """Register a newly uploaded job in the orchestrator registry."""
         with self._lock:
             self.jobs[job.job_id] = job
+        self._prune_terminal_jobs()
 
     def get_job(self, job_id: str) -> Optional[JobState]:
         """Retrieve a job by its unique identifier."""
@@ -208,7 +236,8 @@ class WebOrchestrator:
             if job.status in (JobStatus.QUEUED, JobStatus.UPLOADED):
                 job.status = JobStatus.CANCELLED
                 self.broadcast("cancelled", {"job_id": job.job_id})
-            return True
+        self._prune_terminal_jobs()
+        return True
 
     def broadcast(self, event_type: str, data: Dict[str, Any]) -> None:
         """Broadcast an event payload to all active SSE subscriber queues."""
@@ -220,16 +249,22 @@ class WebOrchestrator:
                 if loop.is_closed():
                     dead.append(entry)
                 else:
+                    def _safe_put(target_q: asyncio.Queue = q, item: Dict[str, Any] = payload) -> None:
+                        try:
+                            target_q.put_nowait(item)
+                        except asyncio.QueueFull:
+                            pass
+
                     try:
-                        loop.call_soon_threadsafe(q.put_nowait, payload)
+                        loop.call_soon_threadsafe(_safe_put)
                     except RuntimeError:
                         dead.append(entry)
             for entry in dead:
                 self._subscribers.discard(entry)
 
-    async def subscribe(self) -> AsyncIterator[Dict[str, Any]]:
+    async def subscribe(self, timeout: Optional[float] = 15.0) -> AsyncIterator[Dict[str, Any]]:
         """Subscribe to broadcast events, yielding event dictionaries."""
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
         loop = asyncio.get_running_loop()
         entry = (q, loop)
         with self._lock:
@@ -237,7 +272,14 @@ class WebOrchestrator:
         try:
             while not self._stop_event.is_set():
                 try:
-                    msg = await q.get()
+                    if timeout is not None:
+                        try:
+                            msg = await asyncio.wait_for(q.get(), timeout=timeout)
+                        except (asyncio.TimeoutError, TimeoutError):
+                            yield {"event": "_ping"}
+                            continue
+                    else:
+                        msg = await q.get()
                     yield msg
                 except asyncio.CancelledError:
                     break
@@ -410,3 +452,4 @@ class WebOrchestrator:
                         "pages": job.page_count,
                     },
                 )
+            self._prune_terminal_jobs()

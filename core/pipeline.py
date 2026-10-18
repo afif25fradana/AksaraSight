@@ -615,3 +615,93 @@ def rasterize_page(
         except Exception:
             pass
         raise CorruptDocumentError(f"Failed to load image: {img_exc}") from img_exc
+
+
+def get_page_count(source: Union[str, Path]) -> int:
+    """Determine the number of pages or frames in a document (PDF or image).
+
+    Args:
+        source: File path (str or Path).
+
+    Returns:
+        int: Number of pages in PDF or frames in image.
+
+    Raises:
+        FilePreflightError: If target file does not exist, permission is denied, or 0 bytes.
+        EmptyDocumentError: If document contains 0 pages.
+        EncryptedDocumentError: If PDF is password-protected or uses unsupported security scheme.
+        CorruptDocumentError: If document structure or headers cannot be decoded.
+        UnsupportedFormatError: If file is neither a supported image nor a PDF.
+    """
+    check_preflight(source)
+    file_path = Path(source)
+
+    if is_pdf(file_path):
+        enc_errhandler = "strict" if sys.platform.startswith("win32") else "surrogateescape"
+        cstr_path = (str(file_path) + "\x00").encode("utf-8", errors=enc_errhandler)
+
+        is_zero_page = False
+        err_code = None
+        doc = None
+        total_pages = 0
+
+        with _PDFIUM_LOCK:
+            raw_doc = pdfium_c.FPDF_LoadDocument(cstr_path, None)
+            if not raw_doc:
+                err_code = pdfium_c.FPDF_GetLastError()
+            else:
+                total_pages = pdfium_c.FPDF_GetPageCount(raw_doc)
+                if total_pages < 1:
+                    pdfium_c.FPDF_CloseDocument(raw_doc)
+                    is_zero_page = True
+                else:
+                    doc = pdfium.PdfDocument(raw_doc)
+
+        if is_zero_page:
+            raise EmptyDocumentError(f"PDF contains 0 pages: {file_path.name}")
+
+        if doc is not None:
+            try:
+                if total_pages <= 0:
+                    raise EmptyDocumentError(f"PDF contains 0 pages: {file_path.name}")
+                return total_pages
+            finally:
+                with _PDFIUM_LOCK:
+                    doc.close()
+        else:
+            if err_code == pdfium_c.FPDF_ERR_PASSWORD:
+                raise EncryptedDocumentError(
+                    "Password-protected PDF: decryption password required"
+                )
+            if err_code == pdfium_c.FPDF_ERR_SECURITY:
+                raise EncryptedDocumentError(
+                    "Encrypted PDF: unsupported security scheme or DRM handler"
+                )
+            if err_code == pdfium_c.FPDF_ERR_FORMAT:
+                try:
+                    with Image.open(file_path) as img:
+                        count = getattr(img, "n_frames", 1)
+                        if count <= 0:
+                            raise EmptyDocumentError(f"Document contains 0 pages: {file_path.name}")
+                        return count
+                except EmptyDocumentError:
+                    raise
+                except Exception as img_err:
+                    raise CorruptDocumentError(
+                        f"Corrupt PDF document: data format error ({img_err})"
+                    ) from img_err
+            raise CorruptDocumentError(f"Failed to load PDF document (PDFium error code: {err_code})")
+    else:
+        try:
+            with Image.open(file_path) as img:
+                count = getattr(img, "n_frames", 1)
+                if count <= 0:
+                    raise EmptyDocumentError(f"Document contains 0 pages: {file_path.name}")
+                return count
+        except EmptyDocumentError:
+            raise
+        except UnidentifiedImageError as err:
+            raise UnsupportedFormatError(f"Unsupported image format: {err}") from err
+        except Exception as err:
+            raise CorruptDocumentError(f"Failed to load image: {err}") from err
+

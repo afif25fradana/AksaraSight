@@ -16,6 +16,7 @@ from core.pipeline import (
     OversizedImageError,
     UnsupportedFormatError,
     check_preflight,
+    get_page_count,
     image_to_base64_url,
     ingest,
     is_pdf,
@@ -603,6 +604,73 @@ def test_process_pdf_rasterization_none_raises_corrupt_document_error(tmp_path: 
     with patch("pypdfium2.PdfDocument.__getitem__", return_value=mock_page):
         with pytest.raises(CorruptDocumentError, match="Page 1 rasterization produced no image data"):
             list(ingest(pdf_path))
+
+
+def test_get_page_count_valid_pdf(tmp_path: Path) -> None:
+    """Verify get_page_count accurately counts pages in a multi-page PDF."""
+    pdf_path = tmp_path / "multi.pdf"
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 200)
+    doc.new_page(200, 200)
+    doc.new_page(200, 200)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    assert get_page_count(pdf_path) == 3
+
+
+def test_get_page_count_valid_image(tmp_path: Path) -> None:
+    """Verify get_page_count returns 1 for standard single-frame image."""
+    img_path = tmp_path / "single.png"
+    Image.new("RGB", (50, 50), color="red").save(img_path)
+
+    assert get_page_count(img_path) == 1
+
+
+def test_get_page_count_multi_frame_image(tmp_path: Path) -> None:
+    """Verify get_page_count accurately counts frames in animated/multi-frame image."""
+    gif_path = tmp_path / "multi.gif"
+    img1 = Image.new("RGB", (50, 50), color="red")
+    img2 = Image.new("RGB", (50, 50), color="blue")
+    img1.save(gif_path, save_all=True, append_images=[img2])
+
+    assert get_page_count(gif_path) == 2
+
+
+def test_get_page_count_zero_page_pdf_raises(tmp_path: Path) -> None:
+    """Verify get_page_count raises EmptyDocumentError on 0-page PDF."""
+    pdf_path = tmp_path / "zero_page.pdf"
+    pdf_path.write_bytes(MINIMAL_ZERO_PAGE_PDF)
+
+    with pytest.raises(EmptyDocumentError, match="0 pages"):
+        get_page_count(pdf_path)
+
+
+def test_get_page_count_encrypted_pdf_raises(tmp_path: Path) -> None:
+    """Verify get_page_count raises EncryptedDocumentError on password-protected PDF."""
+    pdf_path = tmp_path / "encrypted.pdf"
+    pdf_path.write_bytes(MINIMAL_ENCRYPTED_PDF)
+
+    with pytest.raises(EncryptedDocumentError, match="Password-protected PDF"):
+        get_page_count(pdf_path)
+
+
+def test_get_page_count_mislabeled_image_as_pdf(tmp_path: Path) -> None:
+    """Verify get_page_count handles valid image mislabeled with .pdf extension."""
+    fake_pdf = tmp_path / "mislabeled.pdf"
+    Image.new("RGB", (60, 60), color="green").save(fake_pdf, format="JPEG")
+
+    assert get_page_count(fake_pdf) == 1
+
+
+def test_get_page_count_corrupt_file_raises(tmp_path: Path) -> None:
+    """Verify get_page_count raises CorruptDocumentError on corrupt PDF or image."""
+    corrupt_pdf = tmp_path / "corrupt.pdf"
+    corrupt_pdf.write_bytes(b"%PDF-1.4 corrupt garbage content that cannot parse")
+
+    with pytest.raises(CorruptDocumentError):
+        get_page_count(corrupt_pdf)
+
 
 
 

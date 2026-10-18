@@ -23,6 +23,7 @@ from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageRe
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from web.app import create_app, enforce_loopback_host
 from web.orchestrator import JobState, JobStatus, WebOrchestrator
+from tests.test_pipeline import MINIMAL_ENCRYPTED_PDF
 
 
 class AsgiClient:
@@ -4448,6 +4449,115 @@ def test_export_filename_windows_reserved_names(tmp_path: Path) -> None:
         assert (out_dir / "_CON.md").exists()
     finally:
         orchestrator.stop()
+
+
+def test_upload_encrypted_pdf_rejection(tmp_path: Path) -> None:
+    """Verify upload of encrypted PDF returns 400 with diagnostic message and unlinks upload."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    body, ct = urllib3.encode_multipart_formdata(
+        {"file": ("secret.pdf", MINIMAL_ENCRYPTED_PDF, "application/pdf")}
+    )
+    status, _, resp = client.post(
+        "/api/documents",
+        headers={"content-type": ct},
+        body=body,
+    )
+    assert status == 400
+    data = json.loads(resp.decode("utf-8"))
+    assert data["detail"] == "Document is password-protected or encrypted"
+    assert list(tmp_path.glob("*secret.pdf")) == []
+
+
+def test_orchestrator_job_eviction_prunes_terminal_jobs(tmp_path: Path) -> None:
+    """Verify that when jobs exceed max_stored_jobs, oldest terminal jobs are pruned."""
+    mock_engine = MockEngine()
+    orch = WebOrchestrator(engine=mock_engine, max_stored_jobs=3)  # type: ignore[arg-type]
+    try:
+        f1 = tmp_path / "doc1.pdf"
+        f1.write_bytes(b"dummy1")
+        f2 = tmp_path / "doc2.pdf"
+        f2.write_bytes(b"dummy2")
+        f3 = tmp_path / "doc3.pdf"
+        f3.write_bytes(b"dummy3")
+        f4 = tmp_path / "doc4.pdf"
+        f4.write_bytes(b"dummy4")
+
+        j1 = JobState(job_id="j1", filename="doc1.pdf", file_path=f1, status=JobStatus.SUCCESS)
+        j2 = JobState(job_id="j2", filename="doc2.pdf", file_path=f2, status=JobStatus.FAILED)
+        j3 = JobState(job_id="j3", filename="doc3.pdf", file_path=f3, status=JobStatus.UPLOADED)
+
+        orch.register_job(j1)
+        orch.register_job(j2)
+        orch.register_job(j3)
+        assert len(orch.jobs) == 3
+
+        j4 = JobState(job_id="j4", filename="doc4.pdf", file_path=f4, status=JobStatus.UPLOADED)
+        orch.register_job(j4)
+
+        assert len(orch.jobs) == 3
+        assert "j1" not in orch.jobs
+        assert "j2" in orch.jobs
+        assert "j3" in orch.jobs
+        assert "j4" in orch.jobs
+        assert not f1.exists()
+    finally:
+        orch.stop()
+
+
+def test_sse_events_keepalive_ping(tmp_path: Path) -> None:
+    """Verify /api/events emits keepalive ping when queue is idle."""
+    mock_engine = MockEngine()
+    orch = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
+    app = create_app(engine=mock_engine, orchestrator=orch, upload_dir=tmp_path)  # type: ignore[arg-type]
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events",
+        "raw_path": b"/api/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    ping_received = asyncio.Event()
+
+    async def receive() -> Dict[str, Any]:
+        await ping_received.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Dict[str, Any]) -> None:
+        if message["type"] == "http.response.body":
+            body = message.get("body", b"")
+            if b": ping" in body:
+                ping_received.set()
+
+    async def _run() -> None:
+        original_subscribe = orch.subscribe
+
+        def _fast_subscribe():
+            return original_subscribe(timeout=0.05)
+
+        orch.subscribe = _fast_subscribe  # type: ignore[method-assign]
+        app_task = asyncio.create_task(app(scope, receive, send))
+        try:
+            await asyncio.wait_for(ping_received.wait(), timeout=2.0)
+        finally:
+            orch.stop()
+            app_task.cancel()
+            try:
+                await app_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    asyncio.run(_run())
+
 
 
 

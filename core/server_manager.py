@@ -255,7 +255,7 @@ class ServerManager:
             # loopback communication and prevent document exfiltration through external proxies.
             # Reconsider if authenticated/proxied remote-endpoint support is ever added.
             self._session.trust_env = False
-            adapter = HTTPAdapter(pool_connections=2, pool_maxsize=2)
+            adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10)
             self._session.mount("http://", adapter)
             self._session.mount("https://", adapter)
             self._owns_session = True

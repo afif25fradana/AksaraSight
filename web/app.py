@@ -22,9 +22,7 @@ from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile,
 from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 from pydantic import BaseModel
-import pypdfium2 as pdfium
 
 from config.settings import Settings
 from core.client import ServerOfflineError, resolve_chat_endpoint
@@ -46,7 +44,7 @@ from core.model_manager import (
     get_model_downloader,
 )
 from core.models import OutputFormat, PROMPT_PRESETS
-from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
+from core.pipeline import EncryptedDocumentError, get_page_count, rasterize_page
 from core.runtime_manager import (
     _EXE_NAME,
     ensure_runtime,
@@ -97,23 +95,6 @@ def enforce_loopback_host(host: str) -> None:
             f"Binding to '{host}' is prohibited. AksaraSight Web UI strictly requires loopback "
             "binding ('127.0.0.1' or 'localhost') to enforce local-only access."
         )
-
-
-def probe_page_count(path: Path) -> int:
-    """Determine the number of pages in a PDF or image file."""
-    if is_pdf(path):
-        with _PDFIUM_LOCK:
-            doc = pdfium.PdfDocument(path)
-            try:
-                count = len(doc)
-                if count <= 0:
-                    raise ValueError("Document contains 0 pages")
-                return count
-            finally:
-                doc.close()
-    else:
-        with Image.open(path) as img:
-            return getattr(img, "n_frames", 1)
 
 
 def _acquire_instance_lock(upload_dir: Path) -> Any:
@@ -460,7 +441,7 @@ def create_app(
         health_status = "running"
         err_msg: Optional[str] = None
         try:
-            app_engine.verify_backend(force=True)
+            await asyncio.to_thread(app_engine.verify_backend, force=True)
         except ServerOfflineError as e:
             health_status = "offline"
             err_msg = str(e)
@@ -526,7 +507,7 @@ def create_app(
     @app.get("/api/server/status")
     async def get_server_status() -> Dict[str, Any]:
         """Return execution and ownership status of backend inference server."""
-        info = app_server_manager.poll_status()
+        info = await asyncio.to_thread(app_server_manager.poll_status)
         pid = None
         if app_server_manager._process and app_server_manager._process.poll() is None:
             pid = app_server_manager._process.pid
@@ -866,7 +847,15 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Upload write failed: {clean_err}")
 
         try:
-            pages = probe_page_count(target_path)
+            pages = await asyncio.to_thread(get_page_count, target_path)
+        except EncryptedDocumentError as e:
+            if target_path.exists():
+                target_path.unlink()
+            logger.warning("Rejected encrypted document for job %s: %s", job_id, e)
+            raise HTTPException(
+                status_code=400,
+                detail="Document is password-protected or encrypted",
+            )
         except Exception as e:
             if target_path.exists():
                 target_path.unlink()
@@ -906,7 +895,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Page index out of bounds")
 
         try:
-            png_bytes = rasterize_page(job.file_path, page_idx=page_idx)
+            png_bytes = await asyncio.to_thread(rasterize_page, job.file_path, page_idx=page_idx)
             return Response(content=png_bytes, media_type="image/png")
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Document file not found")
@@ -1023,7 +1012,8 @@ def create_app(
         if format == "docx":
             if not job.result:
                 raise HTTPException(status_code=400, detail="Complete extraction result required for DOCX")
-            content_bytes = export_to_docx_bytes(
+            content_bytes = await asyncio.to_thread(
+                export_to_docx_bytes,
                 job.result,
                 notice=notice if job.status == JobStatus.FAILED else None,
             )
@@ -1051,7 +1041,8 @@ def create_app(
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
         try:
-            (out_dir / Path(filename).name).write_bytes(content_bytes)
+            out_file = out_dir / Path(filename).name
+            await asyncio.to_thread(out_file.write_bytes, content_bytes)
         except Exception as exc:
             logger.warning("Failed to persist export artifact to %s: %s", out_dir / filename, exc)
 
@@ -1321,7 +1312,7 @@ def create_app(
         settings: Settings = getattr(app.state, "settings", app_settings)
         target_backend = getattr(settings, "managed_backend_override", "auto")
         if target_backend == "auto":
-            profile = get_cached_hardware_profile()
+            profile = await asyncio.to_thread(get_cached_hardware_profile, blocking=True)
             target_backend = profile.recommended_backend if profile else "cpu"
         target_backend = str(target_backend).lower()
 
@@ -1528,6 +1519,9 @@ def create_app(
             if await request.is_disconnected():
                 break
             event = msg.get("event", "message")
+            if event == "_ping":
+                yield ServerSentEvent(comment="ping")
+                continue
             data = msg.get("data")
             if isinstance(data, str):
                 yield ServerSentEvent(event=event, raw_data=data)

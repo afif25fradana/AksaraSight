@@ -15,7 +15,7 @@ import {
   Layers,
   Code2,
   FileCode,
-  Sparkles
+  SlidersHorizontal
 } from 'lucide-react';
 import { DocumentItem, PromptMode, OutputFormatType } from '../types';
 
@@ -23,14 +23,16 @@ interface ExtractedTextPanelProps {
   document: DocumentItem | null;
   runningJobDocId: string | null;
   isEngineOnline: boolean;
+  selectedDpi?: number;
+  onDpiChange?: (dpi: number) => void;
   onStartEngine: () => void;
   onOpenSettings: () => void;
   onExport: (format: OutputFormatType) => void;
-  onRunDocumentExtraction: (docId: string, promptMode?: PromptMode) => void;
+  onRunDocumentExtraction: (docId: string, promptMode?: PromptMode, dpi?: number) => void;
   onAddToQueue: (docId: string) => void;
   onRemoveFromQueue: (docId: string) => void;
   onCancelExtraction: (docId: string) => void;
-  onReExtractDocument: (docId: string, promptMode?: PromptMode) => void;
+  onReExtractDocument: (docId: string, promptMode?: PromptMode, dpi?: number) => void;
 }
 
 // Engine-supported formats matching core.models.OutputFormat and core/formatter.py
@@ -99,6 +101,8 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   document,
   runningJobDocId,
   isEngineOnline,
+  selectedDpi,
+  onDpiChange,
   onStartEngine,
   onOpenSettings,
   onExport,
@@ -108,6 +112,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   onCancelExtraction,
   onReExtractDocument,
 }) => {
+  const currentDpi = selectedDpi ?? 100;
   const [exportFormat, setExportFormat] = useState<OutputFormatType>('docx');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -121,7 +126,32 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     };
   }, []);
   const [taskMode, setTaskMode] = useState<PromptMode>('text');
-  const [showTaskModeMenu, setShowTaskModeMenu] = useState<boolean>(false);
+  const [showExtractionOptions, setShowExtractionOptions] = useState<boolean>(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowExtractionOptions(false);
+      }
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setShowExtractionOptions(false);
+      }
+    };
+    if (showExtractionOptions && typeof window !== 'undefined') {
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('mousedown', handleClickOutside);
+      }
+    };
+  }, [showExtractionOptions]);
+
   const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('formatted');
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 2, width: 0 });
   const tabContainerRef = useRef<HTMLDivElement>(null);
@@ -151,10 +181,46 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     }
   }, [document?.id, document?.promptMode]);
 
-  const taskModes = useMemo(() => [
-    { mode: 'text' as const, label: 'Text Recognition', desc: 'Standard full-page OCR extraction' },
-    { mode: 'table' as const, label: 'Table Recognition', desc: 'Extract tables to GitHub-flavored Markdown' },
-    { mode: 'formula' as const, label: 'Formula Recognition', desc: 'Extract mathematical equations to LaTeX' },
+  const targetModes = useMemo(() => [
+    {
+      mode: 'text' as const,
+      label: 'Full Document (Text & Tables)',
+      shortLabel: 'Full Document',
+      desc: 'Transcribes entire page; formats tables into Markdown',
+    },
+    {
+      mode: 'table' as const,
+      label: 'Single Table Crop (Table Only)',
+      shortLabel: 'Single Table Crop',
+      desc: 'For cropped table images only (omits surrounding text)',
+    },
+    {
+      mode: 'formula' as const,
+      label: 'Math & Formulas',
+      shortLabel: 'Math & Formulas',
+      desc: 'Transcribes equations into LaTeX',
+    },
+  ], []);
+
+  const resolutionOptions = useMemo(() => [
+    {
+      dpi: 100,
+      label: 'Standard (100 DPI)',
+      desc: 'Fast & low memory; best for typed letters & memos',
+      recommended: false,
+    },
+    {
+      dpi: 150,
+      label: 'High Detail (150 DPI)',
+      desc: 'Sharpest for dense forms, grid tables & small fonts',
+      recommended: true,
+    },
+    {
+      dpi: 200,
+      label: 'Ultra Sharp (200 DPI)',
+      desc: 'Maximum detail for blurry scans or camera captures',
+      recommended: false,
+    },
   ], []);
 
   const isEmptyState = !document;
@@ -562,62 +628,105 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
         )}
       </div>
 
-      {/* Subheader: GLM-OCR Task Mode Selector & Primary Actions */}
+      {/* Subheader: Unified Extraction Options Popover & Primary Actions */}
       <div className="p-2.5 px-3 border-b border-black/[0.08] dark:border-[var(--border)] bg-white/40 dark:bg-[var(--bg-surface)] flex items-center justify-between gap-2 shrink-0">
-        {/* Left: GLM-OCR Task Mode Selector */}
-        <div className="relative inline-flex items-center">
-          <div className="inline-flex items-center gap-1">
-            <span className="text-2xs font-medium text-[#5A6478] dark:text-[var(--text-2)] uppercase tracking-wider hidden sm:inline mr-1">
-              Task Mode:
+        {/* Left: Unified Extraction Options Popover */}
+        <div className="relative inline-flex items-center" ref={popoverRef}>
+          <button
+            type="button"
+            onClick={() => setShowExtractionOptions(!showExtractionOptions)}
+            className="h-8 px-2.5 bg-black/[0.04] dark:bg-[var(--bg-elevated)] hover:bg-black/[0.08] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-lg text-xs font-medium flex items-center gap-1.5 border border-black/10 dark:border-[var(--border)] active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+            title="Extraction Options (Target Mode & Scan Detail)"
+            aria-haspopup="dialog"
+            aria-expanded={showExtractionOptions}
+            aria-label="Extraction Options"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
+            <span className="font-semibold">
+              {targetModes.find((m) => m.mode === taskMode)?.shortLabel || 'Full Document'}
             </span>
-            <button
-              type="button"
-              onClick={() => setShowTaskModeMenu(!showTaskModeMenu)}
-              className="h-8 px-2.5 bg-black/[0.04] dark:bg-[var(--bg-elevated)] hover:bg-black/[0.08] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-lg text-xs font-medium flex items-center gap-1.5 border border-black/10 dark:border-[var(--border)] active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
-              title="GLM-OCR prompt task preset (--prompt-mode)"
-              aria-haspopup="true"
-              aria-expanded={showTaskModeMenu}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
-              <span className="font-semibold">
-                {taskModes.find((m) => m.mode === taskMode)?.label || 'Text Recognition'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
-            </button>
-          </div>
+            <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-black/5 dark:bg-[var(--bg-active)] text-[#5A6478] dark:text-[var(--text-2)] border border-black/5 dark:border-[var(--border)]">
+              {currentDpi} DPI
+            </span>
+            <ChevronDown className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
+          </button>
 
-          {showTaskModeMenu && (
+          {showExtractionOptions && (
             <div 
-              className="absolute left-0 top-9 w-64 bg-white dark:bg-[var(--bg-elevated)] rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] py-1.5 z-30 shadow-lg text-[13px] origin-top-left animate-dropdown"
-              role="menu"
-              aria-label="GLM-OCR task mode options"
-              onMouseLeave={() => setShowTaskModeMenu(false)}
+              className="absolute left-0 top-9 w-[290px] bg-white dark:bg-[var(--bg-elevated)] rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] py-1.5 z-30 shadow-lg text-[13px] origin-top-left animate-dropdown"
+              role="dialog"
+              aria-label="Extraction Options"
             >
+              {/* Section 1: EXTRACTION TARGET */}
               <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-b border-black/5 dark:border-[var(--border)] mb-1">
-                GLM-OCR Prompt Preset
+                EXTRACTION TARGET
               </div>
-              {taskModes.map((tm) => (
-                <button
-                  key={tm.mode}
-                  type="button"
-                  onClick={() => {
-                    setTaskMode(tm.mode);
-                    setShowTaskModeMenu(false);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none ${
-                    taskMode === tm.mode ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15' : ''
-                  }`}
-                  role="menuitem"
-                >
-                  <div>
-                    <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] block text-xs">{tm.label}</span>
-                    <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] block">{tm.desc}</span>
-                  </div>
-                  {taskMode === tm.mode && (
-                    <Check className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)] ml-2 shrink-0" aria-hidden="true" />
-                  )}
-                </button>
-              ))}
+              <div role="group" aria-label="Extraction target modes">
+                {targetModes.map((tm) => (
+                  <button
+                    key={tm.mode}
+                    type="button"
+                    onClick={() => {
+                      setTaskMode(tm.mode);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none transition-colors ${
+                      taskMode === tm.mode ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15' : ''
+                    }`}
+                    role="menuitem"
+                  >
+                    <div className="pr-2">
+                      <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] block text-xs">
+                        {tm.label}
+                      </span>
+                      <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] block leading-snug">
+                        {tm.desc}
+                      </span>
+                    </div>
+                    {taskMode === tm.mode && (
+                      <Check className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)] ml-2 shrink-0" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Section 2: SCAN DETAIL / RESOLUTION */}
+              <div className="px-3 pt-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-t border-b border-black/5 dark:border-[var(--border)] my-1">
+                SCAN DETAIL / RESOLUTION
+              </div>
+              <div role="group" aria-label="Scan detail resolution options">
+                {resolutionOptions.map((res) => (
+                  <button
+                    key={res.dpi}
+                    type="button"
+                    onClick={() => {
+                      onDpiChange?.(res.dpi);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none transition-colors ${
+                      currentDpi === res.dpi ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15' : ''
+                    }`}
+                    role="menuitem"
+                  >
+                    <div className="pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] block text-xs">
+                          {res.label}
+                        </span>
+                        {res.recommended && (
+                          <span className="text-3xs font-semibold uppercase px-1.5 py-0.5 rounded bg-[#0F766E]/15 dark:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)]">
+                            Recommended
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] block leading-snug">
+                        {res.desc}
+                      </span>
+                    </div>
+                    {currentDpi === res.dpi && (
+                      <Check className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)] ml-2 shrink-0" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -644,7 +753,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </button>
           ) : isTotalFailure ? (
             <button 
-              onClick={() => onReExtractDocument(document.id, taskMode)}
+              onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
               className="h-8 px-3.5 bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white font-semibold text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
               type="button" 
               aria-label="Retry extraction"
@@ -708,7 +817,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 </div>
               ) : (
                 <button
-                  onClick={() => onReExtractDocument(document.id, taskMode)}
+                  onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
                   className="h-8 px-2.5 text-[#4B5563] dark:text-[var(--text-1)] hover:text-[#14213D] dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] hover:dark:bg-[var(--bg-active)] rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
                   title="Re-extract entire document with current settings"
                   type="button"
@@ -770,7 +879,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </div>
           ) : (
             <button 
-              onClick={() => onRunDocumentExtraction(document.id, taskMode)}
+              onClick={() => onRunDocumentExtraction(document.id, taskMode, currentDpi)}
               className="h-8 px-3.5 bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white font-semibold text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
               type="button" 
               aria-label="Extract Document"
@@ -923,7 +1032,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </p>
             <button
               type="button"
-              onClick={() => onReExtractDocument(document.id, taskMode)}
+              onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
               className="mt-1 h-8 px-3.5 bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-medium text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none"
             >
               <Play className="w-3.5 h-3.5 fill-current leading-none" aria-hidden="true" />
@@ -963,7 +1072,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => onReExtractDocument(document.id, taskMode)}
+                onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
                 className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium rounded text-xs transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
               >
                 Retry

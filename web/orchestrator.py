@@ -48,6 +48,7 @@ class JobState:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     prompt_mode: str = "text"
+    dpi: Optional[int] = None
 
 
 class WebOrchestrator:
@@ -201,7 +202,7 @@ class WebOrchestrator:
             job.cancel_event.set()
         return job
 
-    def enqueue(self, job_id: str, prompt_mode: str = "text") -> None:
+    def enqueue(self, job_id: str, prompt_mode: str = "text", dpi: Optional[int] = None) -> None:
         """Enqueue an existing job for processing."""
         with self._lock:
             job = self.jobs.get(job_id)
@@ -218,6 +219,7 @@ class WebOrchestrator:
                     f"Processing queue is full (max {self._queue.maxsize} jobs)"
                 )
             job.prompt_mode = prompt_mode
+            job.dpi = dpi
             job.run_id = uuid.uuid4().hex[:8]
             job.pages_data.clear()
             job.current_page = 0
@@ -364,15 +366,20 @@ class WebOrchestrator:
                 )
 
             doc_settings = getattr(self.engine, "settings", None)
+            effective_dpi = (
+                job.dpi
+                if job.dpi is not None
+                else (getattr(doc_settings, "dpi", 100) if doc_settings is not None else 100)
+            )
             if doc_settings is not None:
                 doc_settings = copy.deepcopy(doc_settings)
                 cfg = JobConfig(
-                    dpi=getattr(doc_settings, "dpi", 100),
+                    dpi=effective_dpi,
                     max_image_dimension=getattr(doc_settings, "max_image_dimension", 2048),
                     prompt_mode=job.prompt_mode,
                 )
             else:
-                cfg = JobConfig(prompt_mode=job.prompt_mode)
+                cfg = JobConfig(dpi=effective_dpi, prompt_mode=job.prompt_mode)
 
             logger.info(
                 "Executing job %s with prompt_mode '%s' (effective prompt: %r)",

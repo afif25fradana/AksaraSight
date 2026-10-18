@@ -227,6 +227,7 @@ def _pick_executable_file() -> Optional[str]:
 
 class ExtractRequest(BaseModel):
     prompt_mode: Optional[str] = "text"
+    dpi: Optional[int] = None
 
 
 class OutputOpenRequest(BaseModel):
@@ -907,6 +908,13 @@ def create_app(
         if not job:
             raise HTTPException(status_code=404, detail="Document job not found")
 
+        if payload and payload.dpi is not None:
+            if not (50 <= payload.dpi <= 600):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid dpi: must be between 50 and 600",
+                )
+
         mode = (payload.prompt_mode if payload and payload.prompt_mode else "text").strip().lower()
         if mode not in PROMPT_PRESETS:
             raise HTTPException(
@@ -914,8 +922,10 @@ def create_app(
                 detail=f"Invalid prompt_mode: '{mode}'. Valid modes: {list(PROMPT_PRESETS.keys())}",
             )
 
+        dpi = payload.dpi if payload else None
+
         try:
-            app_orchestrator.enqueue(job_id, prompt_mode=mode)
+            app_orchestrator.enqueue(job_id, prompt_mode=mode, dpi=dpi)
         except KeyError:
             raise HTTPException(status_code=404, detail="Document job not found")
         except RuntimeError as e:

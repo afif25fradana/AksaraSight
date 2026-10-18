@@ -63,6 +63,8 @@ export default function App() {
     return null;
   });
 
+  const [selectedDpi, setSelectedDpi] = useState<number>(100);
+
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
 
@@ -525,11 +527,12 @@ export default function App() {
   };
 
   // Run whole document extraction via POST /api/documents/{id}/extract
-  const handleRunDocumentExtraction = async (docId: string, promptMode?: PromptMode) => {
+  const handleRunDocumentExtraction = async (docId: string, promptMode?: PromptMode, dpi?: number) => {
     if (runningJobDocId !== null || engineSettings.status === 'offline') return;
     setRunningJobDocId(docId);
 
     const mode = promptMode || (selectedDocument?.id === docId ? (selectedDocument.promptMode || 'text') : 'text');
+    const extractDpi = dpi || selectedDpi || 100;
 
     setDocuments((prev) =>
       prev.map((doc) =>
@@ -543,7 +546,7 @@ export default function App() {
       const res = await fetch(`/api/documents/${docId}/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt_mode: mode }),
+        body: JSON.stringify({ prompt_mode: mode, dpi: extractDpi }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -654,7 +657,7 @@ export default function App() {
     );
   };
 
-  const handleReExtractDocument = (docId: string, promptMode?: PromptMode) => {
+  const handleReExtractDocument = (docId: string, promptMode?: PromptMode, dpi?: number) => {
     if (runningJobDocId !== null) {
       setDocuments((prev) => {
         const currentQueued = prev.filter((d) => d.status === 'Waiting' || d.isReExtractionQueued);
@@ -671,7 +674,7 @@ export default function App() {
         );
       });
     } else {
-      handleRunDocumentExtraction(docId, promptMode);
+      handleRunDocumentExtraction(docId, promptMode, dpi);
     }
   };
 
@@ -877,6 +880,8 @@ export default function App() {
                 document={selectedDocument}
                 runningJobDocId={runningJobDocId}
                 isEngineOnline={engineSettings.status === 'running'}
+                selectedDpi={selectedDpi}
+                onDpiChange={setSelectedDpi}
                 onStartEngine={() => setEngineSettings((prev) => ({ ...prev, status: 'running' }))}
                 onOpenSettings={() => setCurrentTab('settings')}
                 onExport={handleExport}

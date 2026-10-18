@@ -227,6 +227,8 @@ class WebOrchestrator:
             job.error = None
             job.result = None
             job.status = JobStatus.QUEUED
+            self.broadcast("queued", {"job_id": job.job_id})
+
 
     def cancel(self, job_id: str) -> bool:
         """Signal cooperative cancellation for a job."""

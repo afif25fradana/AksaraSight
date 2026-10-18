@@ -15,7 +15,8 @@ import {
   Layers,
   Code2,
   FileCode,
-  SlidersHorizontal
+  SlidersHorizontal,
+  RefreshCw
 } from 'lucide-react';
 import { DocumentItem, PromptMode, OutputFormatType } from '../types';
 
@@ -23,6 +24,7 @@ interface ExtractedTextPanelProps {
   document: DocumentItem | null;
   runningJobDocId: string | null;
   isEngineOnline: boolean;
+  isTransitioning?: boolean;
   selectedDpi?: number;
   onDpiChange?: (dpi: number) => void;
   onStartEngine: () => void;
@@ -101,6 +103,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   document,
   runningJobDocId,
   isEngineOnline,
+  isTransitioning = false,
   selectedDpi,
   onDpiChange,
   onStartEngine,
@@ -985,11 +988,21 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             <div className="flex items-center gap-3 pt-1">
               <button 
                 onClick={onStartEngine}
-                className="h-8.5 bg-[#0F766E] dark:bg-[var(--accent)] text-white dark:text-[var(--bg-base)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 font-medium px-4 rounded-lg active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out shadow-xs flex items-center gap-1.5 text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none" 
+                disabled={isTransitioning}
+                className="h-8.5 bg-[#0F766E] dark:bg-[var(--accent)] text-white dark:text-[var(--bg-base)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 disabled:opacity-50 disabled:cursor-not-allowed font-medium px-4 rounded-lg active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out shadow-xs flex items-center gap-1.5 text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none" 
                 type="button" 
               >
-                <Play className="w-4 h-4 text-white dark:text-[var(--bg-base)]" aria-hidden="true" />
-                <span>Start Engine</span>
+                {isTransitioning ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white dark:text-[var(--bg-base)]" aria-hidden="true" />
+                    <span>Starting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 text-white dark:text-[var(--bg-base)]" aria-hidden="true" />
+                    <span>Start Engine</span>
+                  </>
+                )}
               </button>
               <button 
                 onClick={onOpenSettings}

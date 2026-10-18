@@ -230,12 +230,6 @@ export default function App() {
 
     rehydrateDocuments();
 
-    fetch('/health')
-      .then((res) => {
-        if (res.ok) setEngineSettings((s) => ({ ...s, status: 'running' }));
-      })
-      .catch(() => setEngineSettings((s) => ({ ...s, status: 'offline' })));
-
     const eventSource = new EventSource('/api/events');
 
     if (typeof window !== 'undefined') {
@@ -250,6 +244,21 @@ export default function App() {
     eventSource.onerror = (err) => {
       console.warn('SSE connection interrupted, keeping local state:', err);
     };
+
+    eventSource.addEventListener('queued', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        setDocuments((prev) =>
+          prev.map((doc) =>
+            doc.id === data.job_id
+              ? { ...doc, status: 'Waiting', statusNote: 'Queued for processing' }
+              : doc
+          )
+        );
+      } catch (err) {
+        console.error('Error handling queued event', err);
+      }
+    });
 
     eventSource.addEventListener('started', (e: MessageEvent) => {
       try {
@@ -528,8 +537,12 @@ export default function App() {
 
   // Run whole document extraction via POST /api/documents/{id}/extract
   const handleRunDocumentExtraction = async (docId: string, promptMode?: PromptMode, dpi?: number) => {
-    if (runningJobDocId !== null || engineSettings.status === 'offline') return;
-    setRunningJobDocId(docId);
+    if (serverStatus?.status !== 'ready' && engineSettings.status !== 'running') return;
+
+    const isBusy = runningJobDocId !== null;
+    if (!isBusy) {
+      setRunningJobDocId(docId);
+    }
 
     const mode = promptMode || (selectedDocument?.id === docId ? (selectedDocument.promptMode || 'text') : 'text');
     const extractDpi = dpi || selectedDpi || 100;
@@ -537,7 +550,9 @@ export default function App() {
     setDocuments((prev) =>
       prev.map((doc) =>
         doc.id === docId
-          ? { ...doc, status: 'Processing', processedPages: 0, statusNote: undefined, promptMode: mode }
+          ? isBusy
+            ? { ...doc, status: 'Waiting', statusNote: 'Queued for processing', promptMode: mode }
+            : { ...doc, status: 'Processing', processedPages: 0, statusNote: undefined, promptMode: mode }
           : doc
       )
     );
@@ -574,20 +589,7 @@ export default function App() {
   };
 
   const handleAddToQueue = (docId: string) => {
-    setDocuments((prev) => {
-      const currentQueued = prev.filter((d) => d.status === 'Waiting' || d.isReExtractionQueued);
-      const nextPos = currentQueued.length + 1;
-      return prev.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              status: 'Waiting' as const,
-              queuePosition: nextPos,
-              statusNote: `Queued #${nextPos}`,
-            }
-          : doc
-      );
-    });
+    handleRunDocumentExtraction(docId);
   };
 
   const handleRemoveFromQueue = (docId: string) => {
@@ -679,17 +681,7 @@ export default function App() {
   };
 
   const handleRetryDoc = (docId: string) => {
-    setDocuments((prev) =>
-      prev.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              status: 'Waiting',
-              statusNote: 'Queued for retry',
-            }
-          : doc
-      )
-    );
+    handleRunDocumentExtraction(docId);
   };
 
   const handleRemoveDoc = (docId: string) => {
@@ -711,8 +703,6 @@ export default function App() {
     if (!selectedDocument) return;
 
     const baseName = selectedDocument.name.replace(/\.[^/.]+$/, '');
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     const triggerDownload = (ext: 'docx' | 'md' | 'json') => {
       const downloadUrl = `/api/documents/${selectedDocument.id}/export?format=${ext}`;
@@ -722,17 +712,6 @@ export default function App() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      const newExport: ExportedFile = {
-        id: `exp-${Date.now()}-${ext}`,
-        filename: `${baseName}.${ext}`,
-        type: ext,
-        timestamp: formattedDate,
-        content: selectedDocument.extractedText || '',
-        size: 'Exported',
-        localPath: `output/${baseName}.${ext}`,
-      };
-      setExportedFiles((prev) => [newExport, ...prev]);
     };
 
     if (format === 'both') {
@@ -879,10 +858,11 @@ export default function App() {
               <ExtractedTextPanel
                 document={selectedDocument}
                 runningJobDocId={runningJobDocId}
-                isEngineOnline={engineSettings.status === 'running'}
+                isEngineOnline={serverStatus ? String(serverStatus.status).toLowerCase() === 'ready' : engineSettings.status === 'running'}
+                isTransitioning={isServerTransitioning}
                 selectedDpi={selectedDpi}
                 onDpiChange={setSelectedDpi}
-                onStartEngine={() => setEngineSettings((prev) => ({ ...prev, status: 'running' }))}
+                onStartEngine={handleToggleServer}
                 onOpenSettings={() => setCurrentTab('settings')}
                 onExport={handleExport}
                 onRunDocumentExtraction={handleRunDocumentExtraction}

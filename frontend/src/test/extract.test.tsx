@@ -52,11 +52,11 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
           json: async () => [mockDoc],
         } as Response);
       }
-      if (urlStr === '/health') {
+      if (urlStr === '/api/server/status') {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ status: 'ok' }),
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
         } as Response);
       }
       if (urlStr.includes('/extract') && init?.method === 'POST') {
@@ -119,11 +119,11 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
           json: async () => [mockDoc],
         } as Response);
       }
-      if (urlStr === '/health') {
+      if (urlStr === '/api/server/status') {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ status: 'ok' }),
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
         } as Response);
       }
       if (urlStr.includes('/extract') && init?.method === 'POST') {
@@ -179,11 +179,11 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
           json: async () => [mockDoc],
         } as Response);
       }
-      if (urlStr === '/health') {
+      if (urlStr === '/api/server/status') {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ status: 'ok' }),
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
         } as Response);
       }
       if (urlStr.includes('/extract') && init?.method === 'POST') {
@@ -239,6 +239,82 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
       expect(callInit?.method).toBe('POST');
       expect(callInit?.headers).toEqual({ 'Content-Type': 'application/json' });
       expect(callInit?.body).toBe(JSON.stringify({ prompt_mode: 'text', dpi: 150 }));
+    });
+  });
+
+  it('enqueues document via POST /api/documents/{id}/extract when Add to Queue is clicked while another document is running', async () => {
+    const user = userEvent.setup();
+    const docRunning: DocumentItem = {
+      id: 'doc-running-1',
+      name: 'doc-running.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Processing',
+      processedPages: 0,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: '',
+    };
+    const docPending: DocumentItem = {
+      id: 'doc-pending-2',
+      name: 'doc-pending.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Not extracted',
+      processedPages: 0,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: '',
+    };
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [docRunning, docPending],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/extract') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const pendingDocItem = await screen.findByText('doc-pending.pdf');
+    await user.click(pendingDocItem);
+
+    const addQueueButton = await screen.findByRole('button', { name: 'Add to Queue' });
+    await user.click(addQueueButton);
+
+    await waitFor(() => {
+      const extractCalls = fetchMock.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/documents/doc-pending-2/extract') && init?.method === 'POST'
+      );
+      expect(extractCalls).toHaveLength(1);
+      const [callUrl, callInit] = extractCalls[0];
+      expect(callUrl).toBe('/api/documents/doc-pending-2/extract');
+      expect(callInit?.method).toBe('POST');
     });
   });
 });
@@ -423,3 +499,88 @@ describe('ExtractedTextPanel Unified Extraction Options Popover', () => {
     expect(onRunDocumentExtraction).toHaveBeenCalledWith('doc-options-1', 'table', 100);
   });
 });
+
+describe('ExtractedTextPanel engine start and queue wiring', () => {
+  const defaultProps = {
+    runningJobDocId: null,
+    isEngineOnline: true,
+    selectedDpi: 100,
+    onDpiChange: vi.fn(),
+    onStartEngine: vi.fn(),
+    onOpenSettings: vi.fn(),
+    onExport: vi.fn(),
+    onRunDocumentExtraction: vi.fn(),
+    onAddToQueue: vi.fn(),
+    onRemoveFromQueue: vi.fn(),
+    onCancelExtraction: vi.fn(),
+    onReExtractDocument: vi.fn(),
+  };
+
+  const sampleDoc: DocumentItem = {
+    id: 'doc-queue-test',
+    name: 'test-queue.pdf',
+    pages: 1,
+    size: '200 KB',
+    status: 'Not extracted',
+    processedPages: 0,
+    currentPage: 1,
+    docType: 'invoice',
+    extractedText: '',
+  };
+
+  it('verifies clicking "Start Engine" calls onStartEngine', async () => {
+    const user = userEvent.setup();
+    const onStartEngine = vi.fn();
+
+    render(
+      <ExtractedTextPanel
+        {...defaultProps}
+        document={sampleDoc}
+        isEngineOnline={false}
+        isTransitioning={false}
+        onStartEngine={onStartEngine}
+      />
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start Engine/i });
+    expect(startBtn).toBeInTheDocument();
+    await user.click(startBtn);
+    expect(onStartEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Start Engine button and displays Starting... with spinner when isTransitioning is true', () => {
+    render(
+      <ExtractedTextPanel
+        {...defaultProps}
+        document={sampleDoc}
+        isEngineOnline={false}
+        isTransitioning={true}
+      />
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Starting\.\.\./i });
+    expect(startBtn).toBeInTheDocument();
+    expect(startBtn).toBeDisabled();
+  });
+
+  it('verifies "Add to Queue" calls onRunDocumentExtraction', async () => {
+    const user = userEvent.setup();
+    const onRunDocumentExtraction = vi.fn();
+
+    render(
+      <ExtractedTextPanel
+        {...defaultProps}
+        document={sampleDoc}
+        runningJobDocId="other-running-doc"
+        isEngineOnline={true}
+        onAddToQueue={onRunDocumentExtraction}
+      />
+    );
+
+    const addToQueueBtn = screen.getByRole('button', { name: 'Add to Queue' });
+    expect(addToQueueBtn).toBeInTheDocument();
+    await user.click(addToQueueBtn);
+    expect(onRunDocumentExtraction).toHaveBeenCalledWith('doc-queue-test');
+  });
+});
+

@@ -244,12 +244,22 @@ class ModelDownloader:
 
             # Check if file already exists and is valid
             if dest_file.is_file():
-                if dest_file.stat().st_size == expected_size and _compute_sha256(dest_file).lower() == expected_sha256.lower():
-                    logger.info("Model file already present and verified: %s", filename)
+                if dest_file.stat().st_size == expected_size:
                     with self._state_lock:
-                        self.bytes_downloaded += expected_size
+                        self.current_file = f"Verifying {filename} (SHA-256)..."
                     self._notify_progress()
-                    continue
+                    is_valid = _compute_sha256(dest_file).lower() == expected_sha256.lower()
+                    with self._state_lock:
+                        self.current_file = filename
+                    if is_valid:
+                        logger.info("Model file already present and verified: %s", filename)
+                        with self._state_lock:
+                            self.bytes_downloaded += expected_size
+                        self._notify_progress()
+                        continue
+                    else:
+                        logger.warning("Existing file invalid or incomplete; re-downloading: %s", filename)
+                        dest_file.unlink()
                 else:
                     logger.warning("Existing file invalid or incomplete; re-downloading: %s", filename)
                     dest_file.unlink()
@@ -262,7 +272,13 @@ class ModelDownloader:
                     logger.warning("Partial file oversized; discarding: %s", part_file.name)
                     part_file.unlink()
                 elif part_size == expected_size:
-                    if _compute_sha256(part_file).lower() == expected_sha256.lower():
+                    with self._state_lock:
+                        self.current_file = f"Verifying {part_file.name} (SHA-256)..."
+                    self._notify_progress()
+                    is_valid = _compute_sha256(part_file).lower() == expected_sha256.lower()
+                    with self._state_lock:
+                        self.current_file = filename
+                    if is_valid:
                         os.replace(part_file, dest_file)
                         with self._state_lock:
                             self.bytes_downloaded += expected_size

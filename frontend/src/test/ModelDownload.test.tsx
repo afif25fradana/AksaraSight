@@ -203,7 +203,8 @@ describe('Model Weights Management UI and Download Workflow', () => {
     expect(screen.getByText('1.34 GB')).toBeInTheDocument();
 
     // Verify Re-download button text when already downloaded
-    expect(screen.getByRole('button', { name: /Re-download \/ Verify Model/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Re-download Weights/i })).toBeInTheDocument();
+    expect(screen.getByText('Model verified & ready for offline inference.')).toBeInTheDocument();
   });
 
   // Test 2: displays "Not Downloaded (Using -hf fallback)" when not downloaded
@@ -395,5 +396,82 @@ describe('Model Weights Management UI and Download Workflow', () => {
     expect(await screen.findByText('Cancel Download')).toBeInTheDocument();
     expect(screen.getByText('glm-ocr-q8_0.gguf')).toBeInTheDocument();
     expect(screen.getByText(/50%/)).toBeInTheDocument();
+  });
+
+  // Test 7: clicking "Re-download Weights" prompts confirmation and aborts if dismissed
+  it('clicking "Re-download Weights" prompts confirmation and aborts if dismissed', async () => {
+    const user = userEvent.setup();
+    let downloadCalled = false;
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/model/download') && init?.method === 'POST') {
+        downloadCalled = true;
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: async () => ({ started: true }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => mockDownloadedStatus,
+      } as Response);
+    });
+
+    render(<SettingsView modelStatus={mockDownloadedStatus} />);
+
+    const redownloadBtn = await screen.findByRole('button', { name: 'Re-download Weights' });
+    await user.click(redownloadBtn);
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?'
+    );
+    expect(downloadCalled).toBe(false);
+  });
+
+  // Test 8: clicking "Re-download Weights" prompts confirmation and proceeds if confirmed
+  it('clicking "Re-download Weights" prompts confirmation and proceeds if confirmed', async () => {
+    const user = userEvent.setup();
+    let downloadCalled = false;
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/model/download') && init?.method === 'POST') {
+        downloadCalled = true;
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: async () => ({ started: true }),
+        } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockDownloadedStatus,
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    render(<SettingsView modelStatus={mockDownloadedStatus} />);
+
+    const redownloadBtn = await screen.findByRole('button', { name: 'Re-download Weights' });
+    await user.click(redownloadBtn);
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?'
+    );
+    await waitFor(() => {
+      expect(downloadCalled).toBe(true);
+    });
   });
 });

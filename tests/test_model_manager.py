@@ -396,3 +396,47 @@ def test_downloader_resumed_part_file_sha256_mismatch_deleted(tmp_path):
     assert "Digest mismatch" in downloader.error_message
 
 
+def test_downloader_notifies_sha256_verification(tmp_path):
+    """Verify ModelDownloader notifies progress with 'Verifying ... (SHA-256)...' when checking existing files."""
+    fake_model_content = b"fake-model-bytes"
+    fake_mmproj_content = b"fake-mmproj-bytes"
+
+    mock_files_spec = {
+        "model": {
+            "filename": "GLM-OCR-Q8_0.gguf",
+            "sha256": hashlib.sha256(fake_model_content).hexdigest(),
+            "size_bytes": len(fake_model_content),
+        },
+        "mmproj": {
+            "filename": "mmproj-GLM-OCR-Q8_0.gguf",
+            "sha256": hashlib.sha256(fake_mmproj_content).hexdigest(),
+            "size_bytes": len(fake_mmproj_content),
+        },
+    }
+
+    model_file = tmp_path / "GLM-OCR-Q8_0.gguf"
+    model_file.write_bytes(fake_model_content)
+
+    part_file = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf.part"
+    part_file.write_bytes(fake_mmproj_content)
+
+    mock_usage = MagicMock()
+    mock_usage.free = 50_000_000_000
+
+    observed_files = []
+
+    def progress_callback(status):
+        observed_files.append(status.get("current_file"))
+
+    downloader = ModelDownloader(dest_dir=tmp_path, progress_callback=progress_callback)
+
+    with patch.dict("core.model_manager.PINNED_MODEL_FILES", mock_files_spec):
+        with patch("shutil.disk_usage", return_value=mock_usage):
+            res = downloader.download()
+            assert res is True
+
+    assert "Verifying GLM-OCR-Q8_0.gguf (SHA-256)..." in observed_files
+    assert "Verifying mmproj-GLM-OCR-Q8_0.gguf.part (SHA-256)..." in observed_files
+
+
+

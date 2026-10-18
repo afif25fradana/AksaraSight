@@ -262,6 +262,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Model download & cancel handlers
   const handleDownloadModelAction = async () => {
+    if (effectiveModelStatus?.downloaded && !window.confirm('Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?')) return;
     if (onDownloadModel) {
       await onDownloadModel();
     } else {
@@ -976,7 +977,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className="flex items-center justify-between pt-1">
                       <div className="text-xs text-[#5A6478] dark:text-[var(--text-2)]">
                         {effectiveModelStatus?.downloaded ? (
-                          <span>Local weights verified and cached for offline inference.</span>
+                          <div className="flex items-center gap-1.5 text-[#15803D] dark:text-[var(--success)] font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>Model verified & ready for offline inference.</span>
+                          </div>
                         ) : (
                           <span>Download pinned weights to run OCR without online Hugging Face hub requests.</span>
                         )}
@@ -988,7 +992,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       >
                         <Download className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>
-                          {effectiveModelStatus?.downloaded ? 'Re-download / Verify Model' : 'Download Pinned Model'}
+                          {effectiveModelStatus?.downloaded ? 'Re-download Weights' : 'Download Pinned Model'}
                         </span>
                       </button>
                     </div>

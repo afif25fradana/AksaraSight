@@ -75,7 +75,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
               className={`text-[12px] font-medium transition-all duration-150 px-2 py-0.5 rounded ${
                 hasFinished
                   ? 'text-[#4B5563] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] hover:bg-black/[0.04] dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] hover:dark:bg-[var(--bg-active)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none'
-                  : 'text-[#8A94A6] dark:text-[var(--text-3)] opacity-40 cursor-not-allowed select-none'
+                  : 'text-[#5A6478] dark:text-[var(--text-3)] opacity-40 cursor-not-allowed select-none'
               }`}
               title={hasFinished ? `Purge ${finishedCount} completed/failed items from queue` : 'No finished items to clear'}
             >
@@ -89,10 +89,19 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
       {isEmpty ? (
         <div className="flex-1 p-4 flex flex-col">
           <div
+            tabIndex={0}
+            role="button"
+            aria-label="Upload documents"
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="flex-1 border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className="flex-1 border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
           >
             <input 
               ref={fileInputRef}
@@ -101,6 +110,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
               multiple 
               accept=".pdf,.tiff,.tif,.jpg,.jpeg,.png" 
               onChange={handleFileChange}
+              aria-label="Upload document files"
             />
             <div className="w-10 h-10 rounded-lg bg-black/[0.04] dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] flex items-center justify-center mb-3 text-[#14213D] dark:text-[var(--text-1)]">
               <Upload className="w-5 h-5 text-[#14213D] dark:text-[var(--text-1)]" aria-hidden="true" />
@@ -131,11 +141,13 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-3 text-center cursor-pointer group flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+              className="border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-3 text-center cursor-pointer group flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
               tabIndex={0}
               role="button"
+              aria-label="Upload documents"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
                   fileInputRef.current?.click();
                 }
               }}
@@ -147,6 +159,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
                 multiple
                 accept=".pdf,.tiff,.tif,.jpg,.jpeg,.png" 
                 onChange={handleFileChange}
+                aria-label="Upload document files"
               />
               <div className="flex items-center justify-center gap-1.5 text-[#14213D] dark:text-[var(--text-1)]">
                 <PlusCircle className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />

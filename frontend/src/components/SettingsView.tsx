@@ -673,7 +673,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         ref={(el) => { runtimeRefs.current.managed = el; }}
                         type="button"
                         onClick={() => setFormData((prev) => ({ ...prev, runtime_mode: 'managed' }))}
-                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                           formData.runtime_mode === 'managed' 
                             ? 'text-[#14213D] dark:text-[var(--text-1)]' 
                             : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
@@ -685,7 +685,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         ref={(el) => { runtimeRefs.current.custom = el; }}
                         type="button"
                         onClick={() => setFormData((prev) => ({ ...prev, runtime_mode: 'custom' }))}
-                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                        className={`relative z-10 px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                           formData.runtime_mode === 'custom' 
                             ? 'text-[#14213D] dark:text-[var(--text-1)]' 
                             : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
@@ -752,7 +752,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                               ref={(el) => { targetRefs.current[backendOption] = el; }}
                               type="button"
                               onClick={() => setFormData((prev) => ({ ...prev, managed_backend_override: backendOption }))}
-                              className={`relative z-10 px-2.5 py-0.5 rounded text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out ${
+                              className={`relative z-10 px-2.5 py-0.5 rounded text-[12px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                                 (formData.managed_backend_override || 'auto') === backendOption 
                                   ? 'text-[#14213D] dark:text-[var(--text-1)]' 
                                   : 'text-[#374151] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
@@ -856,7 +856,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           <button
                             type="button"
                             onClick={handleBrowseExecutable}
-                            className="h-[34px] px-3 border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-md text-[12.5px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                            className="h-[34px] px-3 border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-md text-[12.5px] font-medium transition-colors cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                             title="Browse local disk for llama-server executable"
                           >
                             <FolderOpen className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" />
@@ -1154,7 +1154,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         key={stepDpi}
                         type="button"
                         onClick={() => setFormData((prev) => ({ ...prev, dpi: stepDpi }))}
-                        className={`cursor-pointer transition-colors bg-transparent border-0 pb-0.5 ${
+                        className={`cursor-pointer transition-colors bg-transparent border-0 pb-0.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none rounded-xs ${
                           formData.dpi === stepDpi 
                             ? 'text-[#0F766E] dark:text-[var(--accent)] font-bold border-b-2 border-[#0F766E] dark:border-[var(--accent)]' 
                             : 'border-b-2 border-transparent hover:text-[#14213D] dark:hover:text-[var(--text-1)]'

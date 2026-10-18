@@ -68,13 +68,21 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
 
   const handleDeleteFile = async (file: ExportedFile) => {
     try {
-      await fetch(`/api/output/${encodeURIComponent(file.filename)}`, { method: 'DELETE' });
-    } catch (err) {
+      const res = await fetch(`/api/output/${encodeURIComponent(file.filename)}`, { method: 'DELETE' });
+      if (res.ok) {
+        onDeleteFile(file.id);
+        setDeleteConfirmId(null);
+        setSelectedFile(null);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const errorMsg = errData.detail || errData.error || errData.message || `Failed to delete file (HTTP ${res.status})`;
+        console.error('Failed to delete output file from disk:', errorMsg);
+        alert(errorMsg);
+      }
+    } catch (err: any) {
       console.error('Failed to delete output file from disk:', err);
+      alert(err?.message || 'Failed to delete file');
     }
-    onDeleteFile(file.id);
-    setDeleteConfirmId(null);
-    setSelectedFile(null);
   };
 
   return (
@@ -103,7 +111,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
           </div>
           <button 
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
+            className="w-8 h-8 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
             aria-label="Close"
             type="button"
           >
@@ -122,7 +130,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopyFolderPath}
-                className="text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] ml-1 p-0.5 rounded cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out"
+                className="text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] ml-1 p-0.5 rounded cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                 title="Copy folder path"
                 aria-label="Copy folder path"
               >
@@ -144,7 +152,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
             <button
               type="button"
               onClick={() => handleOpenInExplorer()}
-              className="h-8 px-3.5 bg-[#0F766E] dark:bg-[var(--accent)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 active:bg-[#0d4f4b] text-white dark:text-[var(--bg-base)] font-semibold text-[12.5px] rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+              className="h-8 px-3.5 bg-[#0F766E] dark:bg-[var(--accent)] hover:bg-[#115E59] dark:hover:bg-[var(--accent)]/90 active:bg-[#0d4f4b] text-white dark:text-[var(--bg-base)] font-semibold text-[12.5px] rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
               title="Open folder in Windows File Explorer (os.startfile)"
             >
               <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
@@ -163,7 +171,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
             </div>
             {files.length === 0 ? (
               <div className="p-8 text-center text-[13px] text-[#5A6478] dark:text-[var(--text-2)]">
-                <FileText className="w-8 h-8 text-[#8A94A6] dark:text-[var(--text-3)] mx-auto mb-2 opacity-50" />
+                <FileText className="w-8 h-8 text-[#5A6478] dark:text-[var(--text-3)] mx-auto mb-2 opacity-50" />
                 No exported files in output directory yet.
               </div>
             ) : (
@@ -183,15 +191,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                       setSelectedFile(file);
                       setDeleteConfirmId(null);
                     }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        setSelectedFile(file);
-                        setDeleteConfirmId(null);
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    className={`p-2.5 rounded-lg flex items-center justify-between cursor-pointer text-[13px] transition-colors group focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none ${
+                    className={`p-2.5 rounded-lg flex items-center justify-between cursor-pointer text-[13px] transition-colors group ${
                       isSelected
                         ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15 border border-[#0F766E]/30 dark:border-[var(--accent)]/40 text-[#14213D] dark:text-[var(--text-1)] font-medium shadow-2xs'
                         : 'hover:bg-black/[0.03] dark:hover:bg-[var(--bg-elevated)] text-[#374151] dark:text-[var(--text-2)] border border-transparent'
@@ -214,7 +214,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                           e.stopPropagation();
                           handleOpenInExplorer(fullDiskPath);
                         }}
-                        className="px-2 py-1 text-[11px] border border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E] dark:hover:border-[var(--accent)] hover:bg-white dark:hover:bg-[var(--bg-elevated)] text-[#4B5563] dark:text-[var(--text-2)] hover:text-[#0F766E] dark:hover:text-[var(--accent)] rounded transition-colors cursor-pointer flex items-center gap-1"
+                        className="px-2 py-1 text-[11px] border border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E] dark:hover:border-[var(--accent)] hover:bg-white dark:hover:bg-[var(--bg-elevated)] text-[#4B5563] dark:text-[var(--text-2)] hover:text-[#0F766E] dark:hover:text-[var(--accent)] rounded transition-colors cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                         title="Reveal file in Windows File Explorer"
                       >
                         <ExternalLink className="w-3 h-3" />
@@ -249,7 +249,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenInExplorer(selectedFile.localPath || `${effectiveFolderPath}\\${selectedFile.filename}`)}
-                        className="px-2.5 py-1 text-[11.5px] bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 hover:bg-[#0F766E]/15 dark:hover:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)] border border-[#0F766E]/30 dark:border-[var(--accent)]/30 rounded-md font-medium flex items-center gap-1.5 cursor-pointer"
+                        className="px-2.5 py-1 text-[11.5px] bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 hover:bg-[#0F766E]/15 dark:hover:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)] border border-[#0F766E]/30 dark:border-[var(--accent)]/30 rounded-md font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                         title="Reveal in Windows Explorer"
                       >
                         <ExternalLink className="w-3 h-3" />
@@ -264,14 +264,14 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleDeleteFile(selectedFile)}
-                          className="px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white rounded text-[11px] font-medium cursor-pointer"
+                          className="px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white rounded text-[11px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 dark:focus-visible:ring-[var(--danger)] focus-visible:outline-none"
                         >
                           Yes
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeleteConfirmId(null)}
-                          className="px-2 py-0.5 border border-[#8A94A6] dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] text-[#374151] dark:text-[var(--text-1)] rounded text-[11px] font-medium cursor-pointer"
+                          className="px-2 py-0.5 border border-[#8A94A6] dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] text-[#374151] dark:text-[var(--text-1)] rounded text-[11px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                         >
                           Cancel
                         </button>
@@ -279,7 +279,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                     ) : (
                       <button
                         onClick={() => setDeleteConfirmId(selectedFile.id)}
-                        className="p-1 text-[#5A6478] dark:text-[var(--text-2)] hover:text-red-700 dark:hover:text-[var(--danger)] rounded-md hover:bg-red-50 dark:hover:bg-[var(--danger)]/10 cursor-pointer"
+                        className="p-1 text-[#5A6478] dark:text-[var(--text-2)] hover:text-red-700 dark:hover:text-[var(--danger)] rounded-md hover:bg-red-50 dark:hover:bg-[var(--danger)]/10 cursor-pointer focus-visible:ring-2 focus-visible:ring-red-600 dark:focus-visible:ring-[var(--danger)] focus-visible:outline-none"
                         title="Delete file"
                         aria-label="Delete file"
                         type="button"
@@ -318,7 +318,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
           <span>Destination managed by AksaraSight Engine (OCR_OUTPUT_DIR)</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] text-[#14213D] dark:text-[var(--text-1)] font-medium hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+            className="px-4 py-1.5 rounded-lg border border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] text-[#14213D] dark:text-[var(--text-1)] font-medium hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
             type="button"
           >
             Close

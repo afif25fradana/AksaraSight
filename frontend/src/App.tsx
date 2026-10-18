@@ -482,10 +482,14 @@ export default function App() {
           setDocuments((prev) => [...prev, newItem]);
           setSelectedDocId(docId);
         } else {
-          console.error('Upload failed with status', res.status);
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.detail || errData.error || errData.message || `Upload failed (HTTP ${res.status})`;
+          console.error('Upload failed with status', res.status, errorMsg);
+          alert(errorMsg);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to upload file', err);
+        alert(err?.message || 'Failed to upload file');
       }
     }
   };
@@ -562,13 +566,33 @@ export default function App() {
     );
 
     try {
-      await fetch(`/api/documents/${docId}/extract`, {
+      const res = await fetch(`/api/documents/${docId}/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt_mode: mode }),
       });
-    } catch (err) {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errorMsg = errData.detail || errData.error || errData.message || 'Extraction failed';
+        setRunningJobDocId((curr) => (curr === docId ? null : curr));
+        setDocuments((prev) =>
+          prev.map((doc) =>
+            doc.id === docId
+              ? { ...doc, status: 'Failed', statusNote: errorMsg }
+              : doc
+          )
+        );
+      }
+    } catch (err: any) {
       console.error('Failed to start document extraction:', err);
+      setRunningJobDocId((curr) => (curr === docId ? null : curr));
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === docId
+            ? { ...doc, status: 'Failed', statusNote: err?.message || 'Failed to start extraction' }
+            : doc
+        )
+      );
     }
   };
 
@@ -761,13 +785,24 @@ export default function App() {
     setIsServerTransitioning(true);
     try {
       if (isRunning) {
-        await fetch('/api/server/stop', { method: 'POST' });
+        const res = await fetch('/api/server/stop', { method: 'POST' });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.detail || errData.error || errData.message || `Failed to stop server (HTTP ${res.status})`;
+          alert(errorMsg);
+        }
       } else {
-        await fetch('/api/server/start', { method: 'POST' });
+        const res = await fetch('/api/server/start', { method: 'POST' });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.detail || errData.error || errData.message || `Failed to start server (HTTP ${res.status})`;
+          alert(errorMsg);
+        }
       }
       await fetchServerStatus();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to toggle server state:', err);
+      alert(err?.message || 'Failed to toggle server state');
     } finally {
       setIsServerTransitioning(false);
     }

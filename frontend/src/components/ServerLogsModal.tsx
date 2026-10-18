@@ -202,7 +202,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
           </div>
           <button 
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] flex items-center justify-center cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
+            className="w-8 h-8 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] flex items-center justify-center cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
             aria-label="Close"
             type="button"
           >
@@ -218,6 +218,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
               <input
                 type="text"
                 placeholder="Filter logs..."
+                aria-label="Filter logs"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[var(--bg-base)] border border-[#8A94A6]/35 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] placeholder-[#5A6478] dark:placeholder-[var(--text-3)] rounded-lg text-[12px] focus:outline-none focus:border-[#0F766E] dark:focus:border-[var(--accent)] focus:ring-1 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)] font-mono"
@@ -229,7 +230,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
                   key={lvl}
                   type="button"
                   onClick={() => setLevelFilter(lvl)}
-                  className={`px-2 py-1 rounded text-[11px] font-mono cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out ${
+                  className={`px-2 py-1 rounded text-[11px] font-mono cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                     levelFilter === lvl
                       ? 'bg-[#0F766E] dark:bg-[var(--accent)]/15 text-white dark:text-[var(--accent)] font-semibold shadow-2xs dark:shadow-none'
                       : 'text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] hover:bg-black/5 dark:hover:bg-white/5'
@@ -245,7 +246,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
             <button
               type="button"
               onClick={() => setAutoScroll(!autoScroll)}
-              className={`px-2.5 py-1.5 rounded-lg border text-[11.5px] flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg border text-[11.5px] flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                 autoScroll
                   ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/30 dark:border-[var(--accent)]/30 text-[#0F766E] dark:text-[var(--accent)] font-medium'
                   : 'border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] text-[#14213D] dark:text-[var(--text-1)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)]'
@@ -257,7 +258,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
             <button
               type="button"
               onClick={handleCopy}
-              className="px-3 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] text-[11.5px] flex items-center gap-1.5 cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out"
+              className="px-3 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] text-[11.5px] flex items-center gap-1.5 cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
             >
               {copied ? (
                 <>
@@ -333,7 +334,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] font-medium transition-colors cursor-pointer text-[12px]"
+            className="px-3.5 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] font-medium transition-colors cursor-pointer text-[12px] focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
             type="button"
           >
             Close

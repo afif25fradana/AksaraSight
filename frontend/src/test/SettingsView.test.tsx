@@ -21,6 +21,13 @@ const mockDefaultSettings: BackendSettings = {
   llama_server_path: null,
 };
 
+const mockRuntimeStatus = {
+  installed: false,
+  is_downloading: false,
+  active_tag: 'b11361',
+  recommended_backend: 'cpu',
+};
+
 describe('SettingsView backend integration and security', () => {
   const originalFetch = global.fetch;
 
@@ -40,6 +47,13 @@ describe('SettingsView backend integration and security', () => {
           ok: true,
           status: 200,
           json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
         } as Response);
       }
       if (urlStr.includes('/api/doctor') && (!init || !init.method || init.method === 'GET')) {
@@ -108,6 +122,13 @@ describe('SettingsView backend integration and security', () => {
           ok: true,
           status: 200,
           json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
         } as Response);
       }
       if (urlStr.includes('/api/doctor') && (!init || !init.method || init.method === 'GET')) {
@@ -195,6 +216,13 @@ describe('SettingsView backend integration and security', () => {
           ok: true,
           status: 200,
           json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
         } as Response);
       }
       if (urlStr.includes('/api/doctor')) {
@@ -289,6 +317,13 @@ describe('SettingsView backend integration and security', () => {
           json: async () => mockDefaultSettings,
         } as Response);
       }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
+        } as Response);
+      }
       if (urlStr.includes('/api/doctor')) {
         if (init?.method === 'POST') {
           postDoctorCalled = true;
@@ -341,6 +376,13 @@ describe('SettingsView backend integration and security', () => {
           json: async () => mockDefaultSettings,
         } as Response);
       }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
+        } as Response);
+      }
       if (urlStr.includes('/api/doctor')) {
         return Promise.resolve({
           ok: false,
@@ -380,6 +422,13 @@ describe('SettingsView backend integration and security', () => {
           ok: true,
           status: 200,
           json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockRuntimeStatus,
         } as Response);
       }
       if (urlStr.includes('/api/doctor') && (!init || !init.method || init.method === 'GET')) {

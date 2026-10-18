@@ -807,7 +807,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             role="tab"
             aria-selected={activePreviewTab === 'formatted'}
             onClick={() => setActivePreviewTab('formatted')}
-            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer ${
+            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
               activePreviewTab === 'formatted'
                 ? 'text-[#14213D] dark:text-[var(--text-1)]'
                 : 'text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
@@ -823,7 +823,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             role="tab"
             aria-selected={activePreviewTab === 'raw'}
             onClick={() => setActivePreviewTab('raw')}
-            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer ${
+            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
               activePreviewTab === 'raw'
                 ? 'text-[#14213D] dark:text-[var(--text-1)]'
                 : 'text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
@@ -839,7 +839,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             role="tab"
             aria-selected={activePreviewTab === 'json'}
             onClick={() => setActivePreviewTab('json')}
-            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer ${
+            className={`relative z-10 px-2.5 py-1 rounded-md text-xs font-medium active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
               activePreviewTab === 'json'
                 ? 'text-[#14213D] dark:text-[var(--text-1)]'
                 : 'text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)]'

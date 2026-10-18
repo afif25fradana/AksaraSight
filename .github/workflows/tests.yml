@@ -50,6 +50,13 @@ jobs:
             exit 1
           fi
 
+      - name: Upload static bundle on mismatch
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-bundle-linux
+          path: web/static/
+
 
   test-windows:
     name: Windows Python ${{ matrix.python-version }} (Full Test Suite)

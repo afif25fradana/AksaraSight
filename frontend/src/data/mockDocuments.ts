@@ -143,7 +143,7 @@ export const INITIAL_DOCUMENTS: DocumentItem[] = [
 ];
 
 export const INITIAL_SETTINGS: EngineSettings = {
-  status: 'running',
+  status: 'offline',
   backend: 'llama-cpp',
   runtimeSource: 'managed',
   customLlamaServerPath: '',

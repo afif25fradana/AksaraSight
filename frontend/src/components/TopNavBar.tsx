@@ -30,7 +30,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   isTransitioning = false,
 }) => {
   const rawStatus = String(
-    serverStatus?.status || (engineSettings.status === 'running' ? 'ready' : 'offline')
+    serverStatus?.status || 'offline'
   ).toLowerCase();
   const currentStatus: 'offline' | 'starting' | 'ready' | 'error' =
     rawStatus === 'ready' || rawStatus === 'starting' || rawStatus === 'error'
@@ -71,7 +71,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   let buttonDisabled = false;
   let buttonTitle = '';
   let buttonAriaLabel = '';
-  let buttonText = 'Stop Server';
+  let buttonText = 'Start Server';
 
   if (isServerRunning) {
     if (String(serverStatus?.ownership || '').toLowerCase() === 'external') {

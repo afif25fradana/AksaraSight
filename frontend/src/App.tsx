@@ -922,7 +922,6 @@ export default function App() {
         isOpen={isServerLogsOpen}
         onClose={() => setIsServerLogsOpen(false)}
         serverStatus={serverStatus}
-        onToggleServer={handleToggleServer}
       />
     </div>
   );

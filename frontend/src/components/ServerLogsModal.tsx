@@ -6,7 +6,6 @@ interface ServerLogsModalProps {
   isOpen: boolean;
   onClose: () => void;
   serverStatus: ServerStatusInfo | null;
-  onToggleServer?: () => void;
 }
 
 // Helper to parse timestamp, log level tag, and body
@@ -30,7 +29,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   isOpen,
   onClose,
   serverStatus,
-  onToggleServer,
 }) => {
   const [filterText, setFilterText] = useState('');
   const [levelFilter, setLevelFilter] = useState<'ALL' | 'INFO' | 'HEALTH' | 'OCR' | 'WARN' | 'ERROR'>('ALL');

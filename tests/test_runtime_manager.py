@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
+from typing import Any
 import zipfile
 
 import pytest
@@ -827,4 +828,103 @@ def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> Non
             assert len(backups) == 0
             stagings = list(tmp_path.glob("staging_*"))
             assert len(stagings) == 0
+
+
+def test_ensure_runtime_multipart_progress_callback(tmp_path: Path) -> None:
+    """Verify ensure_runtime formats multi-part progress messages and passes part/total_parts kwargs."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+        zip_bytes1 = _create_test_zip({exe_name: b"mock cuda bin"})
+        zip_bytes2 = _create_test_zip({"cudart64_12.dll": b"mock dll"})
+        digest1 = hashlib.sha256(zip_bytes1).hexdigest()
+        digest2 = hashlib.sha256(zip_bytes2).hexdigest()
+
+        mock_meta = {
+            "llama-b11361-bin-win-cuda-12.4-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cuda-12.4-x64.zip",
+                download_url="https://mock/cuda.zip",
+                size=len(zip_bytes1),
+                digest=f"sha256:{digest1}",
+            ),
+            "cudart-llama-bin-win-cuda-12.4-x64.zip": ReleaseAssetInfo(
+                name="cudart-llama-bin-win-cuda-12.4-x64.zip",
+                download_url="https://mock/cudart.zip",
+                size=len(zip_bytes2),
+                digest=f"sha256:{digest2}",
+            ),
+        }
+
+        def mock_download(asset: ReleaseAssetInfo, dest_dir: Path, session: Any = None, progress_callback: Any = None) -> Path:
+            if progress_callback:
+                progress_callback(asset.size, asset.size)
+            archive = dest_dir / asset.name
+            archive.write_bytes(zip_bytes1 if "llama-b11361" in asset.name else zip_bytes2)
+            return archive
+
+        received_calls = []
+
+        def callback(msg: str, done: int, total: int, **kwargs: Any) -> None:
+            received_calls.append((msg, done, total, kwargs))
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.download_and_verify_asset", side_effect=mock_download),
+            patch("core.runtime_manager.validate_runtime_binary", return_value=True),
+        ):
+            ensure_runtime(backend="cuda", tag="b11361", progress_callback=callback, force=True)
+
+        download_calls = [c for c in received_calls if c[0].startswith("Downloading [")]
+        extract_calls = [c for c in received_calls if c[0].startswith("Extracting [")]
+
+        assert len(download_calls) == 2
+        assert "Downloading [1/2]" in download_calls[0][0]
+        assert download_calls[0][3] == {"part": 1, "total_parts": 2}
+        assert "Downloading [2/2]" in download_calls[1][0]
+        assert download_calls[1][3] == {"part": 2, "total_parts": 2}
+
+        assert len(extract_calls) == 2
+        assert "Extracting [1/2]" in extract_calls[0][0]
+        assert extract_calls[0][3] == {"part": 1, "total_parts": 2}
+        assert "Extracting [2/2]" in extract_calls[1][0]
+        assert extract_calls[1][3] == {"part": 2, "total_parts": 2}
+
+
+def test_ensure_runtime_legacy_progress_callback_positional_only(tmp_path: Path) -> None:
+    """Verify ensure_runtime supports legacy 3-argument progress callbacks without raising TypeError."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+        zip_bytes = _create_test_zip({exe_name: b"mock cpu bin"})
+        digest = hashlib.sha256(zip_bytes).hexdigest()
+
+        mock_meta = {
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
+                download_url="https://mock/cpu.zip",
+                size=len(zip_bytes),
+                digest=f"sha256:{digest}",
+            ),
+        }
+
+        def mock_download(asset: ReleaseAssetInfo, dest_dir: Path, session: Any = None, progress_callback: Any = None) -> Path:
+            if progress_callback:
+                progress_callback(asset.size, asset.size)
+            archive = dest_dir / asset.name
+            archive.write_bytes(zip_bytes)
+            return archive
+
+        messages = []
+
+        def legacy_cb(msg: str, done: int, total: int) -> None:
+            messages.append(msg)
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.download_and_verify_asset", side_effect=mock_download),
+            patch("core.runtime_manager.validate_runtime_binary", return_value=True),
+        ):
+            ensure_runtime(backend="cpu", tag="b11361", progress_callback=legacy_cb, force=True)
+
+        assert any("Downloading llama-b11361-bin-win-cpu-x64.zip..." in m for m in messages)
+        assert any("Extracting llama-b11361-bin-win-cpu-x64.zip..." in m for m in messages)
+
 

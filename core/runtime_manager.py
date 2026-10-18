@@ -462,7 +462,7 @@ def ensure_runtime(
     backend: str,
     tag: str = PINNED_LLAMA_BUILD,
     session: Optional[requests.Session] = None,
-    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    progress_callback: Optional[Callable[..., None]] = None,
     force: bool = False,
 ) -> Path:
     """Ensure the target runtime is installed and verified, downloading only if needed.
@@ -533,12 +533,21 @@ def ensure_runtime(
                 f"{required_space} bytes required"
             )
 
-        for asset_name in required_names:
+        total_assets = len(required_names)
+        for idx, asset_name in enumerate(required_names, 1):
             asset_info = assets_metadata[asset_name]
 
-            def _asset_progress(done: int, total: int, _name: str = asset_name) -> None:
+            def _asset_progress(done: int, total: int, _name: str = asset_name, _idx: int = idx) -> None:
                 if progress_callback:
-                    progress_callback(f"Downloading {_name}...", done, total)
+                    msg = (
+                        f"Downloading [{_idx}/{total_assets}] {_name}..."
+                        if total_assets > 1
+                        else f"Downloading {_name}..."
+                    )
+                    try:
+                        progress_callback(msg, done, total, part=_idx, total_parts=total_assets)
+                    except TypeError:
+                        progress_callback(msg, done, total)
 
             archive_path = download_and_verify_asset(
                 asset=asset_info,
@@ -552,9 +561,18 @@ def ensure_runtime(
             shutil.rmtree(staging_dir, ignore_errors=True)
         staging_dir.mkdir(parents=True, exist_ok=True)
 
-        for archive in downloaded_archives:
+        total_archives = len(downloaded_archives)
+        for idx, archive in enumerate(downloaded_archives, 1):
             if progress_callback:
-                progress_callback(f"Extracting {archive.name}...", 0, 0)
+                msg = (
+                    f"Extracting [{idx}/{total_archives}] {archive.name}..."
+                    if total_archives > 1
+                    else f"Extracting {archive.name}..."
+                )
+                try:
+                    progress_callback(msg, 0, 0, part=idx, total_parts=total_archives)
+                except TypeError:
+                    progress_callback(msg, 0, 0)
             safe_extract_zip(archive, staging_dir)
 
         staging_exe = staging_dir / exe_name

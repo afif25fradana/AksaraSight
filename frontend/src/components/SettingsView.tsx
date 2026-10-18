@@ -794,9 +794,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       {effectiveRuntimeStatus?.is_downloading ? (
                         <div className="space-y-2 pt-1">
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1.5 font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate max-w-[65%]">
+                            <div className="flex items-center gap-1.5 font-mono text-[11.5px] text-[#374151] dark:text-[var(--text-2)] truncate max-w-[70%]">
                               <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#0F766E] dark:text-[var(--accent)] shrink-0" aria-hidden="true" />
                               <span className="truncate">{effectiveRuntimeStatus.message || 'Downloading runtime...'}</span>
+                              {effectiveRuntimeStatus?.total_parts && effectiveRuntimeStatus.total_parts > 1 ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-sans font-medium bg-[#E5E2D9] dark:bg-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] shrink-0">
+                                  Part {effectiveRuntimeStatus.part || 1} of {effectiveRuntimeStatus.total_parts}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="font-mono text-[11.5px] text-[#14213D] dark:text-[var(--text-1)] font-semibold shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {effectiveRuntimeStatus.total_bytes > 0

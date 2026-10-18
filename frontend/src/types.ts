@@ -141,6 +141,8 @@ export interface RuntimeStatusInfo {
   bytes_downloaded: number;
   total_bytes: number;
   percent: number;
+  part?: number;
+  total_parts?: number;
   error: string | null;
 }
 

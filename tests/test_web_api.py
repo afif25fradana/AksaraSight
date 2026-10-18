@@ -2730,6 +2730,102 @@ def test_post_runtime_download_starts_and_reports_202(tmp_path: Path, monkeypatc
     assert getattr(app.state, "is_runtime_downloading", False) is False
 
 
+def test_post_runtime_download_multipart_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify POST /api/runtime/download tracks part and total_parts in progress and status endpoint."""
+    from core.hardware import HardwareProfile
+
+    download_started = threading.Event()
+    download_finished = threading.Event()
+    fake_exe = tmp_path / "llama-server.exe"
+
+    def mock_ensure_runtime(backend: str, tag: str, progress_callback: Any = None, **kwargs: Any) -> Path:
+        download_started.set()
+        if progress_callback:
+            progress_callback("Downloading [1/2] cudart.zip...", 250, 1000, part=1, total_parts=2)
+        download_finished.wait(timeout=2.0)
+        return fake_exe
+
+    monkeypatch.setattr("web.app.ensure_runtime", mock_ensure_runtime)
+    monkeypatch.setattr(
+        "web.app.get_cached_hardware_profile",
+        lambda *args, **kwargs: HardwareProfile(cpu_name="Test CPU", recommended_backend="cuda"),
+    )
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        status, _, body = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+        assert download_started.wait(timeout=2.0) is True
+
+        status, _, body = client.get("/api/runtime/status")
+        assert status == 200
+        status_data = json.loads(body.decode("utf-8"))
+        assert status_data["is_downloading"] is True
+        assert status_data["part"] == 1
+        assert status_data["total_parts"] == 2
+        assert "Downloading [1/2] cudart.zip..." in status_data["message"]
+    finally:
+        download_finished.set()
+
+    for _ in range(50):
+        if not getattr(app.state, "is_runtime_downloading", False):
+            break
+        time.sleep(0.02)
+
+
+def test_post_runtime_download_regex_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify on_progress extracts part and total_parts via regex fallback when kwargs are not passed."""
+    from core.hardware import HardwareProfile
+
+    download_started = threading.Event()
+    download_finished = threading.Event()
+    fake_exe = tmp_path / "llama-server.exe"
+
+    def mock_ensure_runtime(backend: str, tag: str, progress_callback: Any = None, **kwargs: Any) -> Path:
+        download_started.set()
+        if progress_callback:
+            progress_callback("Extracting [2/3] llama-bin.zip...", 0, 0)
+        download_finished.wait(timeout=2.0)
+        return fake_exe
+
+    monkeypatch.setattr("web.app.ensure_runtime", mock_ensure_runtime)
+    monkeypatch.setattr(
+        "web.app.get_cached_hardware_profile",
+        lambda *args, **kwargs: HardwareProfile(cpu_name="Test CPU", recommended_backend="cuda"),
+    )
+
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        status, _, body = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+        assert download_started.wait(timeout=2.0) is True
+
+        status, _, body = client.get("/api/runtime/status")
+        assert status == 200
+        status_data = json.loads(body.decode("utf-8"))
+        assert status_data["part"] == 2
+        assert status_data["total_parts"] == 3
+    finally:
+        download_finished.set()
+
+    for _ in range(50):
+        if not getattr(app.state, "is_runtime_downloading", False):
+            break
+        time.sleep(0.02)
+
+
 def test_post_runtime_download_conflict_409(tmp_path: Path) -> None:
     """Verify POST /api/runtime/download returns 409 Conflict if download is already in progress."""
     app = create_app(upload_dir=tmp_path)

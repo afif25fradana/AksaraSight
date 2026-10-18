@@ -446,4 +446,52 @@ describe('SettingsView backend integration and security', () => {
     expect(screen.getByRole('switch', { name: 'Start engine automatically with Web UI' })).toBeInTheDocument();
     expect(screen.queryByText(/with GUI/i)).not.toBeInTheDocument();
   });
+
+  it('displays multi-part download progress indicator when runtime download is in progress', async () => {
+    const downloadingStatus = {
+      installed: false,
+      is_downloading: true,
+      tag: 'b11361',
+      backend: 'cuda',
+      executable_path: null,
+      expected_path: 'C:\\runtimes\\llama-server.exe',
+      message: 'Downloading cudart-llama-bin-win-cuda-12.4-x64.zip...',
+      bytes_downloaded: 10485760,
+      total_bytes: 20971520,
+      percent: 50.0,
+      part: 1,
+      total_parts: 2,
+      error: null,
+    };
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/settings') && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => downloadingStatus,
+        } as Response);
+      }
+      if (urlStr.includes('/api/doctor')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ report: null }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
+    });
+
+    render(<SettingsView />);
+    expect(await screen.findByText('Downloading cudart-llama-bin-win-cuda-12.4-x64.zip...')).toBeInTheDocument();
+    expect(screen.getByText('Part 1 of 2')).toBeInTheDocument();
+  });
 });

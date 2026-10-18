@@ -1326,6 +1326,8 @@ def create_app(
                 "bytes_downloaded": last_status.get("bytes_downloaded", 0),
                 "total_bytes": last_status.get("total_bytes", 0),
                 "percent": last_status.get("percent", 0.0),
+                "part": last_status.get("part"),
+                "total_parts": last_status.get("total_parts"),
                 "error": None,
             }
 
@@ -1353,6 +1355,8 @@ def create_app(
             "bytes_downloaded": last_status.get("bytes_downloaded", 0) if last_status else 0,
             "total_bytes": last_status.get("total_bytes", 0) if last_status else 0,
             "percent": 100.0 if installed else (last_status.get("percent", 0.0) if last_status else 0.0),
+            "part": last_status.get("part") if last_status else None,
+            "total_parts": last_status.get("total_parts") if last_status else None,
             "error": last_status.get("error") if last_status else None,
         }
 
@@ -1412,7 +1416,19 @@ def create_app(
 
         app.state.is_runtime_downloading = True
 
-        def on_progress(stage_msg: str, bytes_done: int, total_bytes: int) -> None:
+        def on_progress(
+            stage_msg: str,
+            bytes_done: int,
+            total_bytes: int,
+            part: Optional[int] = None,
+            total_parts: Optional[int] = None,
+        ) -> None:
+            if part is None and total_parts is None:
+                match = re.search(r"\[(\d+)/(\d+)\]", stage_msg)
+                if match:
+                    part = int(match.group(1))
+                    total_parts = int(match.group(2))
+
             pct = round((bytes_done / total_bytes) * 100.0, 1) if total_bytes > 0 else 0.0
             progress_payload = {
                 "installed": False,
@@ -1425,6 +1441,8 @@ def create_app(
                 "bytes_downloaded": bytes_done,
                 "total_bytes": total_bytes,
                 "percent": pct,
+                "part": part,
+                "total_parts": total_parts,
                 "error": None,
             }
             app.state.last_runtime_download_status = progress_payload
@@ -1454,6 +1472,8 @@ def create_app(
                     "bytes_downloaded": 0,
                     "total_bytes": 0,
                     "percent": 100.0,
+                    "part": None,
+                    "total_parts": None,
                     "error": None,
                 }
                 app.state.is_runtime_downloading = False
@@ -1476,6 +1496,8 @@ def create_app(
                     "bytes_downloaded": 0,
                     "total_bytes": 0,
                     "percent": 0.0,
+                    "part": None,
+                    "total_parts": None,
                     "error": str(exc),
                 }
                 app.state.is_runtime_downloading = False

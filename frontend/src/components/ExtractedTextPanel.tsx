@@ -25,7 +25,6 @@ interface ExtractedTextPanelProps {
   isEngineOnline: boolean;
   onStartEngine: () => void;
   onOpenSettings: () => void;
-  onTextChange?: (newText: string, pageNumber?: number) => void;
   onExport: (format: OutputFormatType) => void;
   onRunDocumentExtraction: (docId: string, promptMode?: PromptMode) => void;
   onAddToQueue: (docId: string) => void;
@@ -216,8 +215,8 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       return {
         page_num: pageNum,
         status: isProcessed ? (pageData?.isTruncated ? 'PARTIAL' : 'SUCCESS') : 'WAITING',
-        latency: isProcessed ? +(0.85 + pageNum * 0.28).toFixed(2) : 0.0,
-        tokens: isProcessed ? (pageData?.isTruncated ? 4096 : 380 + pageNum * 42) : 0,
+        latency: pageData?.latency ?? 0.0,
+        tokens: pageData?.tokens ?? 0,
         markdown: isProcessed
           ? pageData?.text || (pageNum === 1 ? document.extractedText : `[Page ${pageNum} extracted content]`)
           : '',
@@ -231,7 +230,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       file_path: document.name,
       status: isDone ? 'SUCCESS' : isTrunc ? 'PARTIAL' : document.status === 'Failed' ? 'FAILED' : 'PROCESSING',
       total_duration: +(
-        pagesList.filter((p) => p.status !== 'WAITING').reduce((acc, p) => acc + p.latency, 0)
+        pagesList.filter((p) => p.status !== 'WAITING').reduce((acc, p) => acc + (p.latency || 0), 0)
       ).toFixed(2),
       error: document.status === 'Failed' ? document.statusNote || 'Processing failed' : null,
       aborted: false,

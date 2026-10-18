@@ -524,32 +524,6 @@ export default function App() {
     );
   };
 
-  const handleTextChange = (newText: string, pageNumber?: number) => {
-    if (!selectedDocId) return;
-    setDocuments((prev) =>
-      prev.map((doc) => {
-        if (doc.id === selectedDocId) {
-          const hasText = newText.trim().length > 0;
-          const pageNum = pageNumber || doc.currentPage || 1;
-          const updatedPagesData = { ...(doc.pagesData || {}) };
-          if (updatedPagesData[pageNum]) {
-            updatedPagesData[pageNum] = {
-              ...updatedPagesData[pageNum],
-              text: newText,
-            };
-          }
-          return {
-            ...doc,
-            extractedText: newText,
-            pagesData: updatedPagesData,
-            status: hasText ? doc.status : 'Waiting',
-          };
-        }
-        return doc;
-      })
-    );
-  };
-
   // Run whole document extraction via POST /api/documents/{id}/extract
   const handleRunDocumentExtraction = async (docId: string, promptMode?: PromptMode) => {
     if (runningJobDocId !== null || engineSettings.status === 'offline') return;
@@ -877,7 +851,6 @@ export default function App() {
       {currentTab === 'workspace' ? (
         <div className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full min-h-0">
-            {/* Column 1: File Queue Panel */}
             <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
               <FileQueuePanel
                 documents={consistentDocuments}
@@ -892,7 +865,6 @@ export default function App() {
               />
             </div>
 
-            {/* Column 2: Document Source Preview Panel */}
             <div className="lg:col-span-5 h-full min-h-0 overflow-hidden">
               <DocumentPreviewPanel
                 document={selectedDocument}
@@ -900,7 +872,6 @@ export default function App() {
               />
             </div>
 
-            {/* Column 3: Extracted Text Buffer & OCR Actions */}
             <div className="lg:col-span-4 h-full min-h-0 overflow-hidden">
               <ExtractedTextPanel
                 document={selectedDocument}
@@ -908,7 +879,6 @@ export default function App() {
                 isEngineOnline={engineSettings.status === 'running'}
                 onStartEngine={() => setEngineSettings((prev) => ({ ...prev, status: 'running' }))}
                 onOpenSettings={() => setCurrentTab('settings')}
-                onTextChange={handleTextChange}
                 onExport={handleExport}
                 onRunDocumentExtraction={handleRunDocumentExtraction}
                 onAddToQueue={handleAddToQueue}

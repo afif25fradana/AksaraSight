@@ -196,11 +196,7 @@ class OCRResult:
 
         success_count = sum(1 for p in self.pages if p.status == JobStatus.SUCCESS)
         if any(p.truncated or p.status == JobStatus.PARTIAL for p in self.pages):
-            failed_count = sum(1 for p in self.pages if p.status == JobStatus.FAILED)
-            if failed_count == len(self.pages):
-                self.status = JobStatus.FAILED
-            else:
-                self.status = JobStatus.PARTIAL
+            self.status = JobStatus.PARTIAL
         elif success_count == len(self.pages):
             self.status = JobStatus.SUCCESS
         elif success_count == 0:

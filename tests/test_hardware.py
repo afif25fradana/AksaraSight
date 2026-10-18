@@ -123,6 +123,21 @@ def test_detect_hardware_nvidia_smi_missing_fallback_to_nvcuda_dll() -> None:
         assert profile.recommended_backend == "cuda"
 
 
+def test_detect_hardware_cuda_unverified_driver_fails_closed() -> None:
+    """When CUDA GPU is detected via nvidia-smi but driver version is unverified, CUDA fails closed."""
+    with (
+        patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GPU", 4096, "")),
+        patch("core.hardware._probe_nvcuda_ctypes", return_value=None),
+        patch("core.hardware._probe_vulkan_ctypes", return_value=(True, "NVIDIA GPU")),
+        patch("core.hardware._probe_cpu_info", return_value="x86_64"),
+    ):
+        profile = detect_hardware()
+        assert profile.cuda_available is True
+        assert profile.cuda_supported is False
+        assert "could not be determined or verified" in (profile.cuda_incompatibility_reason or "")
+        assert profile.recommended_backend == "vulkan"
+
+
 def test_hardware_profile_format_summary() -> None:
     """Ensure format_summary produces structured, readable output."""
     profile = HardwareProfile(

@@ -220,7 +220,7 @@ input[type="number"] {
   appearance: textfield;
 }
 
-/* Uiverse Gentle Goat 72 Theme Switch */
+/* Theme toggle switch */
 .theme-checkbox {
   --toggle-size: 7.5px;
   -webkit-appearance: none;
@@ -277,7 +277,7 @@ input[type="number"] {
   outline-offset: 2px;
 }
 
-/* Hardware-Accelerated Pure CSS Circular Ripple (Zero-JS-Latency & Zero-Flicker) */
+/* Circular ripple view transition animation */
 @keyframes ripple-reveal {
   from {
     clip-path: circle(0px at var(--ripple-x, 50%) var(--ripple-y, 50%));

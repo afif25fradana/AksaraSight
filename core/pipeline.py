@@ -395,8 +395,6 @@ def _process_pdf(
             doc.close()
 
 
-# Public Ingestion Interface
-
 def ingest(
     source: Union[str, Path],
     dpi: int = 100,

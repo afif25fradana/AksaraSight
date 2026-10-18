@@ -311,23 +311,29 @@ def detect_hardware() -> HardwareProfile:
     # Validate Driver Version Compatibility if CUDA hardware was detected
     if cuda_available:
         parsed_driver = _parse_driver_version(cuda_driver_version) if cuda_driver_version else None
-        driver_too_old = False
+        driver_incompatible = False
         reason_parts = []
 
         if parsed_driver is not None and parsed_driver < MIN_CUDA_DRIVER_VERSION:
-            driver_too_old = True
+            driver_incompatible = True
             min_str = f"{MIN_CUDA_DRIVER_VERSION[0]}.{MIN_CUDA_DRIVER_VERSION[1]}"
             reason_parts.append(
                 f"Installed NVIDIA display driver {cuda_driver_version} does not meet CUDA 12.4 requirement (>= {min_str})"
             )
 
         if cuda_driver_api_version is not None and cuda_driver_api_version < MIN_CUDA_DRIVER_API_VERSION:
-            driver_too_old = True
+            driver_incompatible = True
             reason_parts.append(
                 f"Driver API version {cuda_driver_api_version} is below CUDA 12.4 requirement (>= {MIN_CUDA_DRIVER_API_VERSION})"
             )
 
-        if driver_too_old:
+        if parsed_driver is None and cuda_driver_api_version is None:
+            driver_incompatible = True
+            reason_parts.append(
+                "NVIDIA driver version could not be determined or verified for CUDA 12.4 requirement"
+            )
+
+        if driver_incompatible:
             cuda_supported = False
             cuda_incompatibility_reason = "; ".join(reason_parts)
             logger.warning("CUDA hardware detected but driver is incompatible: %s", cuda_incompatibility_reason)

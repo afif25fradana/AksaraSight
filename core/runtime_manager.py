@@ -41,8 +41,6 @@ KNOWN_PINNED_HASHES: Dict[str, str] = {
 _EXE_NAME: str = "llama-server.exe" if sys.platform == "win32" else "llama-server"
 
 
-# Exceptions Hierarchy
-
 class RuntimeManagerError(Exception):
     """Base exception for all runtime manager operations."""
     pass
@@ -68,8 +66,6 @@ class RuntimeValidationError(RuntimeManagerError):
     pass
 
 
-# Data Models
-
 @dataclass(frozen=True)
 class ReleaseAssetInfo:
     """Metadata describing a downloadable release asset."""
@@ -78,8 +74,6 @@ class ReleaseAssetInfo:
     size: int
     digest: Optional[str] = None  # e.g., 'sha256:<hex>' or '<hex>'
 
-
-# Directory Resolution
 
 def get_runtime_base_dir() -> Path:
     """Return the root base directory for all managed local runtimes.
@@ -105,8 +99,6 @@ def get_runtime_dir(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Pat
     clean_backend = backend.strip().lower()
     return get_runtime_base_dir() / f"{clean_tag}-{clean_backend}"
 
-
-# Asset Resolution
 
 def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) -> List[str]:
     """Resolve the required archive filenames for a given backend and build tag.
@@ -207,8 +199,6 @@ def fetch_release_assets_metadata(
     except Exception as exc:
         raise RuntimeDownloadError(f"Unexpected error resolving release assets: {exc}") from exc
 
-
-# Streaming Download with Integrity Verification
 
 def download_and_verify_asset(
     asset: ReleaseAssetInfo,
@@ -329,8 +319,6 @@ def download_and_verify_asset(
     return final_path
 
 
-# Safe Extraction (Zip-Slip Immune)
-
 def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
     """Extract a ZIP archive strictly verifying that no member escapes target_dir.
 
@@ -360,8 +348,6 @@ def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
         zf.extractall(target_dir_resolved)
         logger.info("Successfully extracted %s into %s", zip_path.name, target_dir_resolved)
 
-
-# Post-Install Binary Sanity Validation
 
 def validate_runtime_binary(exe_path: Path) -> bool:
     """Execute minimal sanity check to confirm the binary can initialize on this machine.
@@ -436,8 +422,6 @@ def validate_runtime_binary(exe_path: Path) -> bool:
                 pass
 
 
-# Idempotency & Caching
-
 def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> bool:
     """Determine whether a valid, verified runtime installation already exists on disk.
 
@@ -473,8 +457,6 @@ def get_installed_runtime_path(tag: str = PINNED_LLAMA_BUILD, backend: str = "cu
         return get_runtime_dir(tag, backend) / _EXE_NAME
     return None
 
-
-# Orchestrator: Ensure Runtime
 
 def ensure_runtime(
     backend: str,
@@ -539,11 +521,24 @@ def ensure_runtime(
                 raise RuntimeDownloadError(
                     f"Required release asset '{asset_name}' not found in GitHub release '{clean_tag}'"
                 )
+
+        # Pre-flight disk space assertion before download and extraction
+        total_download_bytes = sum(assets_metadata[name].size for name in required_names)
+        required_space = max(total_download_bytes * 3, 150 * 1024 * 1024)
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        disk_stat = shutil.disk_usage(downloads_dir)
+        if disk_stat.free < required_space:
+            raise OSError(
+                f"Insufficient disk space for runtime download: {disk_stat.free} bytes available, "
+                f"{required_space} bytes required"
+            )
+
+        for asset_name in required_names:
             asset_info = assets_metadata[asset_name]
 
-            def _asset_progress(done: int, total: int) -> None:
+            def _asset_progress(done: int, total: int, _name: str = asset_name) -> None:
                 if progress_callback:
-                    progress_callback(f"Downloading {asset_name}...", done, total)
+                    progress_callback(f"Downloading {_name}...", done, total)
 
             archive_path = download_and_verify_asset(
                 asset=asset_info,

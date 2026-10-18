@@ -240,7 +240,7 @@ class Settings:
             from core.hardware import get_cached_hardware_profile
 
             profile = get_cached_hardware_profile()
-            backend = profile.recommended_backend
+            backend = profile.recommended_backend if profile is not None else "cpu"
 
         from core.runtime_manager import get_installed_runtime_path
 

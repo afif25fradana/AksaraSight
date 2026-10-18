@@ -50,7 +50,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       label: 'Engine Starting...',
       wrapperClass:
         'bg-amber-500/10 dark:bg-amber-500/10 border-amber-500/25 dark:border-amber-500/25 text-amber-600 dark:text-amber-400',
-      dotClass: 'bg-amber-500 dark:bg-amber-400 animate-pulse',
+      dotClass: 'bg-amber-500 dark:bg-amber-400',
     },
     error: {
       label: 'Engine Error',
@@ -158,7 +158,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
         </nav>
       </div>
 
-      {/* Right: Engine Status Indicator, Server Controls, Server Logs, Output Folder, Uiverse Theme Switch */}
+      {/* Right: Engine Status Indicator, Server Controls, Server Logs, Output Folder, Theme Switch */}
       <div className="flex items-center gap-2 sm:gap-2.5">
         {/* Engine status indicator with high contrast and text label */}
         <div
@@ -246,7 +246,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
 
         <div className="h-5 w-px bg-[#8A94A6]/30 dark:bg-[var(--border)] mx-0.5" aria-hidden="true" />
 
-        {/* Uiverse Gentle Goat 72 Theme Switch */}
+        {/* Theme toggle switch */}
         <div className="flex items-center" title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
           <input
             type="checkbox"

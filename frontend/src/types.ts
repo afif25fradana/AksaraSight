@@ -33,8 +33,6 @@ export interface DocumentItem {
   runId?: string;
 }
 
-export type ExtractionMode = 'text' | 'table' | 'formula';
-
 export interface BackendSettings {
   backend: string;
   local_endpoint: string;

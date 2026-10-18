@@ -182,7 +182,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                 let badgeClass = 'bg-slate-100 dark:bg-[var(--bg-elevated)] text-slate-800 dark:text-[var(--text-1)] border-slate-200 dark:border-[var(--border)]';
                 if (file.type === 'docx') badgeClass = 'bg-blue-50 dark:bg-[var(--accent)]/10 text-blue-800 dark:text-[var(--accent)] border-blue-200 dark:border-[var(--accent)]/30';
                 if (file.type === 'md') badgeClass = 'bg-emerald-50 dark:bg-[var(--success)]/10 text-emerald-800 dark:text-[var(--success)] border-emerald-200 dark:border-[var(--success)]/30';
-                if (file.type === 'json') badgeClass = 'bg-purple-50 dark:bg-[var(--accent-dim)]/15 text-purple-800 dark:text-[var(--accent)] border-purple-200 dark:border-[var(--accent)]/30';
+                if (file.type === 'json') badgeClass = 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-white/5 dark:text-[var(--text-1)] dark:border-[var(--border)]';
 
                 return (
                   <div

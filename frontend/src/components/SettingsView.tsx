@@ -599,11 +599,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {/* Active Tab Panel Content */}
           <div className="flex-1 p-6 overflow-y-auto min-h-0 bg-[#FCFBF8]/40 dark:bg-[var(--bg-base)]/40 space-y-4">
             
-            {/* TAB 1: Engine & Hardware */}
             {activeCategory === 'engine' && (
               <div className="space-y-4 animate-fade-in" role="tabpanel">
-                
-                {/* Field 1: Backend */}
                 <div>
                   <label className="block text-[13.5px] font-medium text-[#14213D] dark:text-[var(--text-1)] mb-1.5">
                     Local Inference Engine Backend
@@ -651,7 +648,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Field 2: Runtime source & Inset Blocks */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[13.5px] font-medium text-[#14213D] dark:text-[var(--text-1)]">
@@ -994,7 +990,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   )}
                 </div>
 
-                {/* Field 3: Start server automatically toggle (MUTABLE) */}
                 <div className="flex items-center justify-between bg-white dark:bg-[var(--bg-elevated)] p-3.5 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] transition-colors">
                   <div>
                     <span className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)] block">
@@ -1022,7 +1017,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </button>
                 </div>
 
-                {/* Field 4: System Diagnostic (--doctor) Runner Block */}
                 <div className="bg-white dark:bg-[var(--bg-elevated)] p-3.5 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] space-y-3 transition-colors">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1116,7 +1110,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             )}
 
-            {/* TAB 2: Processing & Quality (MUTABLE FIELDS) */}
             {activeCategory === 'processing' && (
               <div className="space-y-4 animate-fade-in" role="tabpanel">
                 
@@ -1226,7 +1219,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             )}
 
-            {/* TAB 3: Advanced & Network */}
             {activeCategory === 'advanced' && (
               <div className="space-y-4 animate-fade-in" role="tabpanel">
                 <div className="bg-white dark:bg-[var(--bg-elevated)] p-4 rounded-lg border border-[#E5E2D9] dark:border-[var(--border)] space-y-3.5 transition-colors">

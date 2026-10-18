@@ -164,200 +164,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 className="max-w-full h-auto object-contain rounded"
               />
             </div>
-          ) : document.docType === 'legal-agreement' ? (
-            /* SURAT PERJANJIAN KERJASAMA (Realistic paper presence in light & dark mode) */
-            <article 
-              className="facsimile-sheet w-full max-w-[480px] bg-[#FCFBF8] dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[2px] shadow-[0_4px_16px_rgba(20,33,61,0.07),0_1px_3px_rgba(20,33,61,0.05)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5),0_1px_4px_rgba(0,0,0,0.3)] p-6 text-[#1A1A1A] dark:text-[var(--paper-text)] relative select-text transition-colors" 
-              aria-label="Simulated Archival Document"
-            >
-              {/* Official Letterhead */}
-              <div className="border-b-2 border-black/80 pb-3 mb-4 text-center">
-                <p className="text-[10px] tracking-widest text-[#374151] mb-0.5 uppercase font-medium">
-                  REPUBLIK INDONESIA - ARSIP DAERAH
-                </p>
-                <h3 className="font-['IBM_Plex_Serif',serif] text-[15px] font-bold text-[#1A1A1A] uppercase tracking-wide">
-                  KANTOR NOTARIS & PPAT WIJAYA, S.H.
-                </h3>
-                <p className="text-[10.5px] text-[#374151]">
-                  Jl. Braga No. 42, Kota Bandung, Jawa Barat | Telp: (022) 420-1192
-                </p>
-              </div>
-
-              {/* Title & Document Number */}
-              <div className="text-center mb-4">
-                <h4 className="font-['IBM_Plex_Serif',serif] text-[13px] font-bold text-[#1A1A1A] underline tracking-wide">
-                  SURAT PERJANJIAN KERJASAMA
-                </h4>
-                <p className="text-[11px] text-[#374151] mt-0.5 font-mono">
-                  Nomor: 042/SPK/AKS/XI/2023
-                </p>
-              </div>
-
-              {/* Body Text */}
-              <div lang="id" className="text-xs leading-relaxed font-serif-brand text-[#1A1A1A] dark:text-[var(--paper-text)] space-y-2.5 text-justify hyphens-auto">
-                <p>
-                  Pada hari ini, <span className="font-semibold text-[#1A1A1A]">Senin tanggal dua puluh November tahun dua ribu dua puluh tiga</span> (20-11-2023), bertempat di Bandung, yang bertanda tangan di bawah ini:
-                </p>
-
-                <div className="pl-3 border-l-2 border-[#1A1A1A]/20 space-y-1 text-[11px]">
-                  <p>
-                    <span className="font-semibold text-[#1A1A1A]">I. Dr. Hendra Gunawan</span>, bertindak atas nama Balai Konservasi Naskah Kuno selanjutnya disebut sebagai <span className="font-semibold text-[#1A1A1A]">PIHAK PERTAMA</span>.
-                  </p>
-                  <p>
-                    <span className="font-semibold text-[#1A1A1A]">II. AksaraSight Lab</span>, unit pelaksana pemrosesan data lokal selanjutnya disebut sebagai <span className="font-semibold text-[#1A1A1A]">PIHAK KEDUA</span>.
-                  </p>
-                </div>
-
-                <p>
-                  Para pihak sepakat mengadakan perjanjian pemindaian dan preservasi naskah arsip digital dengan ketentuan bahwa seluruh data diproses secara lokal tanpa transmisi pihak ketiga.
-                </p>
-
-                <p>
-                  Segala bentuk hasil transkripsi teks optik akan diverifikasi secara langsung menggunakan parameter pencocokan karakter minimum 98%.
-                </p>
-              </div>
-
-              {/* Signatures */}
-              <div className="mt-8 pt-4 border-t border-[#1A1A1A]/15 grid grid-cols-2 text-center text-[10.5px]">
-                <div>
-                  <p className="text-[#374151]">PIHAK PERTAMA,</p>
-                  <div className="h-10 flex items-center justify-center my-1 text-[#1A1A1A]/40 italic font-['IBM_Plex_Serif',serif]">
-                    [Tanda Tangan & Cap]
-                  </div>
-                  <p className="font-semibold text-[#1A1A1A] underline">Dr. Hendra Gunawan</p>
-                  <p className="text-[9.5px] text-[#4B5563] font-mono">NIP. 19740512 199903 1 002</p>
-                </div>
-                <div>
-                  <p className="text-[#374151]">PIHAK KEDUA,</p>
-                  <div className="h-10 flex items-center justify-center my-1 text-[#1A1A1A]/40 italic font-['IBM_Plex_Serif',serif]">
-                    [Tanda Tangan Elektronik]
-                  </div>
-                  <p className="font-semibold text-[#1A1A1A] underline">AksaraSight Core</p>
-                </div>
-              </div>
-            </article>
-          ) : document.docType === 'invoice' ? (
-            /* FAKTUR PENJUALAN */
-            <div 
-              role="region" 
-              aria-label={`Document preview: ${document.name}, page ${currentPage} of ${totalPages}`} 
-              className="w-full max-w-[480px] bg-[#FCFBF8] dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[2px] shadow-[0_4px_16px_rgba(20,33,61,0.07),0_1px_3px_rgba(20,33,61,0.05)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5),0_1px_4px_rgba(0,0,0,0.3)] p-6 text-[#1A1A1A] dark:text-[var(--paper-text)] relative select-text transition-colors"
-            >
-              <div className="border-b-2 border-[#14213D] pb-4 mb-6 flex justify-between items-baseline">
-                <div>
-                  <h1 className="text-[19px] font-bold tracking-tight text-[#14213D] font-['IBM_Plex_Serif',serif]">
-                    FAKTUR PENJUALAN
-                  </h1>
-                  <p className="text-[11.5px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563] tracking-widest mt-0.5">
-                    COMMERCIAL TAX INVOICE
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[13px] font-['IBM_Plex_Sans',sans-serif] font-bold text-[#14213D]">
-                    No: INV-2023-003
-                  </p>
-                  <p className="text-[11.5px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563]">
-                    Date: 14/10/2023
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6 mb-6 text-[12.5px] leading-relaxed border-b border-[#E2DFD6] pb-5">
-                <div>
-                  <span className="text-[10px] font-['IBM_Plex_Sans',sans-serif] font-semibold uppercase text-[#4B5563] block mb-1">
-                    Diterbitkan Oleh (Vendor):
-                  </span>
-                  <p className="font-semibold text-[#14213D]">PT. NUSANTARA SISTEM GRAFIKA</p>
-                  <p className="text-[#374151]">Jl. Raden Saleh No. 42A, Cikini</p>
-                  <p className="text-[#374151]">Jakarta Pusat 10330 - ID</p>
-                  <p className="text-[11px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563] mt-1">
-                    NPWP: 01.423.890.4-021.000
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-['IBM_Plex_Sans',sans-serif] font-semibold uppercase text-[#4B5563] block mb-1">
-                    Tagihan Kepada (Billed To):
-                  </span>
-                  <p className="font-semibold text-[#14213D]">ARSIP NASIONAL REPUBLIKA</p>
-                  <p className="text-[#374151]">Divisi Preservasi Manuskrip</p>
-                  <p className="text-[#374151]">Gedung Arsip B, Lantai 3</p>
-                  <p className="text-[11px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563] mt-1">
-                    PO Ref: PO-PRE-8842
-                  </p>
-                </div>
-              </div>
-
-              <table className="w-full text-left border-collapse mb-6">
-                <thead>
-                  <tr className="border-b border-[#14213D] text-[10.5px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563] uppercase">
-                    <th className="py-1.5 font-semibold">Item & Description</th>
-                    <th className="py-1.5 text-center font-semibold w-16">Qty</th>
-                    <th className="py-1.5 text-right font-semibold w-24">Rate (IDR)</th>
-                    <th className="py-1.5 text-right font-semibold w-28">Total (IDR)</th>
-                  </tr>
-                </thead>
-                <tbody className="text-[12px] divide-y divide-[#E2DFD6]/60">
-                  <tr className="hover:bg-black/[0.02]">
-                    <td className="py-2.5 pr-2">
-                      <p className="font-medium text-[#14213D]">Konservasi Kertas Bebas Asam (pH 8.5)</p>
-                      <p className="text-[11px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563]">Grade A75 Archival Lining Paper</p>
-                    </td>
-                    <td className="py-2.5 text-center font-['IBM_Plex_Sans',sans-serif] text-[#374151]">10 Rim</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] text-[#374151]">850.000</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] font-medium text-[#14213D]">8.500.000</td>
-                  </tr>
-                  <tr className="hover:bg-black/[0.02]">
-                    <td className="py-2.5 pr-2">
-                      <p className="font-medium text-[#14213D]">Methyl Cellulose Adhesive (High Viscosity)</p>
-                      <p className="text-[11px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563]">Kemasan 1000g food-grade safe</p>
-                    </td>
-                    <td className="py-2.5 text-center font-['IBM_Plex_Sans',sans-serif] text-[#374151]">4 Jar</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] text-[#374151]">320.000</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] font-medium text-[#14213D]">1.280.000</td>
-                  </tr>
-                  <tr className="hover:bg-black/[0.02]">
-                    <td className="py-2.5 pr-2">
-                      <p className="font-medium text-[#14213D]">Micro-Chamber Archival Storage Folio</p>
-                      <p className="text-[11px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563]">Ukuran Folio Standard 38x26 cm</p>
-                    </td>
-                    <td className="py-2.5 text-center font-['IBM_Plex_Sans',sans-serif] text-[#374151]">50 Unit</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] text-[#374151]">45.000</td>
-                    <td className="py-2.5 text-right font-['IBM_Plex_Sans',sans-serif] font-medium text-[#14213D]">2.250.000</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div className="border-t border-[#14213D] pt-3">
-                <div className="flex justify-end">
-                  <div className="w-56 space-y-1.5 text-[12px] font-['IBM_Plex_Sans',sans-serif]">
-                    <div className="flex justify-between text-[#4B5563]">
-                      <span>Subtotal:</span>
-                      <span>12.030.000</span>
-                    </div>
-                    <div className="flex justify-between text-[#4B5563]">
-                      <span>PPN (11%):</span>
-                      <span>1.323.300</span>
-                    </div>
-                    <div className="flex justify-between border-t border-[#14213D] pt-1.5 text-[14px] font-bold text-[#14213D]">
-                      <span>TOTAL:</span>
-                      <span>IDR 13.353.300</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 pt-3 border-t border-dashed border-[#E2DFD6] flex justify-between items-end text-[10.5px] font-['IBM_Plex_Sans',sans-serif] text-[#4B5563]">
-                  <div>
-                    <p>Transfer: Bank Mandiri 122-00-9831920-1</p>
-                    <p>Status: LUNAS (PAID 15/10/2023)</p>
-                  </div>
-                  <div className="text-right italic">
-                    <span>Verification Hash: 8bfa92e10a</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           ) : (
-            /* HISTORICAL ARSIP / OTHER DOCUMENT */
             <div 
               role="region" 
               aria-label={`Document preview: ${document.name}, page ${currentPage} of ${totalPages}`}
@@ -365,42 +172,32 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             >
               <div className="border-b-2 border-black/80 pb-3 mb-4 flex justify-between items-start">
                 <div>
-                  <p className="text-[10px] tracking-widest text-[#374151] uppercase font-mono font-medium">
-                    KOLEKSI MANUSKRIP ARSIP
+                  <p className="text-[10px] tracking-widest text-[#374151] dark:text-[var(--text-3)] uppercase font-mono font-medium">
+                    DOCUMENT PREVIEW
                   </p>
-                  <h3 className="font-['IBM_Plex_Serif',serif] text-[15px] font-bold text-[#1A1A1A] uppercase">
+                  <h3 className="font-['IBM_Plex_Serif',serif] text-[15px] font-bold text-[#1A1A1A] dark:text-[var(--paper-text)] uppercase truncate max-w-[320px]">
                     {document.name}
                   </h3>
                 </div>
-                <span className="text-[11px] font-mono text-[#4B5563]">
+                <span className="text-[11px] font-mono text-[#4B5563] dark:text-[var(--text-3)]">
                   Page {currentPage} of {totalPages}
                 </span>
               </div>
 
-              {document.previewImageUrl ? (
-                <div className="my-4 border border-black/10 rounded overflow-hidden">
-                  <img 
-                    src={document.previewImageUrl} 
-                    alt={document.name} 
-                    className="w-full h-auto object-contain max-h-[360px]"
-                  />
-                </div>
-              ) : (
-                <div className="text-[12px] font-['IBM_Plex_Serif',serif] leading-relaxed text-[#2D3139] space-y-3">
-                  <p className="italic text-[#4B5563]">
-                    [Archival document preview. Extracted text is displayed in the right panel.]
-                  </p>
-                  {document.extractedText ? (
-                    <div className="p-3 bg-[#F4F2EC] rounded border border-black/10 font-mono text-[11px] text-[#1A1A1A] whitespace-pre-wrap max-h-60 overflow-y-auto">
-                      {document.extractedText.slice(0, 320)}...
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-black/[0.02] rounded border border-dashed border-[#8A94A6] text-center text-[#5A6478] text-[12px]">
-                      Document has not been extracted yet.
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="text-[12px] font-['IBM_Plex_Serif',serif] leading-relaxed text-[#2D3139] dark:text-[var(--paper-text)] space-y-3">
+                <p className="italic text-[#4B5563] dark:text-[var(--text-3)]">
+                  [Document preview raster unavailable. Extracted text is displayed in the right panel.]
+                </p>
+                {document.extractedText ? (
+                  <div className="p-3 bg-[#F4F2EC] dark:bg-[var(--bg-base)] rounded border border-black/10 dark:border-[var(--border)] font-mono text-[11px] text-[#1A1A1A] dark:text-[var(--text-1)] whitespace-pre-wrap max-h-60 overflow-y-auto">
+                    {document.extractedText.slice(0, 320)}...
+                  </div>
+                ) : (
+                  <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02] rounded border border-dashed border-[#8A94A6] dark:border-[var(--border)] text-center text-[#5A6478] dark:text-[var(--text-3)] text-[12px]">
+                    Document has not been extracted yet.
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

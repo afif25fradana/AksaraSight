@@ -514,6 +514,27 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
             mock_session.get.assert_called_once()
 
 
+def test_ensure_runtime_insufficient_disk_space_raises(tmp_path: Path) -> None:
+    """Pre-flight disk space assertion raises OSError before downloading."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        mock_meta = {
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
+                download_url="https://mock/cpu.zip",
+                size=1024,
+                digest="sha256:abc",
+            )
+        }
+        mock_session = MagicMock(spec=requests.Session)
+        mock_usage = MagicMock(free=1024)
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("shutil.disk_usage", return_value=mock_usage),
+            pytest.raises(OSError, match="Insufficient disk space"),
+        ):
+            ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
+
+
 def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
     """Verify force=True triggers a complete re-download and overwrites existing installation."""
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):

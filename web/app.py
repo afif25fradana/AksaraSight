@@ -165,8 +165,6 @@ MUTABLE_SETTINGS = {
     "model_repo",
 }
 
-IMMUTABLE_SETTINGS = set()
-
 
 def get_safe_settings_dict(settings: Settings) -> Dict[str, Any]:
     """Extract a safe dictionary representation of application settings."""
@@ -656,11 +654,6 @@ def create_app(
             raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
 
         for key in body.keys():
-            if key in IMMUTABLE_SETTINGS:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Modification of setting '{key}' is forbidden via web API.",
-                )
             if key not in MUTABLE_SETTINGS:
                 raise HTTPException(
                     status_code=400,

@@ -37,7 +37,7 @@ def test_probe_server_health_ready():
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"status": "ok"}
 
-    with patch("requests.get", return_value=mock_resp):
+    with patch("requests.Session.get", return_value=mock_resp):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.READY
         assert "healthy" in msg
@@ -51,7 +51,7 @@ def test_probe_server_health_starting_model_loading():
         "error": {"message": "Loading model", "type": "unavailable_error", "code": 503}
     }
 
-    with patch("requests.get", return_value=mock_resp):
+    with patch("requests.Session.get", return_value=mock_resp):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.STARTING
         assert "Loading model" in msg
@@ -73,7 +73,7 @@ def test_probe_server_health_openai_fallback_ready():
             return models_resp
         return MagicMock(status_code=404)
 
-    with patch("requests.get", side_effect=_mock_get):
+    with patch("requests.Session.get", side_effect=_mock_get):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.READY
         assert "OpenAI-compatible" in msg
@@ -81,7 +81,7 @@ def test_probe_server_health_openai_fallback_ready():
 
 def test_probe_server_health_offline_connection_refused():
     """Verify ConnectionError maps to OFFLINE status."""
-    with patch("requests.get", side_effect=requests.exceptions.ConnectionError("Refused")):
+    with patch("requests.Session.get", side_effect=requests.exceptions.ConnectionError("Refused")):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.OFFLINE
         assert "Connection refused" in msg
@@ -89,7 +89,7 @@ def test_probe_server_health_offline_connection_refused():
 
 def test_probe_server_health_offline_timeout():
     """Verify request Timeout maps to OFFLINE status."""
-    with patch("requests.get", side_effect=requests.exceptions.Timeout("Timed out")):
+    with patch("requests.Session.get", side_effect=requests.exceptions.Timeout("Timed out")):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.OFFLINE
         assert "timed out" in msg
@@ -100,10 +100,25 @@ def test_probe_server_health_unexpected_status():
     mock_resp = MagicMock()
     mock_resp.status_code = 500
 
-    with patch("requests.get", return_value=mock_resp):
+    with patch("requests.Session.get", return_value=mock_resp):
         status, msg = probe_server_health("http://localhost:8080/v1")
         assert status == ServerStatus.ERROR
         assert "HTTP 500" in msg
+
+
+def test_probe_server_health_disables_trust_env():
+    """Verify probe creates an ephemeral session with trust_env=False to prevent proxy bypass."""
+    with patch("requests.Session") as mock_sess_cls:
+        mock_inst = MagicMock()
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"status": "ok"}
+        mock_inst.get.return_value = mock_resp
+        mock_sess_cls.return_value = mock_inst
+
+        status, _ = probe_server_health("http://localhost:8080/v1")
+        assert status == ServerStatus.READY
+        assert mock_inst.trust_env is False
+        mock_inst.close.assert_called_once()
 
 
 def test_probe_server_health_uses_independent_session():

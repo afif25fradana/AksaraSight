@@ -358,7 +358,12 @@ def _process_pdf(
                                 f"{MAX_RASTER_PIXELS:,} pixels"
                             )
                         else:
-                            pil_img = page.render(scale=scale).to_pil()
+                            bitmap = page.render(scale=scale)
+                            try:
+                                raw_pil = bitmap.to_pil()
+                                pil_img = raw_pil.copy() if raw_pil is not None else None
+                            finally:
+                                bitmap.close()
                     finally:
                         page.close()
                 except Exception as page_err:
@@ -504,7 +509,12 @@ def rasterize_page(
                                 f"{pixel_area:,} pixels) exceed safety threshold of "
                                 f"{MAX_RASTER_PIXELS:,} pixels"
                             )
-                        pil_img = page.render(scale=scale).to_pil()
+                        bitmap = page.render(scale=scale)
+                        try:
+                            raw_pil = bitmap.to_pil()
+                            pil_img = raw_pil.copy() if raw_pil is not None else None
+                        finally:
+                            bitmap.close()
                     finally:
                         page.close()
                 if pil_img is not None:
@@ -584,7 +594,12 @@ def rasterize_page(
                                     f"{pixel_area:,} pixels) exceed safety threshold of "
                                     f"{MAX_RASTER_PIXELS:,} pixels"
                                 )
-                            pil_img = page.render(scale=scale).to_pil()
+                            bitmap = page.render(scale=scale)
+                            try:
+                                raw_pil = bitmap.to_pil()
+                                pil_img = raw_pil.copy() if raw_pil is not None else None
+                            finally:
+                                bitmap.close()
                         finally:
                             page.close()
                 finally:

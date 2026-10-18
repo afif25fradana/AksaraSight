@@ -32,6 +32,11 @@ from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
 from core.engine import OCREngine
+from core.formatter import (
+    format_output,
+    sanitize_export_error,
+    sanitize_filename_stem,
+)
 from core.hardware import PINNED_LLAMA_BUILD, get_cached_hardware_profile
 from core.model_manager import (
     PINNED_MODEL_REPO,
@@ -40,7 +45,7 @@ from core.model_manager import (
     get_local_model_paths,
     get_model_downloader,
 )
-from core.models import PROMPT_PRESETS
+from core.models import OutputFormat, PROMPT_PRESETS
 from core.pipeline import _PDFIUM_LOCK, is_pdf, rasterize_page
 from core.runtime_manager import (
     _EXE_NAME,
@@ -751,7 +756,8 @@ def create_app(
         try:
             new_settings = dataclasses.replace(current_settings, **updates)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to update settings: {e}")
+            clean_err = sanitize_export_error(str(e)) or str(e)
+            raise HTTPException(status_code=400, detail=f"Failed to update settings: {clean_err}")
 
         try:
             new_settings.save_to_env(env_path=getattr(app.state, "env_path", None))
@@ -856,7 +862,8 @@ def create_app(
         except Exception as e:
             if target_path.exists():
                 target_path.unlink()
-            raise HTTPException(status_code=500, detail=f"Upload write failed: {e}")
+            clean_err = sanitize_export_error(str(e), file_path=target_path, base_dir=target_upload_dir) or str(e)
+            raise HTTPException(status_code=500, detail=f"Upload write failed: {clean_err}")
 
         try:
             pages = probe_page_count(target_path)
@@ -905,7 +912,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="Document file not found")
         except Exception as e:
             logger.exception("Failed to rasterize preview for job %s page %s", job_id, page)
-            raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {e}")
+            clean_err = sanitize_export_error(str(e), file_path=job.file_path, base_dir=target_upload_dir) or str(e)
+            raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {clean_err}")
 
     @app.post("/api/documents/{job_id}/extract", status_code=status.HTTP_202_ACCEPTED)
     async def extract_document(
@@ -1003,7 +1011,9 @@ def create_app(
                 detail="No extraction result available to export",
             )
 
-        stem = Path(job.filename).stem or "extracted_document"
+        out_dir = get_output_dir(app)
+        raw_stem = Path(job.filename).stem if job.filename else "extracted_document"
+        stem = sanitize_filename_stem(raw_stem)
         notice = (
             f"Incomplete extraction: {job.error or 'Processing failed'}"
             if job.status == JobStatus.FAILED
@@ -1032,7 +1042,7 @@ def create_app(
             filename = f"{stem}.md"
         elif format == "json":
             if job.result:
-                json_str = job.result.to_json()
+                json_str = format_output(job.result, OutputFormat.JSON, sanitize_path=True, base_dir=out_dir)["json"]
             else:
                 json_str = json.dumps(job.pages_data, indent=2)
             content_bytes = json_str.encode("utf-8")
@@ -1040,8 +1050,6 @@ def create_app(
             filename = f"{stem}.json"
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
-
-        out_dir = get_output_dir(app)
         try:
             (out_dir / Path(filename).name).write_bytes(content_bytes)
         except Exception as exc:
@@ -1091,13 +1099,18 @@ def create_app(
                     except Exception:
                         content = ""
 
+                try:
+                    rel_local_path = str(file.relative_to(out_dir)).replace("\\", "/")
+                except (ValueError, RuntimeError):
+                    rel_local_path = file.name
+
                 files.append({
                     "id": f"out-{st.st_mtime_ns}-{file.name}",
                     "filename": file.name,
                     "type": ftype,
                     "timestamp": ts_str,
                     "size": size_str,
-                    "localPath": str(file.resolve()),
+                    "localPath": rel_local_path,
                     "content": content,
                 })
             except OSError as exc:
@@ -1160,7 +1173,8 @@ def create_app(
             target.unlink()
         except OSError as exc:
             logger.warning("Failed to delete output file %s: %s", target, exc)
-            raise HTTPException(status_code=500, detail=f"Failed to delete file: {exc}")
+            clean_err = sanitize_export_error(str(exc), file_path=target, base_dir=out_dir) or str(exc)
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {clean_err}")
 
         return {"deleted": True, "filename": filename}
 

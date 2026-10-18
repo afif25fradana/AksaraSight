@@ -3821,7 +3821,7 @@ def test_output_dir_isolation_and_get_output(tmp_path: Path) -> None:
     assert md_item["type"] == "md"
     assert md_item["content"] == "# Markdown Report Content"
     assert "B" in md_item["size"] or "KB" in md_item["size"]
-    assert md_item["localPath"] == str(doc_md.resolve())
+    assert md_item["localPath"] == "report.md"
 
     # Verify docx item placeholder content
     docx_item = next(f for f in files if f["filename"] == "document.docx")
@@ -4344,6 +4344,110 @@ def test_dialog_file_returns_409_when_locked(client: AsgiClient) -> None:
     finally:
         if _dialog_lock.locked():
             _dialog_lock.release()
+
+
+def test_security_headers_present_on_responses(client: AsgiClient) -> None:
+    """Verify security headers are injected on all HTTP responses."""
+    status, headers, _ = client.get("/health")
+    assert status == 200
+    assert headers.get("x-frame-options") == "DENY"
+    assert headers.get("x-content-type-options") == "nosniff"
+    assert "frame-ancestors 'none'" in headers.get("content-security-policy", "")
+    assert "default-src 'self'" in headers.get("content-security-policy", "")
+
+
+def test_sec_fetch_site_cross_site_blocked_on_api_endpoints(client: AsgiClient) -> None:
+    """Verify Sec-Fetch-Site: cross-site is rejected on /api/ endpoints even for GET and HEAD."""
+    # 1. GET /api/documents with cross-site fetch site is blocked
+    status, _, body = client.get(
+        "/api/documents",
+        headers={"sec-fetch-site": "cross-site"},
+    )
+    assert status == 403
+    assert body == b"Forbidden"
+
+    # 2. HEAD /api/documents with cross-site fetch site is blocked
+    status, _, body = client.request(
+        "HEAD",
+        "/api/documents",
+        headers={"sec-fetch-site": "cross-site"},
+    )
+    assert status == 403
+
+    # 3. Non-api path with cross-site fetch site is permitted
+    status, _, _ = client.get(
+        "/health",
+        headers={"sec-fetch-site": "cross-site"},
+    )
+    assert status == 200
+
+
+def test_export_json_path_sanitization_avoids_upload_leak(tmp_path: Path) -> None:
+    """Verify GET /api/documents/{id}/export?format=json does not leak absolute upload directory."""
+    out_dir = tmp_path / "exports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    app = create_app(upload_dir=tmp_path, output_dir=out_dir, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        secret_upload = tmp_path / "very_secret_user_dir" / "sensitive_doc.pdf"
+        secret_upload.parent.mkdir(parents=True, exist_ok=True)
+        secret_upload.write_bytes(b"%PDF-1.4 dummy")
+
+        job_id = "test-export-sanitize-path"
+        page = PageResult(page_num=1, markdown="Sample text", status=CoreJobStatus.SUCCESS)
+        ocr_result = OCRResult(file_path=str(secret_upload.resolve()), pages=[page], status=CoreJobStatus.SUCCESS)
+        job = JobState(
+            job_id=job_id,
+            filename="sensitive_doc.pdf",
+            file_path=secret_upload,
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            result=ocr_result,
+        )
+        orchestrator.register_job(job)
+
+        status, _, body = client.get(f"/api/documents/{job_id}/export?format=json")
+        assert status == 200
+        data = json.loads(body.decode("utf-8"))
+        assert str(secret_upload) not in data["file_path"]
+        assert str(Path.home().resolve()) not in data["file_path"]
+        assert not Path(data["file_path"]).is_absolute()
+        assert data["file_path"].endswith("sensitive_doc.pdf")
+    finally:
+        orchestrator.stop()
+
+
+def test_export_filename_windows_reserved_names(tmp_path: Path) -> None:
+    """Verify export endpoints sanitize Windows reserved DOS device names."""
+    out_dir = tmp_path / "exports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    app = create_app(upload_dir=tmp_path, output_dir=out_dir, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-export-con-stem"
+        page = PageResult(page_num=1, markdown="Reserved device test", status=CoreJobStatus.SUCCESS)
+        ocr_result = OCRResult(file_path="CON.pdf", pages=[page], status=CoreJobStatus.SUCCESS)
+        job = JobState(
+            job_id=job_id,
+            filename="CON.pdf",
+            file_path=tmp_path / "CON.pdf",
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            result=ocr_result,
+        )
+        orchestrator.register_job(job)
+
+        status, headers, _ = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status == 200
+        disposition = headers.get("content-disposition", "")
+        assert "_CON.md" in disposition
+        assert (out_dir / "_CON.md").exists()
+    finally:
+        orchestrator.stop()
 
 
 

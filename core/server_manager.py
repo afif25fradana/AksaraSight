@@ -170,7 +170,12 @@ def probe_server_health(
     health_url = f"{base_url}/health"
     models_url = f"{base_url}/v1/models"
 
-    http_client = session if session is not None else requests
+    owns_session = session is None
+    if owns_session:
+        http_client = requests.Session()
+        http_client.trust_env = False
+    else:
+        http_client = session
 
     try:
         resp = http_client.get(health_url, timeout=timeout)
@@ -200,6 +205,9 @@ def probe_server_health(
         return ServerStatus.ERROR, f"Network error during health check: {req_exc}"
     except Exception as exc:
         return ServerStatus.ERROR, f"Unexpected error during health check: {exc}"
+    finally:
+        if owns_session:
+            http_client.close()
 
 
 def _warn_if_low_vram(profile: Optional[HardwareProfile]) -> None:

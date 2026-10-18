@@ -8,6 +8,13 @@ _LOOPBACK_HOST_PATTERN = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 
+SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    (b"x-frame-options", b"DENY"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"content-security-policy", b"frame-ancestors 'none'; default-src 'self' 'unsafe-inline' data: blob:"),
+)
+
+
 class LoopbackSecurityMiddleware:
     """Pure ASGI middleware enforcing loopback-only Host and Origin headers.
 
@@ -59,6 +66,18 @@ class LoopbackSecurityMiddleware:
             await self.app(scope, receive, send)
             return
 
+        async def send_wrapper(message: dict[str, Any]) -> None:
+            if message.get("type") == "http.response.start":
+                existing_headers = list(message.get("headers", []))
+                existing_names = {name.lower() for name, _ in existing_headers}
+                new_headers = list(existing_headers)
+                for h_name, h_val in SECURITY_HEADERS:
+                    if h_name.lower() not in existing_names:
+                        new_headers.append((h_name, h_val))
+                message = dict(message)
+                message["headers"] = new_headers
+            await send(message)
+
         allowed_port = self._resolve_allowed_port(scope)
         pattern = self._get_pattern(allowed_port)
 
@@ -67,7 +86,7 @@ class LoopbackSecurityMiddleware:
         # 1. Host header validation
         raw_host = headers.get(b"host", b"").decode("latin-1")
         if not raw_host or not pattern.fullmatch(raw_host):
-            await send({
+            await send_wrapper({
                 "type": "http.response.start",
                 "status": 400,
                 "headers": [
@@ -75,20 +94,21 @@ class LoopbackSecurityMiddleware:
                     (b"content-length", b"11"),
                 ],
             })
-            await send({
+            await send_wrapper({
                 "type": "http.response.body",
                 "body": b"Bad Request",
             })
             return
 
-        # 2. Sec-Fetch-Site validation for mutating requests
+        # 2. Sec-Fetch-Site validation for mutating requests and /api/ endpoints
         method = scope.get("method", "GET").upper()
-        if method not in SAFE_METHODS:
-            raw_sec_fetch_site = headers.get(b"sec-fetch-site")
-            if raw_sec_fetch_site is not None:
-                site_val = raw_sec_fetch_site.decode("latin-1").strip().lower()
-                if site_val == "cross-site":
-                    await send({
+        path = scope.get("path", "")
+        raw_sec_fetch_site = headers.get(b"sec-fetch-site")
+        if raw_sec_fetch_site is not None:
+            site_val = raw_sec_fetch_site.decode("latin-1").strip().lower()
+            if site_val == "cross-site":
+                if method not in SAFE_METHODS or path == "/api" or path.startswith("/api/"):
+                    await send_wrapper({
                         "type": "http.response.start",
                         "status": 403,
                         "headers": [
@@ -96,7 +116,7 @@ class LoopbackSecurityMiddleware:
                             (b"content-length", b"9"),
                         ],
                     })
-                    await send({
+                    await send_wrapper({
                         "type": "http.response.body",
                         "body": b"Forbidden",
                     })
@@ -117,7 +137,7 @@ class LoopbackSecurityMiddleware:
                     origin_allowed = True
 
             if not origin_allowed:
-                await send({
+                await send_wrapper({
                     "type": "http.response.start",
                     "status": 403,
                     "headers": [
@@ -125,10 +145,10 @@ class LoopbackSecurityMiddleware:
                         (b"content-length", b"9"),
                     ],
                 })
-                await send({
+                await send_wrapper({
                     "type": "http.response.body",
                     "body": b"Forbidden",
                 })
                 return
 
-        await self.app(scope, receive, send)
+        await self.app(scope, receive, send_wrapper)

@@ -13,10 +13,12 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
 }) => {
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     setImageLoadError(false);
-  }, [document?.id, document?.currentPage]);
+    setImageLoaded(false);
+  }, [document?.id, document?.currentPage, document?.previewImageUrl]);
 
   const handleZoomIn = () => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
@@ -90,7 +92,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           <button 
             disabled={currentPage <= 1}
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-            className="h-7 px-2.5 rounded-md hover:bg-black/5 dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] dark:hover:bg-[var(--bg-active)] disabled:opacity-30 disabled:hover:bg-transparent text-[#14213D] dark:text-[var(--text-1)] transition-colors active:scale-90 active:translate-y-px transition-all duration-100 ease-out flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
+            className="h-7 px-2.5 rounded-md hover:bg-black/5 dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] dark:hover:bg-[var(--bg-active)] disabled:opacity-30 disabled:hover:bg-transparent text-[#14213D] dark:text-[var(--text-1)] active:scale-[0.96] active:translate-y-px transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
             type="button" 
             aria-label="Previous"
           >
@@ -105,7 +107,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           <button 
             disabled={currentPage >= totalPages}
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-            className="h-7 px-2.5 rounded-md hover:bg-black/5 dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] dark:hover:bg-[var(--bg-active)] disabled:opacity-30 disabled:hover:bg-transparent text-[#14213D] dark:text-[var(--text-1)] transition-colors active:scale-90 active:translate-y-px transition-all duration-100 ease-out flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
+            className="h-7 px-2.5 rounded-md hover:bg-black/5 dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)] dark:hover:bg-[var(--bg-active)] disabled:opacity-30 disabled:hover:bg-transparent text-[#14213D] dark:text-[var(--text-1)] active:scale-[0.96] active:translate-y-px transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
             type="button" 
             aria-label="Next"
           >
@@ -162,11 +164,19 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           className="transition-transform duration-150 w-full flex justify-center"
         >
           {document.previewImageUrl && !imageLoadError ? (
-            <div className="w-full max-w-[560px] bg-white dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[4px] shadow-[0_4px_16px_rgba(20,33,61,0.07)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-3 flex justify-center">
+            <div className="w-full max-w-[560px] bg-white dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[4px] shadow-[0_4px_16px_rgba(20,33,61,0.07)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-3 flex justify-center min-h-[300px] relative">
+              {!imageLoaded && (
+                <div className="absolute inset-3 bg-black/[0.03] dark:bg-white/[0.04] rounded flex items-center justify-center animate-pulse" aria-hidden="true">
+                  <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] font-mono">Rendering page...</span>
+                </div>
+              )}
               <img 
                 src={document.previewImageUrl} 
                 alt={`${document.name} page ${currentPage}`}
-                className="max-w-full h-auto object-contain rounded"
+                className={`max-w-full h-auto object-contain rounded transition-opacity duration-200 ease-tactile ${
+                  imageLoaded ? 'opacity-100' : 'opacity-0'
+                }`}
+                onLoad={() => setImageLoaded(true)}
                 onError={() => setImageLoadError(true)}
               />
             </div>

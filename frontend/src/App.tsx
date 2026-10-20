@@ -13,6 +13,17 @@ import { INITIAL_DOCUMENTS, INITIAL_SETTINGS } from './data/mockDocuments';
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'workspace' | 'settings'>('workspace');
 
+  const handleTabChange = (nextTab: 'workspace' | 'settings') => {
+    if (nextTab === currentTab) return;
+    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+      (document as any).startViewTransition(() => {
+        setCurrentTab(nextTab);
+      });
+    } else {
+      setCurrentTab(nextTab);
+    }
+  };
+
   // Theme state with localStorage persistence
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) {
@@ -916,7 +927,7 @@ export default function App() {
       {/* Top Application Bar with Server Controls, Theme & Logs */}
       <TopNavBar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={handleTabChange}
         engineSettings={engineSettings}
         onToggleServer={handleToggleServer}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
@@ -930,7 +941,11 @@ export default function App() {
 
       {/* Main Workspace 3-Pane Layout */}
       {currentTab === 'workspace' ? (
-        <main className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in" aria-label="AksaraSight Workspace">
+        <main 
+          className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in" 
+          aria-label="AksaraSight Workspace"
+          style={{ viewTransitionName: 'tab-view' }}
+        >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full min-h-0">
             <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
               <FileQueuePanel
@@ -939,7 +954,7 @@ export default function App() {
                 onSelectDoc={setSelectedDocId}
                 onAddFiles={handleAddFiles}
                 onClearFinished={handleClearFinished}
-                onOpenSettings={() => setCurrentTab('settings')}
+                onOpenSettings={() => handleTabChange('settings')}
                 onRetryDoc={handleRetryDoc}
                 onRemoveDoc={handleRemoveDoc}
                 onRemoveFromQueue={handleRemoveFromQueue}
@@ -962,7 +977,7 @@ export default function App() {
                 selectedDpi={selectedDpi}
                 onDpiChange={handleDpiChange}
                 onStartEngine={handleToggleServer}
-                onOpenSettings={() => setCurrentTab('settings')}
+                onOpenSettings={() => handleTabChange('settings')}
                 onExport={handleExport}
                 onRunDocumentExtraction={handleRunDocumentExtraction}
                 onAddToQueue={handleAddToQueue}
@@ -975,7 +990,10 @@ export default function App() {
         </main>
       ) : (
         /* Settings Tab View */
-        <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in">
+        <div 
+          className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in"
+          style={{ viewTransitionName: 'tab-view' }}
+        >
           <SettingsView
             settings={engineSettings}
             onSave={(newSettings) => {
@@ -988,7 +1006,7 @@ export default function App() {
                 setSelectedDpi(newSettings.dpi);
               }
             }}
-            onCancel={() => setCurrentTab('workspace')}
+            onCancel={() => handleTabChange('workspace')}
             modelStatus={modelStatus}
             onDownloadModel={handleDownloadModel}
             onCancelModelDownload={handleCancelModelDownload}

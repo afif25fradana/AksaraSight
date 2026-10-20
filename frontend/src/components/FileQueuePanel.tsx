@@ -299,11 +299,13 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
 
                   {/* Processing Row Progress Bar */}
                   {doc.status === 'Processing' && (
-                    <div className="w-full h-1 bg-[#E2DFD7] dark:bg-[var(--accent-dim)] rounded-sm overflow-hidden mt-2">
+                    <div className="w-full h-1 bg-[#E2DFD7] dark:bg-[var(--accent-dim)] rounded-sm overflow-hidden mt-2 relative">
                       <div 
-                        className="h-full bg-[#0F766E] dark:bg-[var(--accent)] transition-all duration-300"
+                        className="h-full bg-[#0F766E] dark:bg-[var(--accent)] transition-all duration-300 relative overflow-hidden"
                         style={{ width: `${progressPercent}%` }}
-                      />
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/30 to-transparent animate-shimmer" />
+                      </div>
                     </div>
                   )}
 

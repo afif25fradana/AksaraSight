@@ -37,6 +37,22 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   const copyTimerRef = useRef<NodeJS.Timeout | number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const [isRendered, setIsRendered] = useState(isOpen);
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsRendered(true);
+      setIsClosing(false);
+    } else if (isRendered) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setIsRendered(false);
+        setIsClosing(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isRendered]);
 
   useEffect(() => {
     return () => {
@@ -169,12 +185,19 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
     ? 'EXTERNAL'
     : 'NO PID';
 
-  if (!isOpen) return null;
+  if (!isRendered) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] animate-modal-backdrop">
+    <div 
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] ${
+        isClosing ? 'opacity-0 transition-opacity duration-150 ease-tactile pointer-events-none' : 'animate-modal-backdrop'
+      }`}
+      onClick={onClose}
+    >
       <div 
-        className="w-full max-w-4xl bg-[#FBFAF7] dark:bg-[var(--bg-surface)] border border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] rounded-xl shadow-2xl animate-modal-window will-change-transform overflow-hidden flex flex-col h-[85vh] max-h-[720px] transition-colors"
+        className={`w-full max-w-4xl bg-[#FBFAF7] dark:bg-[var(--bg-surface)] border border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] rounded-xl shadow-2xl will-change-transform overflow-hidden flex flex-col h-[85vh] max-h-[720px] transition-colors ${
+          isClosing ? 'animate-modal-window-exit' : 'animate-modal-window'
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

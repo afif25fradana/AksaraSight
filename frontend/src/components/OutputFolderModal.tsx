@@ -21,6 +21,22 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
   const [explorerOpenedFeedback, setExplorerOpenedFeedback] = useState<string | null>(null);
+  const [isRendered, setIsRendered] = useState(isOpen);
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsRendered(true);
+      setIsClosing(false);
+    } else if (isRendered) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setIsRendered(false);
+        setIsClosing(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isRendered]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -37,7 +53,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isRendered) return null;
 
   const effectiveFolderPath = folderPath || '~/Documents/AksaraSight/output';
 
@@ -94,9 +110,16 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] animate-modal-backdrop">
+    <div 
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] ${
+        isClosing ? 'opacity-0 transition-opacity duration-150 ease-tactile pointer-events-none' : 'animate-modal-backdrop'
+      }`}
+      onClick={onClose}
+    >
       <div 
-        className="w-full max-w-3xl bg-white dark:bg-[var(--bg-surface)] rounded-xl shadow-[0_20px_50px_rgba(20,33,61,0.25)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)] border border-[#14213D]/15 dark:border-[var(--border)] animate-modal-window will-change-transform overflow-hidden flex flex-col max-h-[88vh] text-[#14213D] dark:text-[var(--text-1)] transition-colors"
+        className={`w-full max-w-3xl bg-white dark:bg-[var(--bg-surface)] rounded-xl shadow-[0_20px_50px_rgba(20,33,61,0.25)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)] border border-[#14213D]/15 dark:border-[var(--border)] will-change-transform overflow-hidden flex flex-col max-h-[88vh] text-[#14213D] dark:text-[var(--text-1)] transition-colors ${
+          isClosing ? 'animate-modal-window-exit' : 'animate-modal-window'
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

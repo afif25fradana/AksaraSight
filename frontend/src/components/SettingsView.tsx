@@ -865,11 +865,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             </div>
                           </div>
 
-                          <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden">
+                          <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden relative">
                             <div
-                              className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full"
+                              className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full relative overflow-hidden"
                               style={{ width: `${Math.min(100, Math.max(0, effectiveRuntimeStatus.percent))}%` }}
-                            />
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/30 to-transparent animate-shimmer" />
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -1010,11 +1012,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </div>
 
                       {/* Progress bar */}
-                      <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-[#E5E2D9] dark:bg-[var(--bg-base)] h-2 rounded-full overflow-hidden relative">
                         <div
-                          className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full"
+                          className="bg-[#0F766E] dark:bg-[var(--accent)] h-full transition-all duration-200 rounded-full relative overflow-hidden"
                           style={{ width: `${effectiveModelStatus.percent}%` }}
-                        />
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/30 to-transparent animate-shimmer" />
+                        </div>
                       </div>
 
                       <div className="flex justify-end pt-1">

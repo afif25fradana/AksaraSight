@@ -407,7 +407,10 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               </thead>
               <tbody className="divide-y divide-[#8A94A6]/20 dark:divide-[var(--border)]">
                 {dataRows.map((row, rIdx) => (
-                  <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'}>
+                  <tr 
+                    key={rIdx} 
+                    className={`${rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'} hover:bg-black/[0.025] dark:hover:bg-white/[0.03] transition-colors duration-100`}
+                  >
                     {row.map((cell, cIdx) => (
                       <td key={cIdx} className="px-3 py-2 border-r border-[#8A94A6]/15 dark:border-[var(--border)] last:border-r-0 text-[#14213D] dark:text-[var(--text-1)]">
                         {cell}
@@ -526,7 +529,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 {bodyRows.map((row, rIdx) => (
                   <tr
                     key={`brow-${rIdx}`}
-                    className={rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'}
+                    className={`${rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'} hover:bg-black/[0.025] dark:hover:bg-white/[0.03] transition-colors duration-100`}
                   >
                     {row.cells.map((cell, cIdx) => {
                       const CellTag = cell.isHeader ? 'th' : 'td';
@@ -1198,7 +1201,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           <button 
             disabled={!canExportOrCopy}
             onClick={handleCopy}
-            className={`h-8 px-3 rounded-lg border active:scale-90 active:translate-y-px transition-all duration-100 ease-out text-xs font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
+            className={`h-8 px-3 rounded-lg border active:scale-[0.97] active:translate-y-px transition-all duration-100 ease-tactile text-xs font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
               copied
                 ? 'bg-emerald-50 dark:bg-[var(--success)]/10 border-emerald-300 dark:border-[var(--success)]/30 text-emerald-800 dark:text-[var(--success)] shadow-xs'
                 : 'border-[#8A94A6] dark:border-[var(--border)] hover:border-[#14213D] dark:hover:border-[var(--border-strong)] bg-white dark:bg-[var(--bg-elevated)] text-[#14213D] dark:text-[var(--text-1)] hover:bg-black/[0.02] dark:hover:bg-[var(--bg-active)] disabled:opacity-40 disabled:cursor-not-allowed'
@@ -1208,7 +1211,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-[var(--success)] leading-none" aria-hidden="true" />
+                <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-[var(--success)] leading-none transition-transform duration-150 scale-100" aria-hidden="true" />
                 <span className="font-semibold text-emerald-800 dark:text-[var(--success)]">Copied to clipboard</span>
               </>
             ) : (

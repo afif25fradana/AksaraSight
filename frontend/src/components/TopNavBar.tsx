@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Play, Square, Terminal } from 'lucide-react';
+import { FolderOpen, Play, RefreshCw, Square, Terminal } from 'lucide-react';
 import { EngineSettings, ServerStatusInfo } from '../types';
 
 interface TopNavBarProps {
@@ -166,10 +166,17 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           role="status"
           aria-live="polite"
         >
-          <span
-            className={`inline-block w-2 h-2 rounded-full ${statusConfig.dotClass}`}
-            aria-hidden="true"
-          />
+          {currentStatus === 'starting' ? (
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${statusConfig.dotClass}`}></span>
+            </span>
+          ) : (
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${statusConfig.dotClass}`}
+              aria-hidden="true"
+            />
+          )}
           <span className="font-semibold text-[12px] whitespace-nowrap tracking-tight">
             {statusConfig.label}
           </span>
@@ -191,7 +198,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             type="button"
             onClick={buttonDisabled ? undefined : onToggleServer}
             disabled={buttonDisabled}
-            className={`h-8 w-8 sm:w-[108px] rounded-lg border border-[var(--danger)]/30 text-[var(--danger)] flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out shadow-2xs focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none shrink-0 ${
+            className={`h-8 w-8 sm:w-[108px] rounded-lg border border-[var(--danger)]/30 text-[var(--danger)] flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-tactile shadow-2xs focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none shrink-0 ${
               buttonDisabled
                 ? 'cursor-not-allowed opacity-50'
                 : 'hover:border-[var(--danger)]/60 bg-[var(--danger)]/8 hover:bg-[var(--danger)]/15 cursor-pointer'
@@ -199,7 +206,11 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             aria-label={buttonAriaLabel}
             title={buttonTitle}
           >
-            <Square className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
+            {isTransitioning ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" aria-hidden="true" />
+            ) : (
+              <Square className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
+            )}
             <span className="hidden sm:inline whitespace-nowrap">{buttonText}</span>
           </button>
         ) : (
@@ -207,7 +218,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             type="button"
             onClick={buttonDisabled ? undefined : onToggleServer}
             disabled={buttonDisabled}
-            className={`h-8 w-8 sm:w-[108px] rounded-lg bg-[#0F766E] text-white flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out shadow-xs focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none shrink-0 ${
+            className={`h-8 w-8 sm:w-[108px] rounded-lg bg-[#0F766E] text-white flex items-center justify-center gap-1.5 text-[12px] font-semibold active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-tactile shadow-xs focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none shrink-0 ${
               buttonDisabled
                 ? 'cursor-not-allowed opacity-50'
                 : 'hover:bg-[#115E59] active:bg-[#0d4f4b] cursor-pointer'
@@ -215,7 +226,11 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             aria-label={buttonAriaLabel}
             title={buttonTitle}
           >
-            <Play className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
+            {isTransitioning ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" aria-hidden="true" />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current shrink-0" aria-hidden="true" />
+            )}
             <span className="hidden sm:inline whitespace-nowrap">{buttonText}</span>
           </button>
         )}

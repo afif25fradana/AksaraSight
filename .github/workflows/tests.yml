@@ -33,10 +33,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Run frontend tests
+      - name: Run frontend typecheck and tests
         run: |
           cd frontend
           npm ci
+          npm run lint
           npm test
 
       - name: Verify frontend build reproducibility and bundle sync

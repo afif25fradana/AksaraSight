@@ -668,7 +668,7 @@ def create_app(
                     raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
                 updates[key] = int(val)
             elif key == "max_image_dimension":
-                if isinstance(val, bool) or not isinstance(val, int) or not (256 <= val <= 8192):
+                if isinstance(val, bool) or not isinstance(val, int) or not (512 <= val <= 8192):
                     raise HTTPException(status_code=400, detail=f"Invalid value for setting '{key}'.")
                 updates[key] = int(val)
             elif key == "max_tokens":

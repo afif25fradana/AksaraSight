@@ -8,13 +8,14 @@ This document provides in-depth technical specifications, architecture notes, co
 
 1. [Architecture & Codebase Layout](#architecture--codebase-layout)
 2. [CLI Reference & Automation](#cli-reference--automation)
-3. [Configuration & Environment Variables](#configuration--environment-variables)
-4. [Custom Runtime & Manual Server Setup](#custom-runtime--manual-server-setup)
-5. [Security, Network Policy & Process Lifecycles](#security-network-policy--process-lifecycles)
-6. [Output Formats & Data Payloads](#output-formats--data-payloads)
-7. [Performance, Latency & Known Model Quirks](#performance-latency--known-model-quirks)
-8. [Logging Architecture & Runtime Diagnostics](#logging-architecture--runtime-diagnostics)
-9. [Testing, Build Verification & Portable Packaging](#testing-build-verification--portable-packaging)
+3. [Web API Reference & SSE Contract](#web-api-reference--sse-contract)
+4. [Configuration & Environment Variables](#configuration--environment-variables)
+5. [Custom Runtime & Manual Server Setup](#custom-runtime--manual-server-setup)
+6. [Security, Network Policy & Process Lifecycles](#security-network-policy--process-lifecycles)
+7. [Output Formats & Data Payloads](#output-formats--data-payloads)
+8. [Performance, Latency & Known Model Quirks](#performance-latency--known-model-quirks)
+9. [Logging Architecture & Runtime Diagnostics](#logging-architecture--runtime-diagnostics)
+10. [Testing, Build Verification & Portable Packaging](#testing-build-verification--portable-packaging)
 
 ---
 
@@ -87,6 +88,7 @@ python -m cli.main [input] [options]
 | `--max-pages` | Maximum pages to process per document. | `None` (unlimited) |
 | `--dpi` | PDF rasterization DPI (higher = clearer text, higher latency). | `100` |
 | `-q, --quiet` | Suppress log messages; emit strictly transcription output. | `False` |
+| `-v, --version` | Show program's version number and exit. | `N/A` |
 
 **Supported Input Formats:** `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp`, `.pdf`.
 
@@ -113,6 +115,76 @@ python -m cli.main invoice.pdf -o .\output\ --dpi 150 --max-pages 5
 
 ---
 
+### Web UI Server Options (`python -m web`)
+
+The Web UI workspace entrypoint accepts the following flags:
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--host` | Bind interface (strictly enforced loopback). | `127.0.0.1` |
+| `--port` | Port number for the Web UI server. | `8000` |
+| `--dev` | Allow Vite frontend dev server origins (port 5173). | `False` |
+| `--reload` | Auto-reload Uvicorn server on code changes. | `False` |
+| `--no-browser` | Prevent auto-launching default browser on application start. | `False` |
+
+---
+
+## Web API Reference & SSE Contract
+
+AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) stream powered by FastAPI (`web/app.py` and `web/orchestrator.py`). All endpoints strictly enforce loopback origin headers.
+
+### Diagnostics & Server Supervision
+- `GET /health`: Basic health check returning `{"status": "ok", "version": "1.3.0"}`.
+- `GET /api/doctor`: Returns 5-stage system diagnostics (configuration, hardware, runtime, server reachability, multimodal probe).
+- `POST /api/doctor`: Triggers a fresh live system diagnostic re-probe.
+- `GET /api/server/status`: Current managed server lifecycle state (`offline`, `starting`, `ready`, `error`).
+- `POST /api/server/start`: Launches the managed local `llama-server` process with hardware-optimized arguments.
+- `POST /api/server/stop`: Stops the local `llama-server` process gracefully.
+- `GET /api/server/logs/stream`: SSE stream broadcasting live `llama-server` process stdout/stderr logs.
+
+### Settings & Configuration
+- `GET /api/settings`: Returns the active configuration dictionary (with sensitive paths sanitized).
+- `PATCH /api/settings`: Updates mutable runtime parameters (`backend`, `endpoint`, `runtime_mode`, `dpi`, `max_image_dimension`, `max_tokens`, `output_dir`).
+- `POST /api/dialog/file`: Triggers a native Windows file or folder browse dialog to select binaries or directories.
+
+### Document Pipeline & Extraction
+- `GET /api/documents`: Lists all uploaded documents in the session queue.
+- `POST /api/documents`: Multipart upload for documents (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`).
+- `GET /api/documents/{job_id}/pages/{page}/preview`: Renders and returns a JPEG page image preview.
+- `POST /api/documents/{job_id}/extract`: Enqueues document extraction with request payload `{"prompt_mode": "text"|"table"|"formula", "dpi": 100|150}`.
+- `POST /api/documents/{job_id}/cancel`: Requests cooperative cancellation of an active extraction job.
+- `DELETE /api/documents/{job_id}`: Removes a document from the queue and cleans up cached artifacts.
+
+### Artifact Export & Output Management
+- `GET /api/documents/{job_id}/export?format=md|json|docx`: Downloads the converted document in the requested format.
+- `GET /api/output`: Lists previously exported files in the designated output folder.
+- `POST /api/output/open`: Opens the output folder in Windows File Explorer.
+- `DELETE /api/output/{filename}`: Deletes an exported artifact from the output directory.
+
+### Model & Runtime Management
+- `GET /api/model/status`: Returns downloaded status and integrity of GLM-OCR model weights.
+- `POST /api/model/download`: Initiates background download of model weights with SHA-256 verification.
+- `POST /api/model/download/cancel`: Cancels an active model download and cleans partial files.
+- `GET /api/runtime/status`: Returns detection and installation status of managed `llama-server` binaries.
+- `POST /api/runtime/download`: Initiates background download and staging of managed llama.cpp runtime archives.
+- `POST /api/runtime/download/cancel`: Cancels an active runtime download.
+
+### Server-Sent Events (SSE) Contract (`GET /api/events`)
+The frontend and external scripts subscribe to real-time events over `GET /api/events`:
+
+| Event Name | Payload Schema | Description |
+| --- | --- | --- |
+| `started` | `{"job_id": str, "total_pages": int}` | Emitted when OCR begins for a document. |
+| `page_progress` | `{"job_id": str, "current_page": int, "total_pages": int, "status": str}` | Emitted as each page finishes rasterization or OCR. |
+| `completed` | `{"job_id": str, "elapsed_seconds": float, "pages": [...]}` | Emitted when full document finishes processing. |
+| `failed` | `{"job_id": str, "error": str}` | Emitted on unrecoverable processing or server disconnection errors. |
+| `cancelled` | `{"job_id": str, "pages_completed": int}` | Emitted when a job is cooperatively halted. |
+| `model_download_progress` | `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during GGUF model file retrieval. |
+| `runtime_download_progress`| `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during llama.cpp archive download/extraction. |
+| `_ping` | `{"timestamp": float}` | Keep-alive heartbeat emitted every 15 seconds. |
+
+---
+
 ## Configuration & Environment Variables
 
 Settings are loaded from environment variables or a `.env` file via `config/settings.py`. All canonical variables use the `OCR_` prefix (legacy unprefixed variables work with a deprecation warning).
@@ -133,6 +205,11 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | `OCR_MAX_PAGES` | None | Global page cap per document (`None` = all pages). |
 | `OCR_MAX_IMAGE_DIMENSION` | `2048` | Longest-edge dimension cap (512–8192 px) to protect VRAM. |
 | `OCR_MAX_TOKENS` | `4096` | Maximum completion tokens allocated per OCR page (128–16384). |
+| `OCR_OUTPUT_DIR` | None | Default directory for exported OCR artifacts (.md, .json, .docx). |
+| `AKSARA_ENV_FILE` | None | Optional custom path to load environment variables from. |
+| `HF_HOME` | None | Hugging Face cache root to discover existing local model weights. |
+
+> **Per-Job Extraction Overrides**: While `OCR_DPI` sets the global default, individual document extraction requests (`POST /api/documents/{job_id}/extract`) accept dynamic `dpi` (100 or 150) and `prompt_mode` (`text`, `table`, or `formula`) overrides.
 
 A documented template is provided in [`.env.example`](.env.example).
 
@@ -154,7 +231,7 @@ llama-server -hf ggml-org/GLM-OCR-GGUF --host 127.0.0.1 --port 8080 -ngl 99 -c 8
 llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 ```
 
-> **VRAM Configuration Tip**: While raw GGUF weights are ~1.36 GB (~1.8 GB VRAM), `llama-server` defaults to `n_slots=4` and `n_ctx_slot=40192`, which pre-allocates an extra ~2.0 GB of unified KV cache and balloons VRAM to >4.2 GB. Launching with `-c 8192 --parallel 1` caps context to 8k tokens and single-slot concurrency, holding VRAM to ~2.18 GB.
+> **VRAM Configuration Tip**: While raw GGUF weights are ~1.43 GB (~1.34 GiB, ~1.8 GB VRAM), `llama-server` defaults to `n_slots=4` and `n_ctx_slot=40192`, which pre-allocates an extra ~2.0 GB of unified KV cache and balloons VRAM to >4.2 GB. Launching with `-c 8192 --parallel 1` caps context to 8k tokens and single-slot concurrency, holding VRAM to ~2.18 GB.
 
 ---
 
@@ -220,6 +297,7 @@ When running as a packaged desktop application, runtime logs are written directl
 GLM-OCR inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 2.2 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
 - **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Web UI (`web/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
 - **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without freezing process supervision.
+- **Diagnostic Recommendations (`--doctor`, `--detect-hardware`)**: Comprehensive system health diagnostics recommend >= 3,000 MB dedicated VRAM to guarantee headroom for OS display compositing. Values between 2,200 MB and 3,000 MB log a non-blocking advisory note while permitting normal server startup.
 
 ---
 
@@ -231,6 +309,7 @@ The test suite is configured via `pytest.ini` (`testpaths = tests`). All tests a
 Run tests from the repository root:
 
 ```powershell
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 
@@ -245,6 +324,10 @@ For standalone binary distributions created with `scripts/build_portable.py`:
 ### Compiling Standalone Portable Distribution
 To bundle the application into a standalone Windows x64 distribution:
 ```powershell
+# 1. Build React frontend production bundle
+cd frontend && npm ci && npm run build && cd ..
+
+# 2. Package standalone Windows distribution
 pip install -r requirements-build.txt
 python scripts/build_portable.py
 ```

@@ -11,6 +11,7 @@ Verifies:
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -18,9 +19,15 @@ import time
 import urllib.request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-from core.constants import __version__
+
+def _read_version(repo_root: Path) -> str:
+    constants_file = repo_root / "core" / "constants.py"
+    match = re.search(r'__version__:\s*str\s*=\s*["\']([^"\']+)["\']', constants_file.read_text(encoding="utf-8"))
+    if match:
+        return match.group(1)
+    raise RuntimeError("Could not find __version__ in core/constants.py")
+
+__version__ = _read_version(REPO_ROOT)
 
 _dist_override = os.environ.get("AKSARASIGHT_DIST_DIR") or (sys.argv[1] if len(sys.argv) > 1 else None)
 DIST_DIR = Path(_dist_override).resolve() if _dist_override else REPO_ROOT / "dist" / "AksaraSight"

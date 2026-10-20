@@ -2,6 +2,11 @@
 
 React + TypeScript + Tailwind CSS workspace interface for AksaraSight.
 
+## Prerequisites
+
+- Node.js >= 18.0.0 (Node 20+ LTS recommended)
+- npm >= 9.0.0
+
 ## Development
 
 Start the backend in development mode (allows Vite dev server origins):
@@ -29,8 +34,12 @@ npm run build
 
 Builds the static distribution bundle into `../web/static/` for serving by the FastAPI backend.
 
-## Testing
+## Testing & Type Checking
 
 ```bash
+# Run Vitest test suite
 npm test
+
+# Run TypeScript type check
+npm run lint
 ```

@@ -92,7 +92,18 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-### Security Hardening Pass (Loopback Host Binding, Proxy Defense, JSON Path & Error Sanitization)
+### v1.0.0: 100% Local Vision OCR Studio (September 16, 2026)
+*Focus: 100% local vision OCR engine, CustomTkinter desktop studio, streaming CLI, and zero-setup Windows portable package.*
+
+- **100% Local Inference**: Runs GLM-OCR (0.9B) locally via `llama-server` on loopback (`127.0.0.1`), eliminating cloud API dependencies and preventing remote data exfiltration.
+- **Desktop Studio (`gui/`)**: CustomTkinter desktop application with drag-and-drop document ingestion, real-time per-page progress, and 4-tab live preview (Markdown, Formatted Text, Page Images, JSON Tree).
+- **Automation CLI (`cli/`)**: Command-line interface with streaming stdout, directory batch conversion, and structured exit codes.
+- **Hardware Acceleration**: Automatic GPU probe supporting NVIDIA CUDA 12.4+, Vulkan, and CPU fallback.
+- **Portable Windows Distribution**: Self-contained `AksaraSight-v1.0.0-windows-x64.zip` packaging executables with zero Python installation prerequisites.
+
+---
+
+### Initial Development & Foundation Milestones (v1.0.0 Lifecycle)
 *Focus: Defense-in-depth isolation, loopback binding enforcement, proxy interception prevention, and path sanitization in JSON exports.*
 - **Explicit Loopback Host Binding**: Added explicit `"--host", "127.0.0.1"` to `llama-server` subprocess launch in `core/server_manager.py`, eliminating reliance on upstream binary default host behavior.
 - **Proxy Interception Defense**: Set `trust_env = False` on `requests.Session` instances in `core/client.py` and `core/server_manager.py`, guaranteeing OS-level proxy environment variables (`HTTP_PROXY`/`HTTPS_PROXY`) cannot intercept local loopback inference traffic.

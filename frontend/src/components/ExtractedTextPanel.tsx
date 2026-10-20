@@ -939,7 +939,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           aria-label="Preview display modes"
         >
           <div 
-            className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] shadow-2xs dark:shadow-none transition-all duration-200 cubic-bezier(0.16, 1, 0.3, 1) pointer-events-none"
+            className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] shadow-2xs dark:shadow-none transition-all duration-200 ease-tactile pointer-events-none"
             style={{
               left: `${indicatorStyle.left}px`,
               width: `${indicatorStyle.width}px`,

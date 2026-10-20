@@ -713,7 +713,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       className="relative inline-flex p-0.5 bg-[#F5F4F0] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-lg gap-1 whitespace-nowrap"
                     >
                       <div 
-                        className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 cubic-bezier(0.16, 1, 0.3, 1) pointer-events-none"
+                        className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 ease-tactile pointer-events-none"
                         style={{
                           left: `${runtimeIndicator.left}px`,
                           width: `${runtimeIndicator.width}px`,
@@ -790,7 +790,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           className="relative inline-flex p-0.5 bg-[#F0EEE8] dark:bg-[var(--bg-base)] border border-[#E5E2D9] dark:border-[var(--border)] rounded-lg gap-1 whitespace-nowrap"
                         >
                           <div 
-                            className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 cubic-bezier(0.16, 1, 0.3, 1) pointer-events-none"
+                            className="absolute top-0.5 bottom-0.5 rounded-md bg-white dark:bg-[var(--bg-elevated)] border border-[#14213D]/10 dark:border-[var(--border)] shadow-xs transition-all duration-200 ease-tactile pointer-events-none"
                             style={{
                               left: `${targetIndicator.left}px`,
                               width: `${targetIndicator.width}px`,

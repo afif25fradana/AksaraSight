@@ -6,6 +6,23 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
+### Added
+- **Real-Time Model Download SSE Streaming**: Background model downloads now emit a terminal completion event (`model_download_progress`) over Server-Sent Events (SSE). The frontend UI immediately updates the status badge to "Verified Local Weights" without requiring a manual browser refresh.
+- **Tailwind CSS v4 Design Tokens**: Registered custom cubic-bezier easing tokens (`--ease-tactile: cubic-bezier(0.16, 1, 0.3, 1)` and `--ease-smooth: cubic-bezier(0.25, 1, 0.5, 1)`) and keyframe definitions (`shimmer`, `modal-window-out`, `dropdown-unpop`) in `@theme`.
+- **Micro-Interactions & Visual Polish**: Added animated modal exit transitions for `OutputFolderModal` and `ServerLogsModal`, a raster reveal transition on document preview changes, a rotating `RefreshCw` spinner during server status changes, a pulsing radar dot on engine startup, and an indeterminate translucent shimmer sweep on progress bars.
+- **React 19 Error Boundary**: Wrapped the workspace root in an Error Boundary with component retry capabilities, preventing unexpected rendering exceptions from crashing the application.
+
+### Changed
+- **DPI Resolution Card Buttons**: Replaced the continuous range slider and static text boxes in Settings with a 2x2 grid of tactile Card Buttons (72, 100, 150, 200 DPI). Each card includes a radio indicator, active ring, and `active:scale-[0.98]` depress feedback.
+- **Bidirectional Settings Synchronization**: Workspace scan resolution adjustments now synchronize bidirectionally with global settings via `PATCH /api/settings`, keeping workspace controls and configuration options aligned.
+- **CI Static Bundle Sync Scoping**: Scoped the GitHub Actions frontend bundle auto-sync workflow strictly to Dependabot PR merges on `main`. Regular developer pushes no longer trigger bot auto-commit loops or cross-OS minification variances.
+
+### Fixed
+- **Theme Toggle View Transition Collision**: Fixed an issue where explicit `viewTransitionName: 'tab-view'` on `<main>` and settings containers caused browser View Transitions to clip and tear the document-wide circular ripple mask. The View Transitions API is now reserved exclusively for the full-viewport theme toggle.
+- **Theme Switch Knob Glide**: Re-synchronized `.theme-checkbox::before` translation timing (`0.35s ease`) with the switch background gradient, restoring smooth knob motion.
+- **Export Dropdown Hover Stability**: Removed an aggressive `onMouseLeave` auto-collapse listener on the Export dropdown in `ExtractedTextPanel`, keeping the menu open until option selection, Esc key, or click-outside.
+- **WCAG AA Color Contrast**: Adjusted muted text and badge color tokens in dark mode to achieve 12.5:1 contrast ratios, surpassing WCAG AA standards.
+
 ---
 
 ## Milestones

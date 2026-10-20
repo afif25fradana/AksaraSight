@@ -53,7 +53,7 @@ jobs:
 
       - name: Upload static bundle on mismatch
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: static-bundle-linux
           path: web/static/

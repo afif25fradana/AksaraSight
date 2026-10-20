@@ -36,6 +36,13 @@ type SettingsCategory = 'engine' | 'processing' | 'advanced';
 
 const DPI_STEPS = [72, 100, 150, 200];
 
+const DPI_OPTIONS: { dpi: number; desc: string }[] = [
+  { dpi: 72, desc: 'Draft / Fast preview' },
+  { dpi: 100, desc: 'Standard documents (Recommended)' },
+  { dpi: 150, desc: 'High resolution / Small fonts' },
+  { dpi: 200, desc: 'Archival / Fine manuscript detail' },
+];
+
 const DEFAULT_SETTINGS: BackendSettings = {
   backend: 'llama-cpp',
   local_endpoint: 'http://127.0.0.1:8080/v1',
@@ -525,17 +532,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const currentDpiIndex = Math.max(
-    0,
-    DPI_STEPS.findIndex((s) => s >= formData.dpi)
-  );
-
-  const handleDpiSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const stepIdx = Number(e.target.value);
-    const targetDpi = DPI_STEPS[stepIdx] || 100;
-    setFormData((prev) => ({ ...prev, dpi: targetDpi }));
   };
 
   // Extract detected hardware from real doctor report if available
@@ -1180,13 +1176,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {activeCategory === 'processing' && (
               <div className="space-y-4 animate-fade-in" role="tabpanel">
                 
-                {/* DPI Slider Block */}
+                {/* DPI Selection Block */}
                 <div className="bg-white dark:bg-[var(--bg-elevated)] p-4 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] space-y-3 transition-colors">
                   <div className="flex justify-between items-center">
                     <div>
-                      <label className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)] block" htmlFor="render-dpi">
+                      <h3 className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)]">
                         Document Render Resolution (DPI)
-                      </label>
+                      </h3>
                       <p className="text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
                         Default rasterization resolution for OCR scans. Synchronized across workspace scan options.
                       </p>
@@ -1199,51 +1195,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </span>
                   </div>
 
-                  <div className="relative flex items-center w-full py-1">
-                    <input 
-                      id="render-dpi" 
-                      type="range" 
-                      min="0" 
-                      max="3" 
-                      step="1" 
-                      value={currentDpiIndex}
-                      onChange={handleDpiSliderChange}
-                      className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-[#0F766E] dark:accent-[var(--accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2" 
-                    />
-                  </div>
-
-                  {/* Snapped Steps Label Row */}
-                  <div className="flex justify-between items-center text-[12px] font-medium text-[#5A6478] dark:text-[var(--text-2)] px-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {DPI_STEPS.map((stepDpi) => (
-                      <button 
-                        key={stepDpi}
-                        type="button"
-                        onClick={() => setFormData((prev) => ({ ...prev, dpi: stepDpi }))}
-                        className={`cursor-pointer transition-colors bg-transparent border-0 pb-0.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none rounded-xs ${
-                          formData.dpi === stepDpi 
-                            ? 'text-[#0F766E] dark:text-[var(--accent)] font-bold border-b-2 border-[#0F766E] dark:border-[var(--accent)]' 
-                            : 'border-b-2 border-transparent hover:text-[#14213D] dark:hover:text-[var(--text-1)]'
-                        }`}
-                      >
-                        {stepDpi} DPI
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Timing & Quality Guide */}
-                  <div className="grid grid-cols-2 gap-2 text-[12px] pt-1">
-                    <div className={`p-2 rounded border ${formData.dpi === 72 ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/40 dark:border-[var(--accent)]/40 font-semibold text-[#0F766E] dark:text-[var(--accent)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-base)] border-[#8A94A6]/20 dark:border-[var(--border)] text-[#374151] dark:text-[var(--text-2)]'}`}>
-                      72 DPI: Draft / Fast preview
-                    </div>
-                    <div className={`p-2 rounded border ${formData.dpi === 100 ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/40 dark:border-[var(--accent)]/40 font-semibold text-[#0F766E] dark:text-[var(--accent)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-base)] border-[#8A94A6]/20 dark:border-[var(--border)] text-[#374151] dark:text-[var(--text-2)]'}`}>
-                      100 DPI: Standard documents (Recommended)
-                    </div>
-                    <div className={`p-2 rounded border ${formData.dpi === 150 ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/40 dark:border-[var(--accent)]/40 font-semibold text-[#0F766E] dark:text-[var(--accent)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-base)] border-[#8A94A6]/20 dark:border-[var(--border)] text-[#374151] dark:text-[var(--text-2)]'}`}>
-                      150 DPI: High resolution / Small fonts
-                    </div>
-                    <div className={`p-2 rounded border ${formData.dpi === 200 ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/40 dark:border-[var(--accent)]/40 font-semibold text-[#0F766E] dark:text-[var(--accent)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-base)] border-[#8A94A6]/20 dark:border-[var(--border)] text-[#374151] dark:text-[var(--text-2)]'}`}>
-                      200 DPI: Archival / Fine manuscript detail
-                    </div>
+                  {/* Interactive DPI Preset Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1" role="group" aria-label="Document Render Resolution">
+                    {DPI_OPTIONS.map((option) => {
+                      const isSelected = formData.dpi === option.dpi;
+                      return (
+                        <button
+                          key={option.dpi}
+                          type="button"
+                          aria-pressed={isSelected}
+                          aria-label={`${option.dpi} DPI`}
+                          onClick={() => setFormData((prev) => ({ ...prev, dpi: option.dpi }))}
+                          className={`p-3 rounded-lg border text-left cursor-pointer transition-all duration-150 flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] active:scale-[0.98] ${
+                            isSelected
+                              ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E] dark:border-[var(--accent)] ring-1 ring-[#0F766E]/30 dark:ring-[var(--accent)]/30 shadow-xs'
+                              : 'bg-[#FAF9F5] dark:bg-[var(--bg-base)] border-[#8A94A6]/20 dark:border-[var(--border)] hover:border-[#8A94A6]/40 dark:hover:border-[#5A6478]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`font-mono text-[13px] font-bold ${
+                              isSelected
+                                ? 'text-[#0F766E] dark:text-[var(--accent)]'
+                                : 'text-[#14213D] dark:text-[var(--text-1)]'
+                            }`}>
+                              {option.dpi} DPI
+                            </span>
+                            <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors ${
+                              isSelected
+                                ? 'border-[#0F766E] dark:border-[var(--accent)] bg-[#0F766E] dark:bg-[var(--accent)]'
+                                : 'border-[#8A94A6]/40 dark:border-[var(--border)] bg-transparent'
+                            }`}>
+                              {isSelected && (
+                                <div className="w-1.5 h-1.5 rounded-full bg-white dark:bg-[#121417]" />
+                              )}
+                            </div>
+                          </div>
+                          <span className={`text-[11.5px] leading-relaxed ${
+                            isSelected
+                              ? 'text-[#0F766E]/90 dark:text-[var(--accent)]/90 font-medium'
+                              : 'text-[#5A6478] dark:text-[var(--text-2)]'
+                          }`}>
+                            {option.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 

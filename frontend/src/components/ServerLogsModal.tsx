@@ -93,6 +93,9 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
 
     es.addEventListener('log', handleLog);
     es.onmessage = handleLog;
+    es.onerror = (err) => {
+      console.warn('Server logs SSE interrupted, auto-reconnecting:', err);
+    };
 
     return () => {
       es.close();
@@ -142,7 +145,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         return {
           label: '○ STARTING',
           className:
-            'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+            'bg-amber-500/10 text-amber-800 dark:text-amber-400 border-amber-500/30',
         };
       case 'error':
         return {

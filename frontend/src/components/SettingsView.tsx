@@ -84,6 +84,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [internalRuntimeStatus, setInternalRuntimeStatus] = useState<RuntimeStatusInfo | null>(null);
   const effectiveRuntimeStatus = propRuntimeStatus !== undefined ? propRuntimeStatus : internalRuntimeStatus;
   const [isStartingRuntimeDownload, setIsStartingRuntimeDownload] = useState(false);
+  const [isStartingModelDownload, setIsStartingModelDownload] = useState(false);
 
   const [formData, setFormData] = useState<BackendSettings>(() => {
     return {
@@ -262,20 +263,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Model download & cancel handlers
   const handleDownloadModelAction = async () => {
+    if (isStartingModelDownload || effectiveModelStatus?.is_downloading) return;
     if (effectiveModelStatus?.downloaded && !window.confirm('Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?')) return;
-    if (onDownloadModel) {
-      await onDownloadModel();
-    } else {
-      try {
+    setIsStartingModelDownload(true);
+    try {
+      if (onDownloadModel) {
+        await onDownloadModel();
+      } else {
         await fetch('/api/model/download', { method: 'POST' });
         const res = await fetch('/api/model/status');
         if (res.ok) {
           const data: ModelStatusInfo = await res.json();
           setInternalModelStatus(data);
         }
-      } catch (err) {
-        console.error('Failed to trigger model download:', err);
       }
+    } catch (err) {
+      console.error('Failed to trigger model download:', err);
+    } finally {
+      setIsStartingModelDownload(false);
     }
   };
 
@@ -452,7 +457,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           .then((d: RuntimeStatusInfo | null) => {
             if (d) setInternalRuntimeStatus(d);
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.warn('Failed to refresh runtime status after settings change:', err);
+          });
         if (saveToastTimerRef.current) {
           clearTimeout(saveToastTimerRef.current);
         }
@@ -1194,7 +1201,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <input 
                         id="max-image-size" 
                         type="number" 
-                        min={256}
+                        min={512}
                         max={8192}
                         value={formData.max_image_dimension}
                         onChange={(e) => setFormData((prev) => ({ ...prev, max_image_dimension: Number(e.target.value) }))}

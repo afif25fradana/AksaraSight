@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ScrollText, ChevronLeft, ChevronRight, Minus, Plus, Maximize2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ScrollText, ChevronLeft, ChevronRight, Minus, Plus, Maximize2, AlertCircle } from 'lucide-react';
 import { DocumentItem } from '../types';
 
 interface DocumentPreviewPanelProps {
@@ -12,6 +12,11 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   onPageChange,
 }) => {
   const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [imageLoadError, setImageLoadError] = useState(false);
+
+  useEffect(() => {
+    setImageLoadError(false);
+  }, [document?.id, document?.currentPage]);
 
   const handleZoomIn = () => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
@@ -27,7 +32,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
 
   if (!document) {
     return (
-      <main 
+      <section 
         aria-label="Document preview empty" 
         className="lg:col-span-5 flex flex-col bg-[#FAF9F5] dark:bg-[var(--bg-surface)] rounded-xl border border-[#8A94A6]/30 dark:border-[var(--border)] overflow-hidden h-full transition-colors"
       >
@@ -57,7 +62,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             Select any file from the queue to preview its contents
           </p>
         </div>
-      </main>
+      </section>
     );
   }
 
@@ -65,7 +70,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   const totalPages = document.pages;
 
   return (
-    <main 
+    <section 
       aria-label="Document preview" 
       className="lg:col-span-5 flex flex-col bg-[#FAF9F5] dark:bg-[var(--bg-surface)] rounded-xl border border-[#8A94A6]/30 dark:border-[var(--border)] overflow-hidden h-full transition-colors"
     >
@@ -156,12 +161,13 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
           className="transition-transform duration-150 w-full flex justify-center"
         >
-          {document.previewImageUrl ? (
+          {document.previewImageUrl && !imageLoadError ? (
             <div className="w-full max-w-[560px] bg-white dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[4px] shadow-[0_4px_16px_rgba(20,33,61,0.07)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-3 flex justify-center">
               <img 
                 src={document.previewImageUrl} 
                 alt={`${document.name} page ${currentPage}`}
                 className="max-w-full h-auto object-contain rounded"
+                onError={() => setImageLoadError(true)}
               />
             </div>
           ) : (
@@ -170,30 +176,32 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               aria-label={`Document preview: ${document.name}, page ${currentPage} of ${totalPages}`}
               className="w-full max-w-[480px] bg-[#FCFBF8] dark:bg-[var(--paper-bg)] border border-[#14213D]/12 dark:border-[var(--paper-border)] rounded-[2px] shadow-[0_4px_16px_rgba(20,33,61,0.07),0_1px_3px_rgba(20,33,61,0.05)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.5),0_1px_4px_rgba(0,0,0,0.3)] p-6 text-[#1A1A1A] dark:text-[var(--paper-text)] relative select-text transition-colors"
             >
-              <div className="border-b-2 border-black/80 pb-3 mb-4 flex justify-between items-start">
+              <div className="border-b-2 border-black/80 dark:border-[var(--paper-text)]/40 pb-3 mb-4 flex justify-between items-start">
                 <div>
-                  <p className="text-[10px] tracking-widest text-[#374151] dark:text-[var(--text-3)] uppercase font-mono font-medium">
+                  <p className="text-[10px] tracking-widest text-[#374151] dark:text-[var(--paper-text)]/75 uppercase font-mono font-medium">
                     DOCUMENT PREVIEW
                   </p>
                   <h3 className="font-['IBM_Plex_Serif',serif] text-[15px] font-bold text-[#1A1A1A] dark:text-[var(--paper-text)] uppercase truncate max-w-[320px]">
                     {document.name}
                   </h3>
                 </div>
-                <span className="text-[11px] font-mono text-[#4B5563] dark:text-[var(--text-3)]">
+                <span className="text-[11px] font-mono text-[#4B5563] dark:text-[var(--paper-text)]/80">
                   Page {currentPage} of {totalPages}
                 </span>
               </div>
 
               <div className="text-[12px] font-['IBM_Plex_Serif',serif] leading-relaxed text-[#2D3139] dark:text-[var(--paper-text)] space-y-3">
-                <p className="italic text-[#4B5563] dark:text-[var(--text-3)]">
-                  [Document preview raster unavailable. Extracted text is displayed in the right panel.]
+                <p className="italic text-[#4B5563] dark:text-[var(--paper-text)]/80">
+                  {imageLoadError 
+                    ? '[Raster preview could not be loaded from backend. Extracted text is displayed in the right panel.]'
+                    : '[Document preview raster unavailable. Extracted text is displayed in the right panel.]'}
                 </p>
                 {document.extractedText ? (
-                  <div className="p-3 bg-[#F4F2EC] dark:bg-[var(--bg-base)] rounded border border-black/10 dark:border-[var(--border)] font-mono text-[11px] text-[#1A1A1A] dark:text-[var(--text-1)] whitespace-pre-wrap max-h-60 overflow-y-auto">
+                  <div className="p-3 bg-[#F4F2EC] dark:bg-black/10 rounded border border-black/10 dark:border-black/20 font-mono text-[11px] text-[#1A1A1A] dark:text-[var(--paper-text)] whitespace-pre-wrap max-h-60 overflow-y-auto">
                     {document.extractedText.slice(0, 320)}...
                   </div>
                 ) : (
-                  <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02] rounded border border-dashed border-[#8A94A6] dark:border-[var(--border)] text-center text-[#5A6478] dark:text-[var(--text-3)] text-[12px]">
+                  <div className="p-4 bg-black/[0.02] dark:bg-black/5 rounded border border-dashed border-[#8A94A6] dark:border-black/25 text-center text-[#5A6478] dark:text-[var(--paper-text)]/75 text-[12px]">
                     Document has not been extracted yet.
                   </div>
                 )}
@@ -202,6 +210,6 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           )}
         </div>
       </div>
-    </main>
+    </section>
   );
 };

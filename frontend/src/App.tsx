@@ -114,11 +114,26 @@ export default function App() {
             status: normalizedStatus,
             ownership: normalizedOwnership,
           };
-          setServerStatus(normalized);
-          setEngineSettings((prev) => ({
-            ...prev,
-            status: normalizedStatus === 'ready' ? 'running' : 'offline',
-          }));
+          setServerStatus((prev) => {
+            if (
+              prev &&
+              prev.status === normalized.status &&
+              prev.ownership === normalized.ownership &&
+              prev.pid === normalized.pid &&
+              prev.endpoint === normalized.endpoint
+            ) {
+              return prev;
+            }
+            return normalized;
+          });
+          setEngineSettings((prev) => {
+            const nextStatus = normalizedStatus === 'ready' ? 'running' : 'offline';
+            if (prev.status === nextStatus) return prev;
+            return {
+              ...prev,
+              status: nextStatus,
+            };
+          });
         }
       }
     } catch (err) {
@@ -445,33 +460,37 @@ export default function App() {
   }, [isOutputFolderOpen]);
 
   // Dynamic status consistency check
-  const consistentDocuments = documents.map((doc) => {
-    const hasText = Boolean(doc.extractedText && doc.extractedText.trim().length > 0);
-    
-    // Cannot be Done without extracted text
-    if (doc.status === 'Done' && !hasText) {
-      return { ...doc, status: 'Waiting' as const };
-    }
-
-    // Only runningJobDocId can be in Processing state
-    if (doc.status === 'Processing' && doc.id !== runningJobDocId) {
-      return { ...doc, status: 'Waiting' as const, statusNote: doc.statusNote || 'Queued' };
-    }
-
-    // When offline, unprocessed file must be Waiting or Not extracted
-    if (engineSettings.status === 'offline') {
-      if (doc.status === 'Processing') {
-        return { ...doc, status: 'Waiting' as const, statusNote: 'Engine offline' };
+  const consistentDocuments = useMemo(() => {
+    return documents.map((doc) => {
+      const hasText = Boolean(doc.extractedText && doc.extractedText.trim().length > 0);
+      
+      // Cannot be Done without extracted text UNLESS all pages were processed
+      if (doc.status === 'Done' && !hasText && (doc.processedPages || 0) === 0) {
+        return { ...doc, status: 'Waiting' as const };
       }
-      if (!hasText && doc.status !== 'Failed' && doc.status !== 'Truncated') {
-        return { ...doc, status: 'Not extracted' as const };
+
+      // Only runningJobDocId can be in Processing state
+      if (doc.status === 'Processing' && doc.id !== runningJobDocId) {
+        return { ...doc, status: 'Waiting' as const, statusNote: doc.statusNote || 'Queued' };
       }
-    }
 
-    return doc;
-  });
+      // When offline, unprocessed file must be Waiting or Not extracted
+      if (engineSettings.status === 'offline') {
+        if (doc.status === 'Processing') {
+          return { ...doc, status: 'Waiting' as const, statusNote: 'Engine offline' };
+        }
+        if (!hasText && doc.status !== 'Failed' && doc.status !== 'Truncated') {
+          return { ...doc, status: 'Not extracted' as const };
+        }
+      }
 
-  const selectedDocument = consistentDocuments.find((d) => d.id === selectedDocId) || null;
+      return doc;
+    });
+  }, [documents, runningJobDocId, engineSettings.status]);
+
+  const selectedDocument = useMemo(() => {
+    return consistentDocuments.find((d) => d.id === selectedDocId) || null;
+  }, [consistentDocuments, selectedDocId]);
 
   // Add uploaded files to queue via POST /api/documents
   const handleAddFiles = async (files: FileList | File[]) => {
@@ -716,14 +735,29 @@ export default function App() {
 
     const baseName = selectedDocument.name.replace(/\.[^/.]+$/, '');
 
-    const triggerDownload = (ext: 'docx' | 'md' | 'json') => {
+    const triggerDownload = async (ext: 'docx' | 'md' | 'json') => {
       const downloadUrl = `/api/documents/${selectedDocument.id}/export?format=${ext}`;
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.setAttribute('download', `${baseName}.${ext}`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      try {
+        const res = await fetch(downloadUrl);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.detail || errData.error || errData.message || `Export failed (HTTP ${res.status})`;
+          alert(errorMsg);
+          return;
+        }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.setAttribute('download', `${baseName}.${ext}`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } catch (err: any) {
+        console.error(`Failed to export document as ${ext}:`, err);
+        alert(err?.message || `Failed to export document as ${ext}`);
+      }
     };
 
     if (format === 'both') {
@@ -753,14 +787,14 @@ export default function App() {
     setIsServerTransitioning(true);
     try {
       if (isRunning) {
-        const res = await fetch('/api/server/stop', { method: 'POST' });
+        const res = await fetch('/api/server/stop', { method: 'POST', signal: AbortSignal.timeout(15000) });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           const errorMsg = errData.detail || errData.error || errData.message || `Failed to stop server (HTTP ${res.status})`;
           alert(errorMsg);
         }
       } else {
-        const res = await fetch('/api/server/start', { method: 'POST' });
+        const res = await fetch('/api/server/start', { method: 'POST', signal: AbortSignal.timeout(15000) });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           const errorMsg = errData.detail || errData.error || errData.message || `Failed to start server (HTTP ${res.status})`;
@@ -843,7 +877,7 @@ export default function App() {
 
       {/* Main Workspace 3-Pane Layout */}
       {currentTab === 'workspace' ? (
-        <div className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in">
+        <main className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in" aria-label="AksaraSight Workspace">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full min-h-0">
             <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
               <FileQueuePanel
@@ -885,7 +919,7 @@ export default function App() {
               />
             </div>
           </div>
-        </div>
+        </main>
       ) : (
         /* Settings Tab View */
         <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in">

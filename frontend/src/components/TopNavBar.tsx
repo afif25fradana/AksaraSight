@@ -49,8 +49,8 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
     starting: {
       label: 'Engine Starting...',
       wrapperClass:
-        'bg-amber-500/10 dark:bg-amber-500/10 border-amber-500/25 dark:border-amber-500/25 text-amber-600 dark:text-amber-400',
-      dotClass: 'bg-amber-500 dark:bg-amber-400',
+        'bg-amber-500/10 dark:bg-amber-500/10 border-amber-500/25 dark:border-amber-500/25 text-amber-800 dark:text-amber-400',
+      dotClass: 'bg-amber-600 dark:bg-amber-400',
     },
     error: {
       label: 'Engine Error',
@@ -124,9 +124,9 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           type="button"
           aria-label="AksaraSight"
         >
-          <span className="font-serif-brand text-[20px] font-semibold text-[#14213D] dark:text-[var(--text-1)] tracking-tight group-hover:text-[#0F766E] dark:group-hover:text-[var(--accent)] transition-colors leading-tight">
+          <h1 className="font-serif-brand text-[20px] font-semibold text-[#14213D] dark:text-[var(--text-1)] tracking-tight group-hover:text-[#0F766E] dark:group-hover:text-[var(--accent)] transition-colors leading-tight">
             AksaraSight
-          </span>
+          </h1>
           <span className="text-xs font-medium text-[#5A6478] dark:text-[var(--text-2)] tracking-normal leading-none mt-0.5">
             Local Archival & Document OCR
           </span>

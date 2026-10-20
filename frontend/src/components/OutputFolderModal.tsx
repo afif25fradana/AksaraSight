@@ -63,11 +63,14 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
           setExplorerOpenedFeedback(feedbackText);
           setTimeout(() => setExplorerOpenedFeedback(null), 3000);
         } else {
-          console.warn('Could not open path in file manager:', body.target);
+          setExplorerOpenedFeedback('Folder could not be opened on host system');
+          setTimeout(() => setExplorerOpenedFeedback(null), 3000);
         }
       }
     } catch (err) {
       console.error('Failed to open in explorer:', err);
+      setExplorerOpenedFeedback('Failed to request file explorer open');
+      setTimeout(() => setExplorerOpenedFeedback(null), 3000);
     }
   };
 

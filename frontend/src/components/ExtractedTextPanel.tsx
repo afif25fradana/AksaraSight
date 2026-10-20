@@ -118,6 +118,31 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const currentDpi = selectedDpi ?? 100;
   const [exportFormat, setExportFormat] = useState<OutputFormatType>('docx');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowExportMenu(false);
+      }
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    if (showExportMenu && typeof window !== 'undefined') {
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('mousedown', handleClickOutside);
+      }
+    };
+  }, [showExportMenu]);
+
   const [copied, setCopied] = useState<boolean>(false);
   const copyTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
@@ -314,24 +339,29 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   }, [structuredJson]);
 
   const highlightedJsonContent = useMemo(() => {
+    if (activePreviewTab !== 'json') return null;
     return jsonString ? highlightJson(jsonString) : null;
-  }, [jsonString]);
+  }, [jsonString, activePreviewTab]);
 
   const charCount = currentTextContent.length;
   const wordCount = currentTextContent.trim() ? currentTextContent.trim().split(/\s+/).length : 0;
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!document || !canExportOrCopy) return;
     const textToCopy = activePreviewTab === 'json' ? jsonString : currentTextContent;
-    navigator.clipboard.writeText(textToCopy);
-    setCopied(true);
-    if (copyTimerRef.current) {
-      clearTimeout(copyTimerRef.current);
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy text to clipboard:', err);
     }
-    copyTimerRef.current = setTimeout(() => {
-      setCopied(false);
-      copyTimerRef.current = null;
-    }, 2000);
   };
 
   // Helper to render Formatted Markdown Preview cleanly
@@ -609,6 +639,10 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
     return elements;
   };
 
+  const formattedPreviewContent = useMemo(() => {
+    return renderFormattedPreview(currentTextContent);
+  }, [currentTextContent]);
+
   return (
     <section 
       aria-label="Extracted text editor" 
@@ -715,7 +749,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                           {res.label}
                         </span>
                         {res.recommended && (
-                          <span className="text-3xs font-semibold uppercase px-1.5 py-0.5 rounded bg-[#0F766E]/15 dark:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)]">
+                          <span className="text-2xs font-semibold uppercase px-1.5 py-0.5 rounded bg-[#0F766E]/15 dark:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)]">
                             Recommended
                           </span>
                         )}
@@ -830,7 +864,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               )}
 
               {/* Clean Export Dropdown */}
-              <div className="relative inline-flex">
+              <div ref={exportMenuRef} className="relative inline-flex">
                 <button 
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   className="h-8 px-3 bg-[#0F766E] hover:bg-[#115E59] active:bg-[#0d4f4b] text-white font-semibold text-xs rounded-lg shadow-xs active:scale-[0.96] active:translate-y-px active:brightness-95 transition-all duration-150 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none" 
@@ -1107,7 +1141,11 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 </span>
               )}
             </div>
-            <span className="text-[#0F766E] dark:text-[var(--accent)] text-2xs font-sans font-medium">
+            <span 
+              className="text-[#0F766E] dark:text-[var(--accent)] text-2xs font-sans font-medium"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               {document.status === 'Done' ? 'Done' : document.status === 'Truncated' ? 'Truncated' : isPartialFailure ? 'Partial' : `Processing page ${currentPage}...`}
             </span>
           </div>
@@ -1121,7 +1159,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 role="region"
                 aria-label="Formatted reading view"
               >
-                {renderFormattedPreview(currentTextContent)}
+                {formattedPreviewContent}
                 <div className="mt-4 pt-2 border-t border-[#8A94A6]/20 dark:border-[var(--border)] text-2xs text-[#5A6478] dark:text-[var(--text-2)] italic">
                   Visual rendering of markdown output. Select Raw Markdown to edit or inspect source.
                 </div>

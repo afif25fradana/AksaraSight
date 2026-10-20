@@ -65,6 +65,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
           <span 
             className="text-[12px] font-medium tabular-nums text-[#374151] dark:text-[var(--text-2)] px-2 py-0.5 rounded-md bg-black/[0.04] dark:bg-[var(--bg-elevated)] dark:border dark:border-[var(--border)]" 
             aria-label={`${documents.length} files in queue`}
+            aria-live="polite"
           >
             {documents.length} {documents.length === 1 ? 'file' : 'files'}
           </span>
@@ -89,19 +90,10 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
       {isEmpty ? (
         <div className="flex-1 p-4 flex flex-col">
           <div
-            tabIndex={0}
-            role="button"
-            aria-label="Upload documents"
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            className="flex-1 border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+            className="flex-1 border-2 border-dashed border-[#8A94A6]/40 dark:border-[var(--border)] hover:border-[#0F766E]/70 dark:hover:border-[var(--accent)]/50 bg-white/40 dark:bg-[var(--bg-elevated)]/40 hover:bg-[#0F766E]/[0.02] dark:hover:bg-[var(--bg-elevated)]/70 rounded-lg transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-[#0F766E]"
           >
             <input 
               ref={fileInputRef}

@@ -50,13 +50,18 @@ jobs:
             if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
               echo "::notice::Static bundle drift detected on Dependabot PR. Bypassing failure since Dependabot does not compile frontend assets."
             elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "::notice::Static bundle drift detected on main. Auto-committing synced bundle..."
-              cd ..
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add web/static
-              git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
-              git push origin HEAD:main
+              # Only auto-sync on main if the merged commit originated from Dependabot
+              if git log -1 --pretty=%an | grep -iq "dependabot" || git log -1 --pretty=%B | grep -iqE "dependabot|bump .+ from .+ to .+"; then
+                echo "::notice::Static bundle drift detected after Dependabot merge. Auto-committing synced bundle..."
+                cd ..
+                git config user.name "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                git add web/static
+                git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
+                git push origin HEAD:main
+              else
+                echo "::notice::Static bundle drift detected on main from developer push (cross-OS minification variance). Skipping auto-commit."
+              fi
             else
               echo "::error::Static bundle out of sync with frontend build:"
               git status --porcelain ../web/static

@@ -79,7 +79,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onDownloadRuntime,
 }) => {
   const [internalModelStatus, setInternalModelStatus] = useState<ModelStatusInfo | null>(null);
-  const effectiveModelStatus = modelStatus !== undefined ? modelStatus : internalModelStatus;
+  const effectiveModelStatus = useMemo(() => {
+    if (!modelStatus && !internalModelStatus) return null;
+    if (!modelStatus) return internalModelStatus;
+    if (!internalModelStatus) return modelStatus;
+    return {
+      ...internalModelStatus,
+      ...modelStatus,
+      downloaded: modelStatus.downloaded || internalModelStatus.downloaded,
+      is_downloading: modelStatus.is_downloading ?? internalModelStatus.is_downloading,
+      percent: modelStatus.percent || internalModelStatus.percent,
+      bytes_downloaded: modelStatus.bytes_downloaded || internalModelStatus.bytes_downloaded,
+      active_file: modelStatus.active_file || internalModelStatus.active_file,
+    };
+  }, [modelStatus, internalModelStatus]);
 
   const [internalRuntimeStatus, setInternalRuntimeStatus] = useState<RuntimeStatusInfo | null>(null);
   const effectiveRuntimeStatus = propRuntimeStatus !== undefined ? propRuntimeStatus : internalRuntimeStatus;
@@ -349,11 +362,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     };
 
+    const handleModelProgress = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (isMounted) {
+          const isComplete = data.status === 'completed' || (!data.is_downloading && (data.percent ?? 0) >= 100);
+          setInternalModelStatus((prev) => ({
+            repo: data.repo || prev?.repo || 'ggml-org/GLM-OCR-GGUF',
+            revision: data.revision || prev?.revision || 'main',
+            downloaded: isComplete || data.downloaded === true || (prev?.downloaded ?? false),
+            model_path: data.model_path ?? prev?.model_path ?? null,
+            mmproj_path: data.mmproj_path ?? prev?.mmproj_path ?? null,
+            total_bytes: data.total_bytes ?? prev?.total_bytes ?? 0,
+            is_downloading: data.is_downloading ?? !isComplete,
+            bytes_downloaded: data.bytes_downloaded ?? prev?.bytes_downloaded ?? 0,
+            percent: data.percent ?? prev?.percent ?? 0,
+            active_file: data.active_file ?? prev?.active_file ?? null,
+            error: data.error ?? null,
+          }));
+          if (isComplete) {
+            fetch('/api/model/status')
+              .then((res) => (res.ok ? res.json() : null))
+              .then((fresh) => {
+                if (isMounted && fresh) setInternalModelStatus(fresh);
+              })
+              .catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.error('Error handling model_download_progress event in SettingsView', err);
+      }
+    };
+
     eventSource.addEventListener('runtime_download_progress', handleRuntimeProgress);
+    eventSource.addEventListener('model_download_progress', handleModelProgress);
 
     return () => {
       isMounted = false;
       eventSource.removeEventListener('runtime_download_progress', handleRuntimeProgress);
+      eventSource.removeEventListener('model_download_progress', handleModelProgress);
       if (typeof window !== 'undefined' && eventSource !== (window as any).__eventSource) {
         eventSource.close();
       }
@@ -1132,9 +1179,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {/* DPI Slider Block */}
                 <div className="bg-white dark:bg-[var(--bg-elevated)] p-4 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)] space-y-3 transition-colors">
                   <div className="flex justify-between items-center">
-                    <label className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)]" htmlFor="render-dpi">
-                      Document Render Resolution (DPI)
-                    </label>
+                    <div>
+                      <label className="text-[13.5px] font-semibold text-[#14213D] dark:text-[var(--text-1)] block" htmlFor="render-dpi">
+                        Document Render Resolution (DPI)
+                      </label>
+                      <p className="text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
+                        Default rasterization resolution for OCR scans. Synchronized across workspace scan options.
+                      </p>
+                    </div>
                     <span 
                       className="font-mono text-[12.5px] font-bold text-[#0F766E] dark:text-[var(--accent)] px-2.5 py-0.5 rounded bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border border-[#0F766E]/25 dark:border-[var(--accent)]/30" 
                       style={{ fontVariantNumeric: 'tabular-nums' }}

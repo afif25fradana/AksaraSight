@@ -150,6 +150,45 @@ export default function App() {
   // Model weights status state and actions
   const [modelStatus, setModelStatus] = useState<ModelStatusInfo | null>(null);
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.dpi === 'number') {
+          setSelectedDpi(data.dpi);
+        }
+        setEngineSettings((prev) => ({
+          ...prev,
+          ...data,
+          renderDpi: data?.dpi ?? prev.renderDpi,
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to fetch settings on mount:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const handleDpiChange = (dpi: number) => {
+    setSelectedDpi(dpi);
+    setEngineSettings((prev) => ({
+      ...prev,
+      dpi,
+      renderDpi: dpi,
+    }));
+    fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dpi }),
+    }).catch((err) => {
+      console.warn('Failed to sync DPI setting to backend:', err);
+    });
+  };
+
   const fetchModelStatus = async () => {
     try {
       const res = await fetch('/api/model/status');
@@ -403,20 +442,34 @@ export default function App() {
     eventSource.addEventListener('model_download_progress', (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
-        setModelStatus((prev) =>
-          prev
-            ? {
-                ...prev,
-                is_downloading: data.is_downloading ?? true,
-                bytes_downloaded: data.bytes_downloaded ?? prev.bytes_downloaded,
-                percent: data.percent ?? prev.percent,
-                active_file: data.active_file ?? prev.active_file,
-                downloaded: data.status === 'completed' ? true : prev.downloaded,
-                error: data.error ?? null,
-              }
-            : null
-        );
-        if (data.status === 'completed') {
+        const isCompleted = data.status === 'completed' || (!data.is_downloading && (data.percent ?? 0) >= 100);
+        setModelStatus((prev) => {
+          if (!prev) {
+            return {
+              repo: data.repo || 'ggml-org/GLM-OCR-GGUF',
+              revision: data.revision || 'main',
+              downloaded: isCompleted || data.downloaded === true,
+              model_path: data.model_path ?? null,
+              mmproj_path: data.mmproj_path ?? null,
+              total_bytes: data.total_bytes ?? data.total ?? 0,
+              is_downloading: data.is_downloading ?? !isCompleted,
+              bytes_downloaded: data.bytes_downloaded ?? data.downloaded ?? 0,
+              percent: data.percent ?? 0,
+              active_file: data.active_file ?? null,
+              error: data.error ?? null,
+            };
+          }
+          return {
+            ...prev,
+            is_downloading: data.is_downloading ?? !isCompleted,
+            bytes_downloaded: data.bytes_downloaded ?? prev.bytes_downloaded,
+            percent: data.percent ?? prev.percent,
+            active_file: data.active_file ?? prev.active_file,
+            downloaded: (isCompleted || data.downloaded === true) ? true : prev.downloaded,
+            error: data.error ?? null,
+          };
+        });
+        if (isCompleted) {
           fetchModelStatus();
         }
       } catch (err) {
@@ -907,7 +960,7 @@ export default function App() {
                 isEngineOnline={serverStatus ? String(serverStatus.status).toLowerCase() === 'ready' : engineSettings.status === 'running'}
                 isTransitioning={isServerTransitioning}
                 selectedDpi={selectedDpi}
-                onDpiChange={setSelectedDpi}
+                onDpiChange={handleDpiChange}
                 onStartEngine={handleToggleServer}
                 onOpenSettings={() => setCurrentTab('settings')}
                 onExport={handleExport}
@@ -929,7 +982,11 @@ export default function App() {
               setEngineSettings((prev) => ({
                 ...prev,
                 ...newSettings,
+                renderDpi: newSettings.dpi ?? prev.renderDpi,
               }));
+              if (typeof newSettings.dpi === 'number') {
+                setSelectedDpi(newSettings.dpi);
+              }
             }}
             onCancel={() => setCurrentTab('workspace')}
             modelStatus={modelStatus}

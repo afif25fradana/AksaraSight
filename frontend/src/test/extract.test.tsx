@@ -239,6 +239,14 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
       expect(callInit?.method).toBe('POST');
       expect(callInit?.headers).toEqual({ 'Content-Type': 'application/json' });
       expect(callInit?.body).toBe(JSON.stringify({ prompt_mode: 'text', dpi: 150 }));
+
+      // Verify changing workspace DPI synchronizes to backend settings
+      const settingsPatchCalls = fetchMock.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/settings') && init?.method === 'PATCH'
+      );
+      expect(settingsPatchCalls.length).toBeGreaterThanOrEqual(1);
+      const lastPatch = settingsPatchCalls[settingsPatchCalls.length - 1];
+      expect(JSON.parse(String(lastPatch[1]?.body))).toEqual({ dpi: 150 });
     });
   });
 

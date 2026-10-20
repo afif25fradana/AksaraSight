@@ -1290,7 +1290,29 @@ def create_app(
 
         def _bg_download() -> None:
             try:
-                downloader.download()
+                success = downloader.download()
+                if success:
+                    local_paths = get_local_model_paths()
+                    completed_payload = {
+                        "status": "completed",
+                        "repo": PINNED_MODEL_REPO,
+                        "revision": PINNED_MODEL_REVISION,
+                        "downloaded": True,
+                        "model_path": str(local_paths[0]) if local_paths else None,
+                        "mmproj_path": str(local_paths[1]) if local_paths else None,
+                        "total_bytes": TOTAL_MODEL_BYTES,
+                        "is_downloading": False,
+                        "bytes_downloaded": TOTAL_MODEL_BYTES,
+                        "percent": 100.0,
+                        "active_file": None,
+                        "error": None,
+                    }
+                    app.state.last_model_download_status = completed_payload
+                    payload_str = json.dumps(completed_payload)
+                    if hasattr(app_orchestrator, "_broadcast"):
+                        app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
+                    elif hasattr(app_orchestrator, "broadcast"):
+                        app_orchestrator.broadcast("model_download_progress", completed_payload)
             except Exception as exc:
                 logger.exception("Background model download encountered an error: %s", exc)
                 err_payload = {

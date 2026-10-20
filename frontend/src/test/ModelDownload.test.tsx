@@ -361,6 +361,13 @@ describe('Model Weights Management UI and Download Workflow', () => {
           json: async () => ({ status: 'ok' }),
         } as Response);
       }
+      if (urlStr.includes('/api/doctor')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ checks: [] }),
+        } as Response);
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -473,5 +480,89 @@ describe('Model Weights Management UI and Download Workflow', () => {
     await waitFor(() => {
       expect(downloadCalled).toBe(true);
     });
+  });
+
+  // Test 9: App integration: model download completion event updates status badge immediately to Downloaded without refresh
+  it('App integration: model download completion event updates status badge immediately to Downloaded without refresh', async () => {
+    const user = userEvent.setup();
+    let currentStatus = mockNotDownloadedStatus;
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: 'ready',
+            ownership: 'managed',
+            managed_by_web: true,
+            message: 'Ready',
+            endpoint: 'http://127.0.0.1:8080',
+            pid: 1234,
+            recent_logs: [],
+          }),
+        } as Response);
+      }
+      if (urlStr === '/api/documents') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [],
+        } as Response);
+      }
+      if (urlStr === '/api/model/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => currentStatus,
+        } as Response);
+      }
+      if (urlStr === '/api/settings') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ dpi: 100 }),
+        } as Response);
+      }
+      if (urlStr === '/health') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ok' }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    render(<App />);
+
+    const settingsNavBtn = await screen.findByRole('button', { name: 'Settings' });
+    await user.click(settingsNavBtn);
+
+    expect(await screen.findByText(/Not Downloaded \(Using -hf fallback\)/i)).toBeInTheDocument();
+
+    const sseInstance = MockEventSource.instances[0];
+    expect(sseInstance).toBeDefined();
+
+    currentStatus = mockDownloadedStatus;
+    act(() => {
+      sseInstance.emit('model_download_progress', {
+        status: 'completed',
+        is_downloading: false,
+        bytes_downloaded: 1440000000,
+        total_bytes: 1440000000,
+        percent: 100,
+        downloaded: true,
+        active_file: null,
+        error: null,
+      });
+    });
+
+    expect(await screen.findByText(/Downloaded \(Verified Local Weights\)/i)).toBeInTheDocument();
   });
 });

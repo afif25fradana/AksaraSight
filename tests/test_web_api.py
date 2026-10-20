@@ -2571,6 +2571,14 @@ def test_post_model_download_starts_and_reports_202(tmp_path: Path) -> None:
     assert "Model download initiated" in resp_data["message"]
 
     assert mock_dl.download_started.wait(timeout=2.0) is True
+    # Verify completion payload is broadcast and recorded in app.state
+    for _ in range(40):
+        if app.state.last_model_download_status and app.state.last_model_download_status.get("status") == "completed":
+            break
+        time.sleep(0.05)
+    assert app.state.last_model_download_status is not None
+    assert app.state.last_model_download_status.get("status") == "completed"
+    assert app.state.last_model_download_status.get("downloaded") is True
 
 
 def test_post_model_download_conflict_409(tmp_path: Path) -> None:

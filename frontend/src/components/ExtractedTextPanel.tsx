@@ -727,8 +727,9 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               </div>
 
               {/* Section 2: SCAN DETAIL / RESOLUTION */}
-              <div className="px-3 pt-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-t border-b border-black/5 dark:border-[var(--border)] my-1">
-                SCAN DETAIL / RESOLUTION
+              <div className="px-3 pt-2 pb-1 flex items-center justify-between text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-t border-b border-black/5 dark:border-[var(--border)] my-1">
+                <span>SCAN DETAIL / RESOLUTION</span>
+                <span className="font-normal normal-case text-[10px] text-[#0F766E] dark:text-[var(--accent)] font-mono">Syncs with Settings</span>
               </div>
               <div role="group" aria-label="Scan detail resolution options">
                 {resolutionOptions.map((res) => (

@@ -15,13 +15,7 @@ export default function App() {
 
   const handleTabChange = (nextTab: 'workspace' | 'settings') => {
     if (nextTab === currentTab) return;
-    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
-      (document as any).startViewTransition(() => {
-        setCurrentTab(nextTab);
-      });
-    } else {
-      setCurrentTab(nextTab);
-    }
+    setCurrentTab(nextTab);
   };
 
   // Theme state with localStorage persistence
@@ -944,7 +938,6 @@ export default function App() {
         <main 
           className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in" 
           aria-label="AksaraSight Workspace"
-          style={{ viewTransitionName: 'tab-view' }}
         >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full min-h-0">
             <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
@@ -992,7 +985,6 @@ export default function App() {
         /* Settings Tab View */
         <div 
           className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in"
-          style={{ viewTransitionName: 'tab-view' }}
         >
           <SettingsView
             settings={engineSettings}

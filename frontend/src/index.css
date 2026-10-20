@@ -296,14 +296,14 @@ input[type="number"] {
   background-size: 205%;
   background-position: 100%;
   border-radius: 50%;
-  -webkit-transition: -webkit-transform 0.3s var(--ease-tactile), background-position 0.3s ease;
-  transition: transform 0.3s var(--ease-tactile), background-position 0.3s ease;
+  -webkit-transition: 0.35s ease;
+  -o-transition: 0.35s ease;
+  transition: 0.35s ease;
   box-shadow: 0 1px 3px rgba(20, 33, 61, 0.2);
-  transform: translateX(0);
 }
 
 .theme-checkbox:checked::before {
-  transform: translateX(3.24em);
+  left: calc(100% - 2.25em - 0.38em);
   background-position: 0;
 }
 
@@ -339,42 +339,9 @@ input[type="number"] {
   z-index: 9999;
 }
 
-/* Tab navigation view transition */
-::view-transition-old(tab-view) {
-  animation: tab-view-out 180ms var(--ease-tactile);
-}
-
-::view-transition-new(tab-view) {
-  animation: tab-view-in 180ms var(--ease-tactile);
-}
-
-@keyframes tab-view-out {
-  from {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.995) translateY(4px);
-  }
-}
-
-@keyframes tab-view-in {
-  from {
-    opacity: 0;
-    transform: scale(0.995) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
-  ::view-transition-new(root),
-  ::view-transition-old(tab-view),
-  ::view-transition-new(tab-view) {
+  ::view-transition-new(root) {
     animation: none !important;
   }
 

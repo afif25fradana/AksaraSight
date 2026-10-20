@@ -10,12 +10,16 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
-### v1.3.0: Web UI & Portable Distribution (October 16, 2026)
-*Focus: Browser-based local workspace Web UI, managed runtime downloader, and portable packaging.*
+### v1.3.0: Web UI & Portable Distribution (October 20, 2026)
+*Focus: Browser-based local workspace Web UI, managed runtime downloader, per-job DPI routing, and portable Windows distribution.*
 
-- **Local Web UI (`web/`, `frontend/`)**: Added browser-based local workspace powered by FastAPI and React. Serves from loopback (`http://127.0.0.1:8000`) with real-time SSE progress streaming, multi-file queue ingestion, side-by-side original scan inspection, and batch artifact export.
+- **Local Web UI (`web/`, `frontend/`)**: Added browser-based local workspace powered by FastAPI and React. Serves from loopback (`http://127.0.0.1:8000`) with real-time SSE progress streaming, multi-file queue ingestion, side-by-side original scan inspection, and batch artifact export (.md, .json, .docx).
+- **Per-Job Extraction Options (`frontend/`, `web/`)**: Added popover options to configure extraction prompt mode (`text`, `table`, `formula`) and rasterization resolution (`100 DPI` default, `150 DPI` high detail) per document.
 - **Retired Native Desktop GUI (`gui/`)**: Removed legacy CustomTkinter desktop interface (`gui/`) and Tkinter dependencies (`customtkinter`, `tkinterdnd2`) from `main`. The native desktop GUI remains preserved on the `release/1.2` branch.
 - **Managed Runtime**: Bumped pinned llama.cpp runtime from `b10930` to `b11361` for Windows (CUDA 12.4, CPU, Vulkan) with SHA-256 verification, fail-closed staging, and actionable missing-VC++ detection. Users upgrading from v1.2.x must click "Download Runtime" once in Settings to install the new build. Existing `b10930-cuda` folders in `%LOCALAPPDATA%\AksaraSight\runtimes\llama-cpp\` are retained on disk and can be removed manually to reclaim space.
+- **Portable Distribution**: Self-contained Windows portable package (`AksaraSight-v1.3.0-windows-x64.zip`) bundling both `AksaraSight.exe` (Web UI launcher) and `AksaraSight-CLI.exe` (console tool) with zero Python prerequisites.
+- **Security & Port Pinning**: Strict loopback security middleware enforcing 127.0.0.1 binding, DNS rebinding protection, Sec-Fetch-Site origin verification, and dev port whitelisting (5173).
+- **Reliability & Queue Hardening**: Guarded background orchestrator worker thread against silent loop exit, added SSE error broadcasting for background model download failures, and eliminated mock state handlers.
 - **Python Floor**: Raised minimum supported Python version from 3.10 to 3.12 following Python 3.10 EOL; updated CI test matrix to Python 3.12 and 3.14.
 - **CI & Workflow Modernization**: Removed Xvfb and Tkinter dependencies from Linux CI matrix legs; headless test suite now runs directly under Python.
 - **Dependencies**: Updated `requests` to `~=2.34.2` and `python-dotenv` to `~=1.2.4`.

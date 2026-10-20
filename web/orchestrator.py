@@ -310,8 +310,11 @@ class WebOrchestrator:
         while not self._stop_event.is_set():
             try:
                 job_id = self._queue.get()
-            except Exception:
-                break
+            except Exception as exc:
+                if self._stop_event.is_set():
+                    break
+                logger.exception("Unexpected exception retrieving job from queue: %s", exc)
+                continue
 
             if self._stop_event.is_set() or not job_id:
                 break

@@ -55,11 +55,16 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
         body: JSON.stringify(filePath ? { path: filePath } : {}),
       });
       if (res.ok) {
-        const feedbackText = filePath
-          ? 'Revealed in File Explorer'
-          : 'Opened in File Explorer';
-        setExplorerOpenedFeedback(feedbackText);
-        setTimeout(() => setExplorerOpenedFeedback(null), 3000);
+        const body = await res.json().catch(() => ({ opened: true }));
+        if (body.opened !== false) {
+          const feedbackText = filePath
+            ? 'Revealed in File Explorer'
+            : 'Opened in File Explorer';
+          setExplorerOpenedFeedback(feedbackText);
+          setTimeout(() => setExplorerOpenedFeedback(null), 3000);
+        } else {
+          console.warn('Could not open path in file manager:', body.target);
+        }
       }
     } catch (err) {
       console.error('Failed to open in explorer:', err);

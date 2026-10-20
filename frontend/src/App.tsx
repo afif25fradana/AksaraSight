@@ -157,9 +157,19 @@ export default function App() {
       const res = await fetch('/api/model/download', { method: 'POST' });
       if (res.ok) {
         await fetchModelStatus();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setModelStatus((prev) =>
+          prev
+            ? { ...prev, is_downloading: false, error: body.detail || 'Failed to start model download' }
+            : null
+        );
       }
     } catch (err) {
       console.error('Failed to start model download:', err);
+      setModelStatus((prev) =>
+        prev ? { ...prev, is_downloading: false, error: 'Network error starting download' } : null
+      );
     }
   };
 
@@ -394,7 +404,9 @@ export default function App() {
         if (data.status === 'completed') {
           fetchModelStatus();
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Failed to parse model download SSE event:', err);
+      }
     });
 
     return () => {

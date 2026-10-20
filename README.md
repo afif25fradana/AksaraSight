@@ -51,8 +51,8 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
 | `python -m cli.main <dir> -o <out> -f docx -r` | Batch convert directory recursively to Word (.docx) files |
 | `python -m cli.main --doctor` | Run 5-stage diagnostics check (settings, hardware, runtime, model, API) |
 | `python -m cli.main --detect-hardware` | Probe GPU acceleration and display recommended backend |
-| `python -m pytest` | Run backend test suite (600 tests) |
-| `cd frontend && npm test -- --run` | Run frontend Vitest test suite (37 tests) |
+| `python -m pytest` | Run backend test suite (607 tests) |
+| `cd frontend && npm test -- --run` | Run frontend Vitest test suite (46 tests) |
 
 ## First run walkthrough
 

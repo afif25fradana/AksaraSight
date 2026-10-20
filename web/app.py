@@ -1075,7 +1075,13 @@ def create_app(
         except OSError as exc:
             logger.warning("Failed to read output directory %s: %s", out_dir, exc)
 
-        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        def _safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        candidates.sort(key=_safe_mtime, reverse=True)
 
         for file in candidates:
             try:
@@ -1287,6 +1293,21 @@ def create_app(
                 downloader.download()
             except Exception as exc:
                 logger.exception("Background model download encountered an error: %s", exc)
+                err_payload = {
+                    "status": "error",
+                    "progress": 0.0,
+                    "speed": 0.0,
+                    "bytes_downloaded": 0,
+                    "total_bytes": 0,
+                    "is_downloading": False,
+                    "error": str(exc),
+                }
+                app.state.last_model_download_status = err_payload
+                payload_str = json.dumps(err_payload)
+                if hasattr(app_orchestrator, "_broadcast"):
+                    app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
+                elif hasattr(app_orchestrator, "broadcast"):
+                    app_orchestrator.broadcast("model_download_progress", err_payload)
 
         thread = threading.Thread(
             target=_bg_download,

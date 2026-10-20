@@ -201,8 +201,8 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
   - `100 DPI` (Default, ~1.7 MP): ~2.7s per page on an NVIDIA RTX 3050 Laptop GPU (60W). Provides reliable recognition on clear, standard printed text.
   - `150 DPI` (~3.8 MP): ~5.6s per page. Recommended for dense small-print receipts or low-resolution scans.
   - `72 DPI`: ~1.5s per page. Faster throughput, but may introduce OCR distortion on fine print.
-- **Currency Symbol Delimiter Anomaly (`$DIGIT`)**:
-  When currency figures lack whitespace (e.g., `$100.00` or `$1,250.00`), GLM-OCR's tokenizer misinterprets `$` before digits as an unclosed inline LaTeX math delimiter, and post-processing filters strip the symbol (yielding `.00` or `,250.00`). Figures formatted with whitespace (`$ 100.00`) or standard ISO currency codes (`USD 100.00`) transcribe accurately. Financial workflows should verify unspaced dollar amounts.
+- **Currency Symbol Delimiter Formatting (`$DIGIT`)**:
+  Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, GLM-OCR's tokenizer may interpret `$` as an inline LaTeX math delimiter, which can occasionally produce token-spaced formatting like `$ 1 0 0 . 0 0`. Financial workflows with mixed formula environments should verify formula and currency spacing in exported documents.
 - **Page-Boundary Cancellation**: Active HTTP vision requests cannot be safely terminated mid-transfer without destroying the underlying HTTP connection pool. Cancelling multi-page jobs completes the current in-flight page before gracefully halting.
 
 ---

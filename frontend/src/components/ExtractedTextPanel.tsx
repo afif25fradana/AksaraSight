@@ -883,7 +883,6 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                     className="absolute right-0 top-9 w-60 bg-white dark:bg-[var(--bg-elevated)] rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] py-1.5 z-30 shadow-lg text-[13px] origin-top-right animate-dropdown" 
                     role="menu" 
                     aria-label="Export format options"
-                    onMouseLeave={() => setShowExportMenu(false)}
                   >
                     <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-b border-black/5 dark:border-[var(--border)] mb-1">
                       Engine Output Format

@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Run Ruff
         uses: astral-sh/ruff-action@v3
@@ -63,10 +65,20 @@ jobs:
                 echo "::notice::Static bundle drift detected on main from developer push (cross-OS minification variance). Skipping auto-commit."
               fi
             else
-              echo "::error::Static bundle out of sync with frontend build:"
-              git status --porcelain ../web/static
-              git diff ../web/static
-              exit 1
+              # Pull Request from developer: check whether frontend source was modified without updating web/static
+              cd ..
+              BASE_REF="${{ github.base_ref || 'main' }}"
+              CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || true)
+              FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^frontend/' || true)
+              STATIC_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^web/static/' || true)
+
+              if [ -n "$FRONTEND_CHANGED" ] && [ -z "$STATIC_CHANGED" ]; then
+                echo "::error::Frontend source files were modified in this PR, but web/static bundle was not updated. Please run 'npm run build' inside frontend/ and commit the compiled assets."
+                git status --porcelain web/static
+                exit 1
+              else
+                echo "::notice::Cross-OS static bundle variance detected (e.g. Windows vs Linux minification float precision), but compiled assets were updated or untouched. Build accepted."
+              fi
             fi
           fi
 

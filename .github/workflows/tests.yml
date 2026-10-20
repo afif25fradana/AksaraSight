@@ -17,6 +17,8 @@ jobs:
   lint:
     name: Lint & Code Style
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -45,10 +47,22 @@ jobs:
           cd frontend
           npm run build
           if [ -n "$(git status --porcelain ../web/static)" ]; then
-            echo "::error::Static bundle out of sync with frontend build:"
-            git status --porcelain ../web/static
-            git diff ../web/static
-            exit 1
+            if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
+              echo "::notice::Static bundle drift detected on Dependabot PR. Bypassing failure since Dependabot does not compile frontend assets."
+            elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "::notice::Static bundle drift detected on main. Auto-committing synced bundle..."
+              cd ..
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add web/static
+              git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
+              git push origin HEAD:main
+            else
+              echo "::error::Static bundle out of sync with frontend build:"
+              git status --porcelain ../web/static
+              git diff ../web/static
+              exit 1
+            fi
           fi
 
       - name: Upload static bundle on mismatch

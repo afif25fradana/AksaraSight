@@ -18,6 +18,11 @@ A chronological overview of the development, architecture, security hardening, a
 - **CI Static Bundle Sync Scoping**: Scoped the GitHub Actions frontend bundle auto-sync workflow strictly to Dependabot PR merges on `main`. Regular developer pushes no longer trigger bot auto-commit loops or cross-OS minification variances.
 
 ### Fixed
+- **Server Start/Stop Event Loop Non-Blocking Execution**: Wrapped synchronous `ServerManager.start()` and `stop()` in `web/app.py` with `await asyncio.to_thread(...)`, preventing brief event loop freezes during inference engine startup and shutdown.
+- **Subprocess Environment Isolation & Proxy Purging**: Explicitly sanitized child process environment in `core/server_manager.py` by purging host proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) and enforcing `NO_PROXY="*"`.
+- **Modal Dialog Keyboard Focus Trapping & Return Focus**: Implemented a lightweight zero-dependency `useFocusTrap` hook across `OutputFolderModal`, `ServerLogsModal`, and `SettingsView`, enforcing WAI-ARIA tab containment, initial focus, and return focus upon dialog dismissal (WCAG 2.1.2 & 2.4.3).
+- **Exported Files Keyboard Accessibility**: Enabled keyboard focus and selection (`Enter` and `Space`) on exported output file items in `OutputFolderModal.tsx`.
+- **Responsive Workspace Panel Scrolling**: Configured `<main>` with `overflow-y-auto lg:overflow-hidden` and added minimum heights on workspace panels, preventing preview and text panels from being clipped on screen widths narrower than 1024px.
 - **Theme Toggle View Transition Collision**: Fixed an issue where explicit `viewTransitionName: 'tab-view'` on `<main>` and settings containers caused browser View Transitions to clip and tear the document-wide circular ripple mask. The View Transitions API is now reserved exclusively for the full-viewport theme toggle.
 - **Theme Switch Knob Glide**: Re-synchronized `.theme-checkbox::before` translation timing (`0.35s ease`) with the switch background gradient, restoring smooth knob motion.
 - **Export Dropdown Hover Stability**: Removed an aggressive `onMouseLeave` auto-collapse listener on the Export dropdown in `ExtractedTextPanel`, keeping the menu open until option selection, Esc key, or click-outside.

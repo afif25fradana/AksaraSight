@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Terminal, X, Copy, Check, Search, ArrowDown } from 'lucide-react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { ServerStatusInfo } from '../types';
 
 interface ServerLogsModalProps {
@@ -39,6 +40,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
   const logContainerRef = useRef<HTMLDivElement>(null);
   const [isRendered, setIsRendered] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
+  const modalRef = useFocusTrap<HTMLDivElement>(isRendered);
 
   useEffect(() => {
     if (isOpen) {
@@ -195,6 +197,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
       onClick={onClose}
     >
       <div 
+        ref={modalRef}
         className={`w-full max-w-4xl bg-[#FBFAF7] dark:bg-[var(--bg-surface)] border border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] rounded-xl shadow-2xl will-change-transform overflow-hidden flex flex-col h-[85vh] max-h-[720px] transition-colors ${
           isClosing ? 'animate-modal-window-exit' : 'animate-modal-window'
         }`}

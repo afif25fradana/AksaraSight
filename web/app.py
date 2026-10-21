@@ -536,7 +536,7 @@ def create_app(
                 detail="Cannot start server while extraction job is in progress",
             )
         try:
-            app_server_manager.start()
+            await asyncio.to_thread(app_server_manager.start)
             if app_server_manager.ownership == ServerOwnership.MANAGED:
                 app.state.server_managed = True
         except Exception as exc:
@@ -569,7 +569,7 @@ def create_app(
                 status_code=409,
                 detail="Cannot stop backend server while an extraction job is currently in progress.",
             )
-        app_server_manager.stop()
+        await asyncio.to_thread(app_server_manager.stop)
         app.state.server_managed = False
         return {
             "stopped": True,

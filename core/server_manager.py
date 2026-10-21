@@ -9,6 +9,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
+import os
 from pathlib import Path
 import re
 import shutil
@@ -685,6 +686,16 @@ class ServerManager:
 
                 creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+                # Sanitize subprocess environment against proxy interception
+                sub_env = os.environ.copy()
+                for proxy_var in (
+                    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                    "http_proxy", "https_proxy", "all_proxy",
+                ):
+                    sub_env.pop(proxy_var, None)
+                sub_env["NO_PROXY"] = "*"
+                sub_env["no_proxy"] = "*"
+
                 proc: Optional[subprocess.Popen] = None
                 job_handle: Optional[int] = None
                 try:
@@ -697,6 +708,7 @@ class ServerManager:
                         encoding="utf-8",
                         errors="replace",
                         creationflags=creationflags,
+                        env=sub_env,
                         cwd=str(Path(resolved_path).parent),
                     )
 

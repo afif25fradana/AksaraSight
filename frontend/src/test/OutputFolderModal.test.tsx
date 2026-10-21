@@ -227,6 +227,31 @@ describe('OutputFolderModal Component and Live Backend Integration', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('supports selecting files via keyboard Enter and Space keys', async () => {
+    const user = userEvent.setup();
+    render(
+      <OutputFolderModal
+        isOpen={true}
+        onClose={vi.fn()}
+        files={mockFiles}
+        onDeleteFile={vi.fn()}
+      />
+    );
+
+    const secondFile = screen.getByLabelText('Select file test-table.json');
+    expect(secondFile).toHaveAttribute('aria-pressed', 'false');
+
+    secondFile.focus();
+    await user.keyboard('{Enter}');
+    expect(secondFile).toHaveAttribute('aria-pressed', 'true');
+
+    const firstFile = screen.getByLabelText('Select file test-doc.md');
+    firstFile.focus();
+    await user.keyboard(' ');
+    expect(firstFile).toHaveAttribute('aria-pressed', 'true');
+    expect(secondFile).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('renders "Cancel wait" for Waiting items and "Remove" for non-waiting items in FileQueuePanel', () => {
     const onRemoveFromQueue = vi.fn();
     const onRemoveDoc = vi.fn();

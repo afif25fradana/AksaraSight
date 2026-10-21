@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { 
   CheckCircle2, 
   Cpu, 
@@ -159,6 +160,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Remote endpoints security modal state
   const [showSecurityWarning, setShowSecurityWarning] = useState(false);
+  const securityModalRef = useFocusTrap<HTMLDivElement>(showSecurityWarning);
 
   useEffect(() => {
     if (!showSecurityWarning) return;
@@ -1434,6 +1436,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onClick={() => setShowSecurityWarning(false)}
         >
           <div 
+            ref={securityModalRef}
             className="w-full max-w-md bg-white dark:bg-[var(--bg-surface)] rounded-xl shadow-xl border border-red-200 dark:border-[var(--danger)]/40 p-5 space-y-4 text-[#14213D] dark:text-[var(--text-1)] animate-modal-window will-change-transform transition-colors"
             onClick={(e) => e.stopPropagation()}
             role="alertdialog"

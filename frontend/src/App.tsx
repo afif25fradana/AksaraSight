@@ -936,11 +936,11 @@ export default function App() {
       {/* Main Workspace 3-Pane Layout */}
       {currentTab === 'workspace' ? (
         <main 
-          className="flex-1 p-3 pb-2.5 min-h-0 overflow-hidden relative z-10 animate-fade-in" 
+          className="flex-1 p-3 pb-2.5 min-h-0 overflow-y-auto lg:overflow-hidden relative z-10 animate-fade-in" 
           aria-label="AksaraSight Workspace"
         >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 h-full min-h-0">
-            <div className="lg:col-span-3 h-full min-h-0 overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:h-full min-h-0">
+            <div className="lg:col-span-3 min-h-[340px] lg:min-h-0 lg:h-full overflow-hidden">
               <FileQueuePanel
                 documents={consistentDocuments}
                 selectedDocId={selectedDocId}
@@ -954,14 +954,14 @@ export default function App() {
               />
             </div>
 
-            <div className="lg:col-span-5 h-full min-h-0 overflow-hidden">
+            <div className="lg:col-span-5 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
               <DocumentPreviewPanel
                 document={selectedDocument}
                 onPageChange={handlePageChange}
               />
             </div>
 
-            <div className="lg:col-span-4 h-full min-h-0 overflow-hidden">
+            <div className="lg:col-span-4 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
               <ExtractedTextPanel
                 document={selectedDocument}
                 runningJobDocId={runningJobDocId}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FolderOpen, X, Trash2, Eye, ExternalLink, Copy, Check, FileText } from 'lucide-react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { ExportedFile } from '../types';
 
 interface OutputFolderModalProps {
@@ -23,6 +24,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
   const [explorerOpenedFeedback, setExplorerOpenedFeedback] = useState<string | null>(null);
   const [isRendered, setIsRendered] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
+  const modalRef = useFocusTrap<HTMLDivElement>(isRendered);
 
   useEffect(() => {
     if (isOpen) {
@@ -117,6 +119,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
       onClick={onClose}
     >
       <div 
+        ref={modalRef}
         className={`w-full max-w-3xl bg-white dark:bg-[var(--bg-surface)] rounded-xl shadow-[0_20px_50px_rgba(20,33,61,0.25)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)] border border-[#14213D]/15 dark:border-[var(--border)] will-change-transform overflow-hidden flex flex-col max-h-[88vh] text-[#14213D] dark:text-[var(--text-1)] transition-colors ${
           isClosing ? 'animate-modal-window-exit' : 'animate-modal-window'
         }`}
@@ -218,11 +221,22 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
                 return (
                   <div
                     key={file.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Select file ${file.filename}`}
+                    aria-pressed={isSelected}
                     onClick={() => {
                       setSelectedFile(file);
                       setDeleteConfirmId(null);
                     }}
-                    className={`p-2.5 rounded-lg flex items-center justify-between cursor-pointer text-[13px] transition-colors group ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedFile(file);
+                        setDeleteConfirmId(null);
+                      }
+                    }}
+                    className={`p-2.5 rounded-lg flex items-center justify-between cursor-pointer text-[13px] transition-colors group focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                       isSelected
                         ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15 border border-[#0F766E]/30 dark:border-[var(--accent)]/40 text-[#14213D] dark:text-[var(--text-1)] font-medium shadow-2xs'
                         : 'hover:bg-black/[0.03] dark:hover:bg-[var(--bg-elevated)] text-[#374151] dark:text-[var(--text-2)] border border-transparent'

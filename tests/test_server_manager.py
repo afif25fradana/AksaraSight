@@ -353,6 +353,10 @@ def test_server_manager_start_spawns_managed_process(tmp_path):
                 assert mgr.ownership == ServerOwnership.MANAGED
                 assert mgr.is_managed is True
                 assert mock_popen.call_args.kwargs.get("cwd") == str(fake_exe.parent)
+                popen_env = mock_popen.call_args.kwargs.get("env")
+                assert popen_env is not None
+                assert popen_env.get("NO_PROXY") == "*"
+                assert "HTTP_PROXY" not in popen_env
     finally:
         mgr.shutdown()
 

@@ -6,7 +6,7 @@ import time
 from typing import Callable, Optional, Union
 
 from config.settings import Settings
-from core.client import ClientError, ServerOfflineError, VisionClient
+from core.client import ClientError, ServerOfflineError, VisionClient, resolve_chat_endpoint
 from core.models import JobConfig, JobStatus, OCRResult, PageResult
 from core.pipeline import CorruptDocumentError, PipelineError, ingest
 
@@ -43,6 +43,14 @@ class OCREngine:
     def invalidate_backend_verification(self) -> None:
         """Reset the multimodal verification cache (e.g. on server restart, stop, or endpoint switch)."""
         self._multimodal_verified = False
+
+    def reconfigure(self, settings: Settings) -> None:
+        """Update runtime settings and synchronize internal client endpoint and caches."""
+        self.settings = settings
+        if self.client:
+            self.client.settings = settings
+            self.client.endpoint = resolve_chat_endpoint(settings.local_endpoint)
+        self.invalidate_backend_verification()
 
     def verify_backend(self, force: bool = False) -> None:
         """Verify that the backend is online and accepts multimodal vision requests.

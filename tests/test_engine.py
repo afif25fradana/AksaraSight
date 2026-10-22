@@ -597,5 +597,19 @@ def test_engine_missing_image_b64_raises_corrupt_document_error(
     mock_client.complete.assert_not_called()
 
 
+def test_engine_reconfigure() -> None:
+    """Verify OCREngine.reconfigure updates settings, syncs client endpoint, and invalidates verification."""
+    engine = OCREngine()
+    engine._multimodal_verified = True
+
+    new_settings = Settings(local_endpoint="http://127.0.0.1:9999/v1", allow_remote=False)
+    engine.reconfigure(new_settings)
+
+    assert engine.settings == new_settings
+    assert engine.client.settings == new_settings
+    assert engine.client.endpoint == "http://127.0.0.1:9999/v1/chat/completions"
+    assert engine._multimodal_verified is False
+
+
 
 

@@ -34,6 +34,7 @@ from core.job_object import (
     _create_kill_on_close_job,
 )
 from core.model_manager import get_local_model_paths
+from core.runtime_manager import resolve_effective_server_path
 
 
 class ServerStatus(str, Enum):
@@ -529,8 +530,8 @@ class ServerManager:
                     self._last_message = f"Connected to existing server ({model_detail})"
                     callback = self.on_lifecycle_change
             else:
-                # Resolve executable path (uses effective_llama_server_path to support managed runtime)
-                candidate_path = server_path or self.settings.effective_llama_server_path
+                # Resolve executable path (uses resolve_effective_server_path to support managed runtime)
+                candidate_path = server_path or resolve_effective_server_path(self.settings)
                 if not candidate_path:
                     which_path = shutil.which("llama-server")
                     candidate_path = which_path

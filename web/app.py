@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config.settings import Settings
-from core.client import ServerOfflineError, resolve_chat_endpoint
+from core.client import ServerOfflineError
 from core.constants import SUPPORTED_EXTENSIONS, __version__
 from core.diagnostics import run_diagnostics
 from core.docx_export import export_to_docx_bytes
@@ -741,12 +741,10 @@ def create_app(
 
         app.state.settings = new_settings
         if hasattr(app.state, "engine") and app.state.engine:
-            app.state.engine.settings = new_settings
-            if hasattr(app.state.engine, "client") and app.state.engine.client:
-                app.state.engine.client.settings = new_settings
-                app.state.engine.client.endpoint = resolve_chat_endpoint(new_settings.local_endpoint)
-            if hasattr(app.state.engine, "invalidate_backend_verification"):
-                app.state.engine.invalidate_backend_verification()
+            if hasattr(app.state.engine, "reconfigure"):
+                app.state.engine.reconfigure(new_settings)
+            else:
+                app.state.engine.settings = new_settings
 
         server_stopped = False
         if hasattr(app.state, "server_manager") and app.state.server_manager:
@@ -1062,10 +1060,7 @@ def create_app(
             headers={"Content-Disposition": content_disposition},
         )
 
-    @app.get("/api/output")
-    async def list_output_files() -> Dict[str, Any]:
-        """Scan output directory for exported artifacts (.docx, .md, .json) and return metadata."""
-        out_dir = get_output_dir(app)
+    def _scan_output_artifacts(out_dir: Path) -> List[Dict[str, Any]]:
         files: List[Dict[str, Any]] = []
         candidates: List[Path] = []
         try:
@@ -1116,6 +1111,13 @@ def create_app(
             except OSError as exc:
                 logger.warning("Failed to stat or read output file %s: %s", file, exc)
 
+        return files
+
+    @app.get("/api/output")
+    async def list_output_files() -> Dict[str, Any]:
+        """Scan output directory for exported artifacts (.docx, .md, .json) and return metadata."""
+        out_dir = get_output_dir(app)
+        files = await asyncio.to_thread(_scan_output_artifacts, out_dir)
         return {"path": str(out_dir), "files": files}
 
     @app.post("/api/output/open")

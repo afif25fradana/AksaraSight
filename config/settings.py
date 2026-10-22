@@ -224,28 +224,11 @@ class Settings:
     def effective_llama_server_path(self) -> Optional[str]:
         """Resolve the effective llama-server binary path based on runtime_mode.
 
-        In 'custom' mode: returns the configured manual path (llama_server_path).
-        In 'managed' mode: resolves the target backend (override or cached hardware profile)
-        and retrieves the verified managed binary path from disk.
-
-        Returns:
-            Optional[str]: Absolute path string to the executable, or None if unconfigured/uninstalled.
+        Retained for backward compatibility; delegates to core.runtime_manager.resolve_effective_server_path.
         """
-        if self.runtime_mode == "custom":
-            return self.llama_server_path
+        from core.runtime_manager import resolve_effective_server_path
 
-        # Managed mode
-        backend = self.managed_backend_override
-        if backend == "auto":
-            from core.hardware import get_cached_hardware_profile
-
-            profile = get_cached_hardware_profile()
-            backend = profile.recommended_backend if profile is not None else "cpu"
-
-        from core.runtime_manager import get_installed_runtime_path
-
-        installed_path = get_installed_runtime_path(backend=backend)
-        return str(installed_path) if installed_path is not None else None
+        return resolve_effective_server_path(self)
 
     @classmethod
     def from_env(cls, env_path: Optional[str | Path] = None) -> "Settings":

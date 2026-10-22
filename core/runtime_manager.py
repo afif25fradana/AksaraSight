@@ -15,7 +15,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import uuid
 import zipfile
 
@@ -456,6 +456,33 @@ def get_installed_runtime_path(tag: str = PINNED_LLAMA_BUILD, backend: str = "cu
     if is_runtime_installed(tag, backend):
         return get_runtime_dir(tag, backend) / _EXE_NAME
     return None
+
+
+def resolve_effective_server_path(settings: Optional[Any] = None) -> Optional[str]:
+    """Resolve the effective llama-server binary path based on runtime_mode.
+
+    In 'custom' mode: returns the configured manual path (llama_server_path).
+    In 'managed' mode: resolves the target backend (override or cached hardware profile)
+    and retrieves the verified managed binary path from disk.
+
+    Returns:
+        Optional[str]: Absolute path string to the executable, or None if unconfigured/uninstalled.
+    """
+    if settings is None:
+        return None
+
+    if getattr(settings, "runtime_mode", "managed") == "custom":
+        return getattr(settings, "llama_server_path", None)
+
+    backend = getattr(settings, "managed_backend_override", "auto")
+    if backend == "auto":
+        from core.hardware import get_cached_hardware_profile
+
+        profile = get_cached_hardware_profile()
+        backend = profile.recommended_backend if profile is not None else "cpu"
+
+    installed_path = get_installed_runtime_path(backend=backend)
+    return str(installed_path) if installed_path is not None else None
 
 
 def ensure_runtime(

@@ -13,6 +13,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **React 19 Error Boundary**: Wrapped the workspace root in an Error Boundary with component retry capabilities, preventing unexpected rendering exceptions from crashing the application.
 
 ### Changed
+- **Engine Reconfiguration & Settings Decoupling**: Introduced `OCREngine.reconfigure(settings)` to eliminate router monkey-patching of client internals in `web/app.py`, decoupled circular runtime probes in `config/settings.py` by relocating binary path resolution to `core.runtime_manager.resolve_effective_server_path()`, and offloaded synchronous output file directory scans in `web/app.py` via `await asyncio.to_thread()` to prevent event loop stalls.
 - **DPI Resolution Card Buttons**: Replaced the continuous range slider and static text boxes in Settings with a 2x2 grid of tactile Card Buttons (72, 100, 150, 200 DPI). Each card includes a radio indicator, active ring, and `active:scale-[0.98]` depress feedback.
 - **Bidirectional Settings Synchronization**: Workspace scan resolution adjustments now synchronize bidirectionally with global settings via `PATCH /api/settings`, keeping workspace controls and configuration options aligned.
 - **CI Static Bundle Sync Scoping**: Scoped the GitHub Actions frontend bundle auto-sync workflow strictly to Dependabot PR merges on `main`. Regular developer pushes no longer trigger bot auto-commit loops or cross-OS minification variances.

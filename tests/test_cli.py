@@ -77,16 +77,15 @@ def test_discover_files_explicit_whitelist(tmp_path: Path) -> None:
 
 # Single File Execution Tests
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_stdout_markdown(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
     mock_success_result: OCRResult,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    mock_engine = MagicMock()
+    mock_engine = mock_engine_cls.return_value
     mock_engine.process_document.return_value = mock_success_result
-    mock_engine_cls.return_value = mock_engine
 
     exit_code = main([str(dummy_png)])
 
@@ -97,7 +96,7 @@ def test_cli_single_file_stdout_markdown(
     assert captured.err == ""
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_stdout_json_quiet_pipeable(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -119,7 +118,7 @@ def test_cli_single_file_stdout_json_quiet_pipeable(
     assert captured.err == ""
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_stdout_json_sanitizes_path(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -150,7 +149,7 @@ def test_cli_single_file_stdout_json_sanitizes_path(
     assert str(doc_file.resolve()) not in parsed["error"]
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_save_to_output_dir(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -210,7 +209,7 @@ def test_cli_fatal_invalid_backend_override(
     assert exc.value.code == 2
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_fatal_backend_offline_abort(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -236,7 +235,7 @@ def test_cli_fatal_backend_offline_abort(
 
 # Batch Processing & Exit Code 2 (Partial/Failure) Tests
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_folder_all_success(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -258,7 +257,7 @@ def test_cli_batch_folder_all_success(
     assert mock_engine.process_document.call_count == 2
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_folder_partial_failure_exit_code_2(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -290,7 +289,7 @@ def test_cli_batch_folder_partial_failure_exit_code_2(
 
 # Settings Override & Parameter Passing Test
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_passes_settings_and_prompt_overrides(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -336,7 +335,7 @@ def test_cli_remote_endpoint_rejected_without_flag(
     assert "Configuration error: Security violation: Non-loopback endpoint" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -362,7 +361,7 @@ def test_cli_remote_endpoint_accepted_with_allow_remote_flag(
     assert "WARNING: Backend endpoint is non-loopback" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_duplicate_filenames_no_overwrite(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -407,7 +406,7 @@ def test_cli_batch_duplicate_filenames_no_overwrite(
     assert content_1 != content_2
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_max_pages_flag_forwarded(
     mock_engine_cls: MagicMock,
     dummy_pdf: Path,
@@ -438,7 +437,7 @@ def test_cli_max_pages_flag_invalid(
     assert "Error: --max-pages must be a positive integer" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_dpi_flag_forwarded(
     mock_engine_cls: MagicMock,
     dummy_pdf: Path,
@@ -469,7 +468,7 @@ def test_cli_dpi_flag_invalid(
     assert "Error: --dpi must be a positive integer" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_streaming_exit_codes(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -606,7 +605,7 @@ def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytes
     test_img = tmp_path / "doc.png"
     test_img.write_bytes(b"dummy")
 
-    with patch("cli.main.OCREngine") as mock_engine_cls:
+    with patch("cli.main.OCREngine", autospec=True) as mock_engine_cls:
         mock_engine = MagicMock()
         mock_engine.verify_backend.side_effect = ClientError("Backend not responding correctly to image input")
         mock_engine_cls.return_value = mock_engine
@@ -621,7 +620,7 @@ def test_cli_aborts_fast_when_verify_backend_fails(tmp_path: Path, capsys: pytes
 
 # Doctor Flag Tests (--doctor)
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.probe_server_health")
 @patch("cli.main.get_installed_runtime_path")
 @patch("cli.main.is_runtime_installed")
@@ -674,7 +673,7 @@ def test_cli_doctor_all_pass(
     assert "STATUS: HEALTHY - All checks passed (5/5)." in captured.out
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.probe_server_health")
 @patch("cli.main.detect_hardware")
 def test_cli_doctor_custom_runtime_mode(
@@ -749,7 +748,7 @@ def test_cli_doctor_server_offline(
     mock_probe.return_value = (ServerStatus.OFFLINE, "Connection refused (server not running)")
 
     with patch("cli.main.get_installed_runtime_path", return_value=Path("C:/llama-server.exe")), \
-         patch("cli.main.OCREngine") as mock_engine_cls:
+         patch("cli.main.OCREngine", autospec=True) as mock_engine_cls:
         exit_code = main(["--doctor"])
         mock_engine_cls.assert_not_called()
 
@@ -779,7 +778,7 @@ def test_cli_doctor_runtime_not_installed(
     mock_is_installed.return_value = False
     mock_probe.return_value = (ServerStatus.READY, "Server is healthy and ready")
 
-    with patch("cli.main.OCREngine") as mock_engine_cls:
+    with patch("cli.main.OCREngine", autospec=True) as mock_engine_cls:
         mock_engine = MagicMock()
         mock_engine.verify_backend.return_value = None
         mock_engine_cls.return_value = mock_engine
@@ -793,7 +792,7 @@ def test_cli_doctor_runtime_not_installed(
     assert "Install the managed runtime 'b11361-cpu' via Web UI Settings" in captured.out
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.probe_server_health")
 @patch("cli.main.is_runtime_installed")
 @patch("cli.main.detect_hardware")
@@ -846,7 +845,7 @@ def test_cli_doctor_config_error(capsys: pytest.CaptureFixture[str]) -> None:
 # ==============================================================================
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.probe_server_health")
 @patch("cli.main.get_installed_runtime_path")
 @patch("cli.main.is_runtime_installed")
@@ -918,7 +917,7 @@ def test_cli_doctor_golden_output_match(
     assert captured.out == "\n".join(expected_lines)
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.probe_server_health")
 @patch("cli.main.get_installed_runtime_path")
 @patch("cli.main.is_runtime_installed")
@@ -1019,7 +1018,7 @@ def test_cli_parser_docx_choice() -> None:
     assert args.format == "docx"
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_docx_output_dir(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1045,7 +1044,7 @@ def test_cli_single_file_docx_output_dir(
     assert "Recognized text line." in doc_text
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_docx_stdout_terminal_isatty_refused(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1067,7 +1066,7 @@ def test_cli_single_file_docx_stdout_terminal_isatty_refused(
     assert captured.out == ""
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_docx_stdout_piped_writes_buffer(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1099,7 +1098,7 @@ def test_cli_single_file_docx_stdout_piped_writes_buffer(
     assert "Recognized text line." in doc_text
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_existing_formats_untouched(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1135,7 +1134,7 @@ def test_cli_existing_formats_untouched(
 
 # Batch Progress, Abort Fast-Fail, and CLI Error Handling Tests
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_progress_and_summary_output(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -1169,7 +1168,7 @@ def test_cli_batch_progress_and_summary_output(
     assert "[2/2] doc2.png -> SUCCESS (0.35s)" in captured.out
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_abort_fast_fail(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -1216,7 +1215,7 @@ def test_cli_batch_abort_fast_fail(
     assert "Aborted: Inference backend offline on page 1; remaining pages not attempted: Connection reset by peer" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_abort_quiet_suppression(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -1255,7 +1254,7 @@ def test_cli_batch_abort_quiet_suppression(
     assert "Aborted:" not in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_failed_without_pages_stderr(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1278,7 +1277,7 @@ def test_cli_single_file_failed_without_pages_stderr(
     assert "Processing failed: Corrupt image header" in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_single_file_docx_stdout_no_buffer_error(
     mock_engine_cls: MagicMock,
     dummy_png: Path,
@@ -1308,7 +1307,7 @@ def test_cli_single_file_docx_stdout_no_buffer_error(
     assert "Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk." in captured.err
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_recursive_discovery(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -1344,7 +1343,7 @@ def test_cli_batch_recursive_discovery(
     assert mock_engine.process_document.call_count == 2
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 def test_cli_batch_continues_on_document_crash(
     mock_engine_cls: MagicMock,
     tmp_path: Path,
@@ -1385,7 +1384,7 @@ def test_cli_batch_continues_on_document_crash(
     assert "02_good.png -> SUCCESS" in captured.out
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.get_cached_hardware_profile")
 @patch("cli.main.start_hardware_prewarm")
 def test_cli_vram_warning_on_cold_start(
@@ -1429,7 +1428,7 @@ def test_cli_prewarm_skipped_on_nonexistent_input(mock_prewarm: MagicMock, tmp_p
     mock_prewarm.assert_not_called()
 
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.start_hardware_prewarm")
 def test_cli_prewarm_skipped_for_remote_endpoint(
     mock_prewarm: MagicMock,

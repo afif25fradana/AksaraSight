@@ -93,13 +93,13 @@ class WebOrchestrator:
             snapshot: List[Dict[str, Any]] = []
 
             for job in self.jobs.values():
-                sorted_page_items = sorted(job.pages_data.items(), key=lambda kv: kv[0])
+                sorted_page_items = sorted(list(job.pages_data.items()), key=lambda kv: kv[0])
                 page_texts = [p.get("text", "") for _, p in sorted_page_items if p.get("text", "").strip()]
                 full_text = "\n\n---\n\n".join(page_texts) if page_texts else ""
 
                 doc_status = status_map.get(job.status, "Waiting")
                 if job.status == JobStatus.SUCCESS and any(
-                    p.get("truncated", False) for p in job.pages_data.values()
+                    p.get("truncated", False) for p in list(job.pages_data.values())
                 ):
                     doc_status = "Truncated"
 
@@ -351,12 +351,13 @@ class WebOrchestrator:
                 latency = getattr(page_res, "latency", 0.0)
                 truncated = getattr(page_res, "truncated", False)
 
-                job.pages_data[page_num] = {
-                    "text": text,
-                    "latency": latency,
-                    "tokens": tokens,
-                    "truncated": truncated,
-                }
+                with self._lock:
+                    job.pages_data[page_num] = {
+                        "text": text,
+                        "latency": latency,
+                        "tokens": tokens,
+                        "truncated": truncated,
+                    }
                 self.broadcast(
                     "page_progress",
                     {

@@ -134,7 +134,7 @@ The Web UI workspace entrypoint accepts the following flags:
 AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) stream powered by FastAPI (`web/app.py` and `web/orchestrator.py`). All endpoints strictly enforce loopback origin headers.
 
 ### Diagnostics & Server Supervision
-- `GET /health`: Basic health check returning `{"status": "ok", "version": "1.3.0"}`.
+- `GET /health`: Health check returning server status, backend mode, and endpoint diagnostics.
 - `GET /api/doctor`: Returns 5-stage system diagnostics (configuration, hardware, runtime, server reachability, multimodal probe).
 - `POST /api/doctor`: Triggers a fresh live system diagnostic re-probe.
 - `GET /api/server/status`: Current managed server lifecycle state (`offline`, `starting`, `ready`, `error`).

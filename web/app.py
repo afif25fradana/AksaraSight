@@ -769,7 +769,7 @@ def create_app(
                     or info.ownership == ServerOwnership.MANAGED
                 ) and app.state.server_manager.status in (ServerStatus.READY, ServerStatus.STARTING)
                 if is_running_managed:
-                    app.state.server_manager.stop()
+                    await asyncio.to_thread(app.state.server_manager.stop)
                     app.state.server_managed = False
                     server_stopped = True
 

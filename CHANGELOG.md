@@ -18,7 +18,8 @@ A chronological overview of the development, architecture, security hardening, a
 - **CI Static Bundle Sync Scoping**: Scoped the GitHub Actions frontend bundle auto-sync workflow strictly to Dependabot PR merges on `main`. Regular developer pushes no longer trigger bot auto-commit loops or cross-OS minification variances.
 
 ### Fixed
-- **Server Start/Stop Event Loop Non-Blocking Execution**: Wrapped synchronous `ServerManager.start()` and `stop()` in `web/app.py` with `await asyncio.to_thread(...)`, preventing brief event loop freezes during inference engine startup and shutdown.
+- **Server Start/Stop Event Loop Non-Blocking Execution**: Wrapped synchronous `ServerManager.start()` and `stop()` in `web/app.py` (both in `/api/server/stop` and `PATCH /api/settings`) with `await asyncio.to_thread(...)`, preventing brief event loop freezes during inference engine startup, shutdown, and settings re-configuration.
+- **Orchestrator Page Data Thread Synchronization**: Guarded `job.pages_data` mutations with `self._lock` and snapshot iterations with safe shallow `list()` copies in `WebOrchestrator`, preventing concurrent dictionary mutation race conditions during active extractions.
 - **Subprocess Environment Isolation & Proxy Purging**: Explicitly sanitized child process environment in `core/server_manager.py` by purging host proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) and enforcing `NO_PROXY="*"`.
 - **Modal Dialog Keyboard Focus Trapping & Return Focus**: Implemented a lightweight zero-dependency `useFocusTrap` hook across `OutputFolderModal`, `ServerLogsModal`, and `SettingsView`, enforcing WAI-ARIA tab containment, initial focus, and return focus upon dialog dismissal (WCAG 2.1.2 & 2.4.3).
 - **Exported Files Keyboard Accessibility**: Enabled keyboard focus and selection (`Enter` and `Space`) on exported output file items in `OutputFolderModal.tsx`.

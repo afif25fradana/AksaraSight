@@ -351,6 +351,9 @@ class ServerManager:
                     # Process died
                     self._process = None
                     self._ownership = ServerOwnership.NONE
+                    if sys.platform == "win32" and self._job_handle is not None:
+                        _close_job_handle(self._job_handle)
+                        self._job_handle = None
                     if ret != 0:
                         self._status = ServerStatus.ERROR
                         reason = self._diagnose_failure()
@@ -738,6 +741,11 @@ class ServerManager:
                                             logger.debug("Error in log listener callback: %s", listener_exc)
                         except Exception as exc:
                             logger.debug("stdout reader stopped: %s", exc)
+                        finally:
+                            try:
+                                p.stdout.close()
+                            except Exception:
+                                pass
 
                     reader = threading.Thread(
                         target=_drain_stdout,

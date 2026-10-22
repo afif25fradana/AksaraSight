@@ -177,7 +177,11 @@ def _probe_nvcuda_ctypes() -> Optional[int]:
     import ctypes
 
     try:
-        nvcuda = ctypes.windll.LoadLibrary("nvcuda.dll")
+        cuda_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "nvcuda.dll"
+        if not cuda_path.is_file():
+            return None
+
+        nvcuda = ctypes.windll.LoadLibrary(str(cuda_path))
         if not hasattr(nvcuda, "cuInit") or not hasattr(nvcuda, "cuDriverGetVersion"):
             return None
 

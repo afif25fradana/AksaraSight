@@ -18,8 +18,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = False
 # Maximum pixel threshold for rasterization safety (matches Pillow's MAX_IMAGE_PIXELS)
 MAX_RASTER_PIXELS: int = getattr(Image, "MAX_IMAGE_PIXELS", 89_478_485) or 89_478_485
 
-# Module-level lock synchronizing all pypdfium2 C API calls across threads
-_PDFIUM_LOCK = threading.Lock()
+# Module-level reentrant lock synchronizing all pypdfium2 C API calls across threads
+_PDFIUM_LOCK = threading.RLock()
 
 DEFAULT_JPEG_QUALITY: int = 95
 

@@ -92,6 +92,8 @@ AksaraSight strictly isolates presentation layers from domain logic. The Web UI 
 
 For CLI reference options, environment variable configuration, custom server commands, and packaging scripts, see [TECHNICAL.md](TECHNICAL.md).
 
+Key architectural design decisions, rejected alternatives, and invariants are documented as Architecture Decision Records in [docs/adr/](docs/adr/).
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.  

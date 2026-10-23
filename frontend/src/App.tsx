@@ -179,6 +179,7 @@ export default function App() {
   }, []);
 
   const handleDpiChange = (dpi: number) => {
+    const previousDpi = selectedDpi;
     setSelectedDpi(dpi);
     setEngineSettings((prev) => ({
       ...prev,
@@ -189,9 +190,21 @@ export default function App() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dpi }),
-    }).catch((err) => {
-      console.warn('Failed to sync DPI setting to backend:', err);
-    });
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Server returned status ${res.status}`);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to sync DPI setting to backend:', err);
+        setSelectedDpi(previousDpi);
+        setEngineSettings((prev) => ({
+          ...prev,
+          dpi: previousDpi,
+          renderDpi: previousDpi,
+        }));
+      });
   };
 
   const fetchModelStatus = async () => {

@@ -6,6 +6,13 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
+---
+
+## Milestones
+
+### v1.3.1: Concurrency Hardening, Settings Decoupling & UI Polish (October 23, 2026)
+*Focus: Concurrency & thread safety hardening, settings decoupling, SSE lifecycle streaming, zero-dependency focus trapping, and desktop workspace polish.*
+
 ### Added
 - **Real-Time Model Download SSE Streaming**: Background model downloads now emit a terminal completion event (`model_download_progress`) over Server-Sent Events (SSE). The frontend UI immediately updates the status badge to "Verified Local Weights" without requiring a manual browser refresh.
 - **Tailwind CSS v4 Design Tokens**: Registered custom cubic-bezier easing tokens (`--ease-tactile: cubic-bezier(0.16, 1, 0.3, 1)` and `--ease-smooth: cubic-bezier(0.25, 1, 0.5, 1)`) and keyframe definitions (`shimmer`, `modal-window-out`, `dropdown-unpop`) in `@theme`.

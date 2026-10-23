@@ -275,7 +275,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             }
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.warn('Could not fetch model status on mount:', err);
+        });
     }
 
     return () => {
@@ -395,7 +397,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               .then((fresh) => {
                 if (isMounted && fresh) setInternalModelStatus(fresh);
               })
-              .catch(() => {});
+              .catch((err) => {
+                console.warn('Could not refresh model status following download event:', err);
+              });
           }
         }
       } catch (err) {

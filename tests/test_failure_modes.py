@@ -256,7 +256,7 @@ def test_failure_isolation_progress_callback_raises(
 
 # 8. CLI batch loop - process_document raises, sibling docs continue
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.Settings.from_env")
 def test_failure_isolation_cli_batch_document_crash(
     mock_settings_from_env: MagicMock,
@@ -287,12 +287,11 @@ def test_failure_isolation_cli_batch_document_crash(
         pages=[PageResult(page_num=1, markdown="# Good doc", status=JobStatus.SUCCESS)],
     )
 
-    mock_engine = MagicMock()
+    mock_engine = mock_engine_cls.return_value
     mock_engine.process_document.side_effect = [
         RuntimeError("Injected process_document crash"),
         ok_result,
     ]
-    mock_engine_cls.return_value = mock_engine
 
     exit_code = main([str(in_dir), "-o", str(out_dir)])
 
@@ -341,7 +340,7 @@ def test_failure_error_messages_are_safe_strings(
 
 # 10. docx_export.build_docx() raises - CLI batch continues
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.Settings.from_env")
 def test_failure_isolation_docx_export_raises(
     mock_settings_from_env: MagicMock,
@@ -380,9 +379,8 @@ def test_failure_isolation_docx_export_raises(
         pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
     )
 
-    mock_engine = MagicMock()
+    mock_engine = mock_engine_cls.return_value
     mock_engine.process_document.side_effect = [result_1, result_2]
-    mock_engine_cls.return_value = mock_engine
 
     call_count = {"n": 0}
 
@@ -410,7 +408,7 @@ def test_failure_isolation_docx_export_raises(
 
 # 11. format_output() raises (inside save_artifacts path) - CLI batch continues
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.Settings.from_env")
 def test_failure_isolation_format_output_raises(
     mock_settings_from_env: MagicMock,
@@ -450,9 +448,8 @@ def test_failure_isolation_format_output_raises(
         pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
     )
 
-    mock_engine = MagicMock()
+    mock_engine = mock_engine_cls.return_value
     mock_engine.process_document.side_effect = [result_1, result_2]
-    mock_engine_cls.return_value = mock_engine
 
     call_count = {"n": 0}
 
@@ -483,7 +480,7 @@ def test_failure_isolation_format_output_raises(
 
 # 12. save_artifacts() raises - CLI batch continues
 
-@patch("cli.main.OCREngine")
+@patch("cli.main.OCREngine", autospec=True)
 @patch("cli.main.Settings.from_env")
 def test_failure_isolation_save_artifacts_raises(
     mock_settings_from_env: MagicMock,
@@ -518,9 +515,8 @@ def test_failure_isolation_save_artifacts_raises(
         pages=[PageResult(page_num=1, markdown="# Doc 2", status=JobStatus.SUCCESS)],
     )
 
-    mock_engine = MagicMock()
+    mock_engine = mock_engine_cls.return_value
     mock_engine.process_document.side_effect = [result_1, result_2]
-    mock_engine_cls.return_value = mock_engine
 
     with patch("cli.main.save_artifacts") as mock_save:
         mock_save.side_effect = [

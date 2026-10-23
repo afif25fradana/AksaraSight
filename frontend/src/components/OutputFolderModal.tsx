@@ -73,8 +73,8 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
         body: JSON.stringify(filePath ? { path: filePath } : {}),
       });
       if (res.ok) {
-        const body = await res.json().catch(() => ({ opened: true }));
-        if (body.opened !== false) {
+        const body = await res.json().catch(() => ({ opened: false }));
+        if (body.opened) {
           const feedbackText = filePath
             ? 'Revealed in File Explorer'
             : 'Opened in File Explorer';

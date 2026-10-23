@@ -1,0 +1,42 @@
+name: Feature Request
+description: Propose a new feature, improvement, or workflow enhancement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an enhancement! AksaraSight is designed around private, local OCR workflows.
+        Features requiring third-party cloud services or online telemetry cannot be accepted.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific limitation or frustration in your current workflow?
+      placeholder: "I find it difficult to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe clearly how you would like this to work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: offline_impact
+    attributes:
+      label: Offline & Local Compatibility
+      description: How does this proposed feature fit within AksaraSight's strictly offline-first architecture?
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you have considered?
+    validations:
+      required: false

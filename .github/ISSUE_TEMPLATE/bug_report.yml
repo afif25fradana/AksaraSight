@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a reproducible bug or unexpected behavior in AksaraSight.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please check existing issues before submitting.
+        Note: AksaraSight is an offline-first tool. If you encounter server startup issues, running `python -m cli.main --doctor` often pinpoints the exact cause.
+
+  - type: input
+    id: version
+    attributes:
+      label: AksaraSight Version
+      description: What version of AksaraSight are you running? (e.g., 1.3.1, or commit hash)
+      placeholder: "1.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Execution Mode / Interface
+      description: How are you running AksaraSight?
+      options:
+        - "Web UI Workspace (python -m web)"
+        - "Standalone Portable Package (AksaraSight.exe)"
+        - "Command-Line Interface (python -m cli.main)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: os_info
+    attributes:
+      label: Operating System & Hardware
+      description: Operating system version, CPU, and GPU model.
+      placeholder: "Windows 11 x64, Intel Core i7, NVIDIA RTX 3050 6GB"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime_backend
+    attributes:
+      label: Runtime Backend
+      description: Which inference backend is selected?
+      options:
+        - "Managed Local llama.cpp (CUDA)"
+        - "Managed Local llama.cpp (Vulkan)"
+        - "Managed Local llama.cpp (CPU)"
+        - "Custom External Server (Ollama / vLLM / custom llama-server)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor_output
+    attributes:
+      label: Diagnostic Doctor Output
+      description: Paste the output of `python -m cli.main --doctor` or the Settings tab "Run Doctor" report.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description & Steps to Reproduce
+      description: Describe what happened and how to trigger it.
+      placeholder: |
+        1. Start the server with ...
+        2. Upload document ...
+        3. Click Extract ...
+        4. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal Logs / App Log Excerpts
+      description: Paste relevant logs from your console or `%LOCALAPPDATA%\AksaraSight\logs\app.log`.
+      render: text
+    validations:
+      required: false

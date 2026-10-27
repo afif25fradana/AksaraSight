@@ -1,4 +1,4 @@
-# ADR-0008: Real-Time Model Lifecycle Streaming and CSS View Transitions Isolation Boundary
+# ADR-0008: Real-Time Model Lifecycle Streaming and CSS View Transition Isolation
 
 ## Status
 Accepted

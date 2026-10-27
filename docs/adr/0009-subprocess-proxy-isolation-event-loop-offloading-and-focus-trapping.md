@@ -1,4 +1,4 @@
-# ADR-0009: Subprocess Proxy Isolation, Complete Event Loop Thread Offloading, and Zero-Dependency Modal Focus Trapping
+# ADR-0009: Subprocess Proxy Isolation, Event Loop Offloading, and Focus Trapping
 
 ## Status
 Accepted

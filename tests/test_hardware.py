@@ -344,4 +344,15 @@ def test_hardware_detection_single_flight_under_concurrent_queries() -> None:
         clear_hardware_cache()
 
 
+def test_probe_vulkan_ctypes_anchored_to_system32(monkeypatch) -> None:
+    """Verify _probe_vulkan_ctypes never falls back to relative vulkan-1.dll when missing from System32."""
+    import sys
+    from core.hardware import _probe_vulkan_ctypes
 
+    monkeypatch.setattr(sys, "platform", "win32")
+    with patch("pathlib.Path.is_file", return_value=False):
+        with patch("ctypes.CDLL") as mock_cdll:
+            available, name = _probe_vulkan_ctypes()
+            assert available is False
+            assert name is None
+            mock_cdll.assert_not_called()

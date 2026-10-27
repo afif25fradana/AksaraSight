@@ -439,4 +439,8 @@ def test_downloader_notifies_sha256_verification(tmp_path):
     assert "Verifying mmproj-GLM-OCR-Q8_0.gguf.part (SHA-256)..." in observed_files
 
 
-
+def test_model_downloader_default_session_has_trust_env_false() -> None:
+    """Verify ModelDownloader creates an isolated Session with trust_env=False when none provided."""
+    downloader = ModelDownloader()
+    assert downloader.session is not None
+    assert downloader.session.trust_env is False

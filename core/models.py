@@ -66,8 +66,8 @@ class JobConfig:
                 if val <= 0:
                     raise ValueError
                 object.__setattr__(self, "max_pages", val)
-            except (ValueError, TypeError):
-                raise ValueError(f"max_pages must be a positive integer, got: {self.max_pages}")
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"max_pages must be a positive integer, got: {self.max_pages}") from exc
 
         if self.dpi is not None:
             try:
@@ -75,8 +75,8 @@ class JobConfig:
                 if val_dpi <= 0:
                     raise ValueError
                 object.__setattr__(self, "dpi", val_dpi)
-            except (ValueError, TypeError):
-                raise ValueError(f"dpi must be a positive integer, got: {self.dpi}")
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"dpi must be a positive integer, got: {self.dpi}") from exc
 
         if self.max_image_dimension is not None:
             try:
@@ -84,10 +84,10 @@ class JobConfig:
                 if not (512 <= val_dim <= 8192):
                     raise ValueError
                 object.__setattr__(self, "max_image_dimension", val_dim)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
                 raise ValueError(
                     f"max_image_dimension must be an integer between 512 and 8192, got: {self.max_image_dimension}"
-                )
+                ) from exc
 
     @property
     def effective_prompt(self) -> str:

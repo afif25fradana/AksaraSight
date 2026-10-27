@@ -672,5 +672,11 @@ def test_get_page_count_corrupt_file_raises(tmp_path: Path) -> None:
         get_page_count(corrupt_pdf)
 
 
+def test_rasterize_page_rejects_oversized_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify rasterize_page rejects standalone images exceeding MAX_RASTER_PIXELS."""
+    img_path = tmp_path / "oversized.png"
+    Image.new("RGB", (100, 100), color="blue").save(img_path)
 
-
+    monkeypatch.setattr("core.pipeline.MAX_RASTER_PIXELS", 5000)
+    with pytest.raises(OversizedImageError, match="exceed safety threshold of 5,000 pixels"):
+        rasterize_page(img_path, page_idx=0)

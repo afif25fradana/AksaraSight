@@ -150,7 +150,11 @@ def fetch_release_assets_metadata(
         RuntimeDownloadError: If the release cannot be fetched or response is malformed.
     """
     url = f"{GITHUB_API_BASE}/releases/tags/{tag.strip()}"
-    http_client = session if session is not None else requests
+    if session is None:
+        http_client = requests.Session()
+        http_client.trust_env = False
+    else:
+        http_client = session
 
     headers = {
         "User-Agent": "AksaraSight-Local-Desktop",
@@ -235,7 +239,11 @@ def download_and_verify_asset(
     if part_path.exists():
         part_path.unlink()
 
-    http_client = session if session is not None else requests
+    if session is None:
+        http_client = requests.Session()
+        http_client.trust_env = False
+    else:
+        http_client = session
     headers = {"User-Agent": "AksaraSight-Local-Desktop"}
     hasher = hashlib.sha256()
 
@@ -338,11 +346,11 @@ def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
             member_target = (target_dir_resolved / member.filename).resolve()
             try:
                 member_target.relative_to(target_dir_resolved)
-            except ValueError:
+            except ValueError as exc:
                 raise ZipSlipSecurityError(
                     f"Security violation: Zip-slip path traversal attempt in '{zip_path.name}'. "
                     f"Archive member '{member.filename}' escapes target directory."
-                )
+                ) from exc
 
         # Extraction
         zf.extractall(target_dir_resolved)

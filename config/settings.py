@@ -138,8 +138,10 @@ class Settings:
             port = parsed.port
             if port is not None and not (1 <= port <= 65535):
                 raise ValueError
-        except ValueError:
-            raise ValueError(f"Invalid LOCAL_ENDPOINT port: '{clean_endpoint}'. Port must be between 1 and 65535.")
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid LOCAL_ENDPOINT port: '{clean_endpoint}'. Port must be between 1 and 65535."
+            ) from exc
 
         if not self.allow_remote and hostname not in LOOPBACK_HOSTS:
             raise ValueError(
@@ -154,16 +156,16 @@ class Settings:
             val_timeout = float(self.timeout)
             if val_timeout <= 0:
                 raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"TIMEOUT must be a positive number, got: '{self.timeout}'")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"TIMEOUT must be a positive number, got: '{self.timeout}'") from exc
         object.__setattr__(self, "timeout", val_timeout)
 
         try:
             val_retries = int(self.max_retries)
             if val_retries < 0:
                 raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{self.max_retries}'")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"MAX_RETRIES must be a non-negative integer, got: '{self.max_retries}'") from exc
         object.__setattr__(self, "max_retries", val_retries)
 
         if self.llama_server_path is not None:
@@ -175,6 +177,12 @@ class Settings:
         clean_repo = self.model_repo.strip().replace("\r", "").replace("\n", "")
         if not clean_repo:
             raise ValueError(f"MODEL_REPO must not be empty, got: '{self.model_repo}'")
+        if clean_repo.startswith("-"):
+            raise ValueError(
+                f"Invalid model_repo '{clean_repo}': cannot start with '-' (CLI flag injection guard)"
+            )
+        if "\x00" in clean_repo:
+            raise ValueError("Invalid model_repo: null byte is not permitted")
         object.__setattr__(self, "model_repo", clean_repo)
 
         object.__setattr__(self, "auto_start_server", _to_bool(self.auto_start_server))
@@ -183,8 +191,8 @@ class Settings:
             val_dpi = int(self.dpi)
             if val_dpi <= 0:
                 raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"DPI must be a positive integer, got: '{self.dpi}'")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"DPI must be a positive integer, got: '{self.dpi}'") from exc
         object.__setattr__(self, "dpi", val_dpi)
 
         if self.max_pages is not None:
@@ -192,26 +200,26 @@ class Settings:
                 val_max_pages = int(self.max_pages)
                 if val_max_pages <= 0:
                     raise ValueError
-            except (ValueError, TypeError):
-                raise ValueError(f"MAX_PAGES must be a positive integer or None, got: '{self.max_pages}'")
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"MAX_PAGES must be a positive integer or None, got: '{self.max_pages}'") from exc
             object.__setattr__(self, "max_pages", val_max_pages)
 
         try:
             val_dim = int(self.max_image_dimension)
             if not (512 <= val_dim <= 8192):
                 raise ValueError
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
             raise ValueError(
                 f"MAX_IMAGE_DIMENSION must be an integer between 512 and 8192, got: '{self.max_image_dimension}'"
-            )
+            ) from exc
         object.__setattr__(self, "max_image_dimension", val_dim)
 
         try:
             val_max_tokens = int(self.max_tokens)
             if val_max_tokens <= 0:
                 raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(f"MAX_TOKENS must be a positive integer, got: '{self.max_tokens}'")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"MAX_TOKENS must be a positive integer, got: '{self.max_tokens}'") from exc
         object.__setattr__(self, "max_tokens", val_max_tokens)
 
     @property

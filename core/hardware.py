@@ -207,10 +207,8 @@ def _probe_vulkan_ctypes() -> Tuple[bool, Optional[str]]:
     try:
         vk_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "vulkan-1.dll"
         if not vk_path.is_file():
-            # Try dynamic load if not in System32
-            vk = ctypes.CDLL("vulkan-1.dll")
-        else:
-            vk = ctypes.CDLL(str(vk_path))
+            return False, None
+        vk = ctypes.CDLL(str(vk_path))
 
         class VkInstanceCreateInfo(ctypes.Structure):
             _fields_ = [

@@ -542,10 +542,20 @@ def rasterize_page(
                     n_frames = getattr(img, "n_frames", 1)
                     idx = max(0, min(page_idx, n_frames - 1))
                     img.seek(idx)
+                    w, h = img.size
+                    if w * h > MAX_RASTER_PIXELS:
+                        raise OversizedImageError(
+                            f"Image dimensions ({w}x{h} = {w * h:,} px) "
+                            f"exceed safety threshold of {MAX_RASTER_PIXELS:,} pixels"
+                        )
                     rgb_img = img.convert("RGB")
                     buf = io.BytesIO()
                     rgb_img.save(buf, format="PNG")
                     return buf.getvalue()
+            except OversizedImageError:
+                raise
+            except Image.DecompressionBombError as exc:
+                raise OversizedImageError(f"Image exceeds decompression bomb limit: {exc}") from exc
             except Exception as fallback_exc:
                 raise CorruptDocumentError(f"Failed to rasterize PDF page: {fallback_exc}") from fallback_exc
 
@@ -555,10 +565,20 @@ def rasterize_page(
             n_frames = getattr(img, "n_frames", 1)
             idx = max(0, min(page_idx, n_frames - 1))
             img.seek(idx)
+            w, h = img.size
+            if w * h > MAX_RASTER_PIXELS:
+                raise OversizedImageError(
+                    f"Image dimensions ({w}x{h} = {w * h:,} px) "
+                    f"exceed safety threshold of {MAX_RASTER_PIXELS:,} pixels"
+                )
             rgb_img = img.convert("RGB")
             buf = io.BytesIO()
             rgb_img.save(buf, format="PNG")
             return buf.getvalue()
+    except OversizedImageError:
+        raise
+    except Image.DecompressionBombError as exc:
+        raise OversizedImageError(f"Image exceeds decompression bomb limit: {exc}") from exc
     except Exception as img_exc:
         # Fallback if image extension was actually a mislabeled PDF
         try:

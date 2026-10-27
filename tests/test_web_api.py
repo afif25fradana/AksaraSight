@@ -4735,13 +4735,30 @@ def test_sse_events_keepalive_ping(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_health_reflects_runtime_mode_and_settings() -> None:
+    """Verify /health reflects current runtime_mode and dynamic app settings."""
+    settings = Settings(runtime_mode="custom", managed_backend_override="cuda")
+    app = create_app(settings=settings)
+    client = AsgiClient(app)
+    status, _, resp = client.request("GET", "/health")
+    assert status == 200
+    data = json.loads(resp.decode("utf-8"))
+    assert data["runtime_mode"] == "custom"
+    assert data["managed_backend_override"] == "cuda"
+    assert data["active_backend"] == "custom:cuda"
 
 
-
-
-
-
-
-
-
-
+def test_patch_settings_returns_500_on_env_persistence_failure() -> None:
+    """Verify PATCH /api/settings returns HTTP 500 if save_to_env fails with OSError."""
+    app = create_app()
+    with patch("config.settings.Settings.save_to_env", side_effect=OSError("Disk write failed")):
+        client = AsgiClient(app)
+        status, _, resp = client.request(
+            "PATCH",
+            "/api/settings",
+            body=json.dumps({"dpi": 200}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert status == 500
+        data = json.loads(resp.decode("utf-8"))
+        assert "Failed to persist settings to disk" in data["detail"]

@@ -139,7 +139,12 @@ class ModelDownloader:
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self.dest_dir = dest_dir or get_models_dir()
-        self.session = session
+        if session is not None:
+            self.session = session
+        else:
+            default_session = requests.Session()
+            default_session.trust_env = False
+            self.session = default_session
         self.progress_callback = progress_callback
         self.is_downloading: bool = False
         self.bytes_downloaded: int = 0
@@ -223,7 +228,7 @@ class ModelDownloader:
             ("mmproj", PINNED_MODEL_FILES["mmproj"]),
         ]
 
-        http_client = self.session if self.session is not None else requests
+        http_client = self.session
 
         for role, spec in files_to_download:
             if self.cancel_event.is_set():

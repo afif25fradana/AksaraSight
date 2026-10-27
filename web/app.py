@@ -287,13 +287,6 @@ def create_app(
     app_server_manager = server_manager or ServerManager(settings=app_settings)
     app_model_downloader = model_downloader or get_model_downloader()
 
-    if not hasattr(app_orchestrator, "_broadcast"):
-        def _orchestrator_broadcast(msg: Dict[str, Any]) -> None:
-            evt = msg.get("event", "message")
-            d = msg.get("data", {})
-            app_orchestrator.broadcast(evt, d)
-        app_orchestrator._broadcast = _orchestrator_broadcast  # type: ignore[attr-defined]
-
     dev_mode = dev_mode or os.environ.get("AKSARA_WEB_DEV_MODE", "").lower() in ("1", "true")
 
     target_port = allowed_port
@@ -324,21 +317,21 @@ def create_app(
     async def lifespan(app_instance: FastAPI):
         # Server startup check & auto-start
         if app_settings.auto_start_server:
-            cur_status, _ = probe_server_health(app_settings.local_endpoint)
+            cur_status, _ = await asyncio.to_thread(probe_server_health, app_settings.local_endpoint)
             if cur_status == ServerStatus.OFFLINE:
                 try:
-                    app_server_manager.start()
+                    await asyncio.to_thread(app_server_manager.start)
                     if app_server_manager.ownership == ServerOwnership.MANAGED:
                         app_instance.state.server_managed = True
                         logger.info("Managed llama-server started and owned by web application.")
                 except Exception as exc:
                     logger.warning("Failed to auto-start managed server on web startup: %s", exc)
             else:
-                app_server_manager.poll_status()
+                await asyncio.to_thread(app_server_manager.poll_status)
                 app_instance.state.server_managed = False
                 logger.info("Existing server detected on %s; adopted as external.", app_settings.local_endpoint)
         else:
-            app_server_manager.poll_status()
+            await asyncio.to_thread(app_server_manager.poll_status)
             app_instance.state.server_managed = False
 
         # Startup sweep: unlink stale upload files left from previous sessions/crashes
@@ -370,11 +363,11 @@ def create_app(
         # Server shutdown cleanup: stop worker thread and unlink session upload files
         orch = getattr(app_instance.state, "orchestrator", None)
         if orch:
-            orch.shutdown()
+            await asyncio.to_thread(orch.shutdown)
 
         if getattr(app_instance.state, "server_managed", False):
             logger.info("Web application shutting down; stopping owned managed server.")
-            app_server_manager.shutdown()
+            await asyncio.to_thread(app_server_manager.shutdown)
         else:
             logger.info("Web application shutting down; external server left untouched.")
 
@@ -448,12 +441,18 @@ def create_app(
             health_status = "offline"
             err_msg = str(e)
 
+        current_settings = getattr(app.state, "settings", app_settings)
+        runtime_src = getattr(current_settings, "runtime_mode", "managed")
+        target_bk = getattr(current_settings, "managed_backend_override", "auto")
         return {
             "status": health_status,
-            "backend": getattr(app_settings, "backend", "llama-cpp"),
-            "runtime_source": getattr(app_settings, "runtime_source", "managed"),
-            "target_backend": getattr(app_settings, "target_backend", "auto"),
-            "endpoint": getattr(app_settings, "local_endpoint", "http://127.0.0.1:8080/v1"),
+            "backend": getattr(current_settings, "backend", "llama-cpp"),
+            "runtime_source": runtime_src,
+            "target_backend": target_bk,
+            "runtime_mode": runtime_src,
+            "managed_backend_override": target_bk,
+            "active_backend": f"{runtime_src}:{target_bk}",
+            "endpoint": getattr(current_settings, "local_endpoint", "http://127.0.0.1:8080/v1"),
             "error": err_msg,
         }
 
@@ -540,7 +539,7 @@ def create_app(
             if app_server_manager.ownership == ServerOwnership.MANAGED:
                 app.state.server_managed = True
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to start server: {exc}")
+            raise HTTPException(status_code=500, detail=f"Failed to start server: {exc}") from exc
         new_info = app_server_manager.get_status_info()
         return {
             "started": True,
@@ -648,8 +647,8 @@ def create_app(
         """
         try:
             body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
         if not isinstance(body, dict) or not body:
             raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
@@ -732,12 +731,16 @@ def create_app(
             new_settings = dataclasses.replace(current_settings, **updates)
         except Exception as e:
             clean_err = sanitize_export_error(str(e)) or str(e)
-            raise HTTPException(status_code=400, detail=f"Failed to update settings: {clean_err}")
+            raise HTTPException(status_code=400, detail=f"Failed to update settings: {clean_err}") from e
 
         try:
-            new_settings.save_to_env(env_path=getattr(app.state, "env_path", None))
+            await asyncio.to_thread(new_settings.save_to_env, env_path=getattr(app.state, "env_path", None))
         except Exception as e:
-            logger.warning("Failed to save settings to .env: %s", e)
+            logger.error("Failed to save settings to .env: %s", e)
+            clean_err = sanitize_export_error(str(e)) or str(e)
+            raise HTTPException(
+                status_code=500, detail=f"Failed to persist settings to disk: {clean_err}"
+            ) from e
 
         app.state.settings = new_settings
         if hasattr(app.state, "engine") and app.state.engine:
@@ -836,7 +839,7 @@ def create_app(
             if target_path.exists():
                 target_path.unlink()
             clean_err = sanitize_export_error(str(e), file_path=target_path, base_dir=target_upload_dir) or str(e)
-            raise HTTPException(status_code=500, detail=f"Upload write failed: {clean_err}")
+            raise HTTPException(status_code=500, detail=f"Upload write failed: {clean_err}") from e
 
         try:
             pages = await asyncio.to_thread(get_page_count, target_path)
@@ -847,7 +850,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail="Document is password-protected or encrypted",
-            )
+            ) from e
         except Exception as e:
             if target_path.exists():
                 target_path.unlink()
@@ -855,7 +858,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail="Failed to inspect document pages. The file may be corrupt or unreadable.",
-            )
+            ) from e
 
         job = JobState(
             job_id=job_id,
@@ -889,12 +892,12 @@ def create_app(
         try:
             png_bytes = await asyncio.to_thread(rasterize_page, job.file_path, page_idx=page_idx)
             return Response(content=png_bytes, media_type="image/png")
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail="Document file not found")
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Document file not found") from exc
         except Exception as e:
             logger.exception("Failed to rasterize preview for job %s page %s", job_id, page)
             clean_err = sanitize_export_error(str(e), file_path=job.file_path, base_dir=target_upload_dir) or str(e)
-            raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {clean_err}")
+            raise HTTPException(status_code=500, detail=f"Failed to rasterize page preview: {clean_err}") from e
 
     @app.post("/api/documents/{job_id}/extract", status_code=status.HTTP_202_ACCEPTED)
     async def extract_document(
@@ -924,16 +927,16 @@ def create_app(
 
         try:
             app_orchestrator.enqueue(job_id, prompt_mode=mode, dpi=dpi)
-        except KeyError:
-            raise HTTPException(status_code=404, detail="Document job not found")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document job not found") from exc
         except RuntimeError as e:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        except queue.Full:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+        except queue.Full as exc:
             raise HTTPException(
                 status_code=503,
                 detail="Processing queue is full. Please try again later.",
                 headers={"Retry-After": "5"},
-            )
+            ) from exc
 
         return {"message": "Extraction queued", "job_id": job_id, "prompt_mode": mode}
 
@@ -1041,10 +1044,14 @@ def create_app(
             filename = f"{stem}.json"
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
+        saved_to_output = True
+        output_write_error: Optional[str] = None
         try:
             out_file = out_dir / Path(filename).name
             await asyncio.to_thread(out_file.write_bytes, content_bytes)
         except Exception as exc:
+            saved_to_output = False
+            output_write_error = str(exc)
             logger.warning("Failed to persist export artifact to %s: %s", out_dir / filename, exc)
 
         content_disposition_filename = quote(filename)
@@ -1054,10 +1061,14 @@ def create_app(
             safe_ascii = filename.replace('"', '\\"')
             content_disposition = f'attachment; filename="{safe_ascii}"'
 
+        headers = {"Content-Disposition": content_disposition}
+        if not saved_to_output and output_write_error:
+            headers["X-Output-Persist-Error"] = output_write_error
+
         return Response(
             content=content_bytes,
             media_type=media_type,
-            headers={"Content-Disposition": content_disposition},
+            headers=headers,
         )
 
     def _scan_output_artifacts(out_dir: Path) -> List[Dict[str, Any]]:
@@ -1137,24 +1148,25 @@ def create_app(
         try:
             if not target.is_relative_to(out_dir) or not target.exists():
                 raise HTTPException(status_code=400, detail="Invalid target path or target does not exist.")
-        except (ValueError, RuntimeError):
-            raise HTTPException(status_code=400, detail="Invalid target path.")
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid target path.") from exc
+
+        def _launch_os_shell() -> bool:
+            if sys.platform == "win32":
+                if target.is_file():
+                    subprocess.run(["explorer.exe", f"/select,{str(target)}"], check=False, timeout=10)
+                    return True
+                os.startfile(target)
+                return True
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(target)], check=False, timeout=10)
+                return True
+            subprocess.run(["xdg-open", str(target)], check=False, timeout=10)
+            return True
 
         opened = False
         try:
-            if sys.platform == "win32":
-                if target.is_file():
-                    subprocess.run(["explorer.exe", f"/select,{str(target)}"], check=False)
-                    opened = True
-                else:
-                    os.startfile(target)
-                    opened = True
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(target)], check=False)
-                opened = True
-            else:
-                subprocess.run(["xdg-open", str(target)], check=False)
-                opened = True
+            opened = await asyncio.to_thread(_launch_os_shell)
         except Exception as exc:
             logger.warning("Failed to open path %s: %s", target, exc)
 
@@ -1168,15 +1180,15 @@ def create_app(
         try:
             if not target.is_relative_to(out_dir) or not target.exists() or not target.is_file():
                 raise HTTPException(status_code=400, detail="Invalid filename or file not found.")
-        except (ValueError, RuntimeError):
-            raise HTTPException(status_code=400, detail="Invalid filename.")
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid filename.") from exc
 
         try:
             target.unlink()
         except OSError as exc:
             logger.warning("Failed to delete output file %s: %s", target, exc)
             clean_err = sanitize_export_error(str(exc), file_path=target, base_dir=out_dir) or str(exc)
-            raise HTTPException(status_code=500, detail=f"Failed to delete file: {clean_err}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {clean_err}") from exc
 
         return {"deleted": True, "filename": filename}
 
@@ -1184,7 +1196,7 @@ def create_app(
     async def get_model_status() -> Dict[str, Any]:
         """Return pinned model weights status and active download progress."""
         downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
-        local_paths = get_local_model_paths()
+        local_paths = await asyncio.to_thread(get_local_model_paths)
         status_info = downloader.get_status() if hasattr(downloader, "get_status") else {}
         return {
             "repo": PINNED_MODEL_REPO,
@@ -1214,8 +1226,8 @@ def create_app(
         if body_bytes:
             try:
                 body_json = json.loads(body_bytes.decode("utf-8"))
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid JSON body")
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
             if isinstance(body_json, dict):
                 body_keys = {str(k).strip().lower() for k in body_json.keys()}
@@ -1282,11 +1294,7 @@ def create_app(
                 "error": err,
             }
             app.state.last_model_download_status = progress_payload
-            payload_str = json.dumps(progress_payload)
-            if hasattr(app_orchestrator, "_broadcast"):
-                app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
-            elif hasattr(app_orchestrator, "broadcast"):
-                app_orchestrator.broadcast("model_download_progress", progress_payload)
+            app_orchestrator.broadcast("model_download_progress", progress_payload)
 
         downloader.progress_callback = on_download_progress
 
@@ -1310,11 +1318,7 @@ def create_app(
                         "error": None,
                     }
                     app.state.last_model_download_status = completed_payload
-                    payload_str = json.dumps(completed_payload)
-                    if hasattr(app_orchestrator, "_broadcast"):
-                        app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
-                    elif hasattr(app_orchestrator, "broadcast"):
-                        app_orchestrator.broadcast("model_download_progress", completed_payload)
+                    app_orchestrator.broadcast("model_download_progress", completed_payload)
             except Exception as exc:
                 logger.exception("Background model download encountered an error: %s", exc)
                 err_payload = {
@@ -1327,11 +1331,7 @@ def create_app(
                     "error": str(exc),
                 }
                 app.state.last_model_download_status = err_payload
-                payload_str = json.dumps(err_payload)
-                if hasattr(app_orchestrator, "_broadcast"):
-                    app_orchestrator._broadcast({"event": "model_download_progress", "data": payload_str})
-                elif hasattr(app_orchestrator, "broadcast"):
-                    app_orchestrator.broadcast("model_download_progress", err_payload)
+                app_orchestrator.broadcast("model_download_progress", err_payload)
 
         thread = threading.Thread(
             target=_bg_download,
@@ -1429,8 +1429,8 @@ def create_app(
         if body_bytes:
             try:
                 body_json = json.loads(body_bytes.decode("utf-8"))
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid JSON body")
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
             if isinstance(body_json, dict):
                 body_keys = {str(k).strip().lower() for k in body_json.keys()}
@@ -1501,11 +1501,7 @@ def create_app(
                 "error": None,
             }
             app.state.last_runtime_download_status = progress_payload
-            payload_str = json.dumps(progress_payload)
-            if hasattr(app_orchestrator, "_broadcast"):
-                app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
-            elif hasattr(app_orchestrator, "broadcast"):
-                app_orchestrator.broadcast("runtime_download_progress", progress_payload)
+            app_orchestrator.broadcast("runtime_download_progress", progress_payload)
 
         on_progress("Starting runtime download...", 0, 0)
 
@@ -1533,11 +1529,7 @@ def create_app(
                 }
                 app.state.is_runtime_downloading = False
                 app.state.last_runtime_download_status = success_payload
-                payload_str = json.dumps(success_payload)
-                if hasattr(app_orchestrator, "_broadcast"):
-                    app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
-                elif hasattr(app_orchestrator, "broadcast"):
-                    app_orchestrator.broadcast("runtime_download_progress", success_payload)
+                app_orchestrator.broadcast("runtime_download_progress", success_payload)
             except Exception as exc:
                 logger.exception("Background runtime download encountered an error: %s", exc)
                 err_payload = {
@@ -1557,11 +1549,7 @@ def create_app(
                 }
                 app.state.is_runtime_downloading = False
                 app.state.last_runtime_download_status = err_payload
-                payload_str = json.dumps(err_payload)
-                if hasattr(app_orchestrator, "_broadcast"):
-                    app_orchestrator._broadcast({"event": "runtime_download_progress", "data": payload_str})
-                elif hasattr(app_orchestrator, "broadcast"):
-                    app_orchestrator.broadcast("runtime_download_progress", err_payload)
+                app_orchestrator.broadcast("runtime_download_progress", err_payload)
             finally:
                 app.state.is_runtime_downloading = False
 

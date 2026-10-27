@@ -214,10 +214,10 @@ class WebOrchestrator:
                 )
             try:
                 self._queue.put_nowait(job_id)
-            except queue.Full:
+            except queue.Full as exc:
                 raise queue.Full(
                     f"Processing queue is full (max {self._queue.maxsize} jobs)"
-                )
+                ) from exc
             job.prompt_mode = prompt_mode
             job.dpi = dpi
             job.run_id = uuid.uuid4().hex[:8]

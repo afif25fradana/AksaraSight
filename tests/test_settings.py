@@ -742,3 +742,12 @@ def test_save_to_env_apostrophe_quote_handling(tmp_path, monkeypatch):
     assert loaded.llama_server_path == test_path
     assert loaded.model_repo == test_repo
 
+
+def test_model_repo_flag_injection_and_null_byte_rejection() -> None:
+    """Verify model_repo rejects CLI flag injection and null bytes."""
+    with pytest.raises(ValueError, match="CLI flag injection guard"):
+        Settings(model_repo="--flag-injection")
+    with pytest.raises(ValueError, match="CLI flag injection guard"):
+        Settings(model_repo="-hf")
+    with pytest.raises(ValueError, match="null byte is not permitted"):
+        Settings(model_repo="valid/repo\x00malicious")

@@ -123,4 +123,4 @@ else:
         pass
 
 
-_create_job_object = _create_kill_on_close_job
+

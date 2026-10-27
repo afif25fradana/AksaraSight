@@ -4,4 +4,5 @@ line-length = 120
 
 [lint]
 # F = Pyflakes (enforces import hygiene, no undefined/unused variables)
-select = ["F"]
+# B904 = flake8-bugbear exception-chaining hygiene (raise ... from exc)
+select = ["F", "B904"]

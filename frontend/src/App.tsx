@@ -695,6 +695,13 @@ export default function App() {
   };
 
   const handleRemoveFromQueue = (docId: string) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (targetDoc && (targetDoc.status === 'Waiting' || targetDoc.isReExtractionQueued)) {
+      fetch(`/api/documents/${encodeURIComponent(docId)}/cancel`, { method: 'POST' }).catch((err) => {
+        console.error(`Failed to cancel queued document ${docId}:`, err);
+      });
+    }
+
     setDocuments((prev) => {
       const updated = prev.map((doc) => {
         if (doc.id === docId) {
@@ -762,24 +769,7 @@ export default function App() {
   };
 
   const handleReExtractDocument = (docId: string, promptMode?: PromptMode, dpi?: number) => {
-    if (runningJobDocId !== null) {
-      setDocuments((prev) => {
-        const currentQueued = prev.filter((d) => d.status === 'Waiting' || d.isReExtractionQueued);
-        const nextPos = currentQueued.length + 1;
-        return prev.map((doc) =>
-          doc.id === docId
-            ? {
-                ...doc,
-                isReExtractionQueued: true,
-                queuePosition: nextPos,
-                ...(promptMode ? { promptMode } : {}),
-              }
-            : doc
-        );
-      });
-    } else {
-      handleRunDocumentExtraction(docId, promptMode, dpi);
-    }
+    handleRunDocumentExtraction(docId, promptMode, dpi);
   };
 
   const handleRetryDoc = (docId: string) => {

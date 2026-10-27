@@ -325,6 +325,153 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
       expect(callInit?.method).toBe('POST');
     });
   });
+
+  it('sends POST /api/documents/{id}/cancel when removing a waiting document from queue', async () => {
+    const user = userEvent.setup();
+    const docRunning: DocumentItem = {
+      id: 'doc-running-1',
+      name: 'doc-running.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Processing',
+      processedPages: 0,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: '',
+    };
+    const docWaiting: DocumentItem = {
+      id: 'doc-waiting-2',
+      name: 'doc-waiting.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Waiting',
+      statusNote: 'Queued for processing',
+      processedPages: 0,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: '',
+    };
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [docRunning, docWaiting],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/cancel') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ cancelled: true }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const waitingDocItem = await screen.findByText('doc-waiting.pdf');
+    await user.click(waitingDocItem);
+
+    const cancelWaitButton = await screen.findByRole('button', { name: /cancel queued extraction/i });
+    await user.click(cancelWaitButton);
+
+    await waitFor(() => {
+      const cancelCalls = fetchMock.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/documents/doc-waiting-2/cancel') && init?.method === 'POST'
+      );
+      expect(cancelCalls).toHaveLength(1);
+    });
+  });
+
+  it('sends POST /api/documents/{id}/extract when re-extracting a document while another is running', async () => {
+    const user = userEvent.setup();
+    const docRunning: DocumentItem = {
+      id: 'doc-running-1',
+      name: 'doc-running.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Processing',
+      processedPages: 0,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: '',
+    };
+    const docDone: DocumentItem = {
+      id: 'doc-done-2',
+      name: 'doc-done.pdf',
+      pages: 1,
+      size: '1.0 MB',
+      status: 'Done',
+      processedPages: 1,
+      currentPage: 1,
+      docType: 'invoice',
+      extractedText: 'Extracted sample text',
+    };
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [docRunning, docDone],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/extract') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const doneDocItem = await screen.findByText('doc-done.pdf');
+    await user.click(doneDocItem);
+
+    const reExtractButton = await screen.findByRole('button', { name: 'Re-extract' });
+    await user.click(reExtractButton);
+
+    await waitFor(() => {
+      const extractCalls = fetchMock.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/documents/doc-done-2/extract') && init?.method === 'POST'
+      );
+      expect(extractCalls).toHaveLength(1);
+    });
+  });
 });
 
 describe('ExtractedTextPanel partial failure and total failure handling', () => {

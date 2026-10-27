@@ -115,7 +115,8 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   onCancelExtraction,
   onReExtractDocument,
 }) => {
-  const currentDpi = selectedDpi ?? 100;
+  const [localDpi, setLocalDpi] = useState<number>(100);
+  const currentDpi = selectedDpi !== undefined ? selectedDpi : localDpi;
   const [exportFormat, setExportFormat] = useState<OutputFormatType>('docx');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -740,6 +741,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                     key={res.dpi}
                     type="button"
                     onClick={() => {
+                      setLocalDpi(res.dpi);
                       onDpiChange?.(res.dpi);
                     }}
                     className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none transition-colors ${

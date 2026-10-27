@@ -13,10 +13,10 @@ Accepted
 4. **Responsive Single-Column Viewport Clipping**: On viewports narrower than `lg` (1024px), the 3-pane layout collapsed into a single column (`grid-cols-1`). Because `<main>` enforced `overflow-hidden`, preview and text panels below the fold were clipped and permanently inaccessible.
 
 ## Decision
-1. **Complete Event Loop Offloading for Server Lifecycle (P1-01)**:
+1. **Complete Event Loop Offloading for Server Lifecycle**:
    - Offload `app_server_manager.start()` and `app_server_manager.stop()` in `web/app.py` to worker threads using `await asyncio.to_thread(...)`.
    - Keep state mutation (`app.state.server_managed = ...`) and validation on the main coroutine thread, preserving thread-safety while preventing event loop starvation.
-2. **Subprocess Environment Sanitization & Anti-Exfiltration (SEC-P2-02)**:
+2. **Subprocess Environment Sanitization & Anti-Exfiltration**:
    - When spawning managed child processes in `core/server_manager.py`, clone `os.environ` into an isolated `sub_env`.
    - Strip all proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and lowercase variants) and explicitly enforce `sub_env["NO_PROXY"] = "*"` and `sub_env["no_proxy"] = "*"`.
    - Pass `env=sub_env` to `subprocess.Popen`.

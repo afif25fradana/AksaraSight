@@ -673,7 +673,7 @@ class ServerManager:
                     self._log_buffer.clear()
                     self._log_buffer.append(f"[ServerManager] Starting: {' '.join(cmd)}")
 
-                # Pre-flight TCP port bind check (L2-07)
+                # Pre-flight TCP port bind check
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test_sock:
                         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):

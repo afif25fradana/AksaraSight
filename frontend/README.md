@@ -4,7 +4,7 @@ React + TypeScript + Tailwind CSS workspace interface for AksaraSight.
 
 ## Prerequisites
 
-- Node.js >= 18.0.0 (Node 20+ LTS recommended)
+- Node.js >= 20.0.0 (Node 22 LTS recommended)
 - npm >= 9.0.0
 
 ## Development

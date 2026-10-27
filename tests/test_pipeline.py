@@ -425,7 +425,7 @@ def test_ingest_multithreaded_pdf_concurrency(tmp_path):
     assert errors == []
 
 
-# Pre-Render Dimension Safety Tests (Finding 3.2)
+# Pre-Render Dimension Safety Tests
 
 def test_oversized_pdf_page_dimension_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that a PDF page exceeding scaled raster limit is rejected with clean error."""

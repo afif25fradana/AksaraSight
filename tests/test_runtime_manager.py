@@ -280,7 +280,7 @@ def test_download_and_verify_asset_cross_verify_mismatch_refuses(tmp_path: Path)
 
 
 def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None:
-    """Verify that if an asset is in KNOWN_PINNED_HASHES, verification MUST match that hash (SEC-MR3)."""
+    """Verify that if an asset is in KNOWN_PINNED_HASHES, verification MUST match that hash."""
     content = b"Attacker tampered archive"
     tampered_digest = hashlib.sha256(content).hexdigest()
     legit_pinned_hash = "cccc" * 16

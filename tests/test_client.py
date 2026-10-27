@@ -359,7 +359,7 @@ def test_response_parsing_invalid_choice_or_message() -> None:
 
 
 def test_response_parsing_defensive_null_content() -> None:
-    # Empirical check from llama.cpp / OpenAI: when content is None/null, reject as parsing error (C-2)
+    # Reject response when content is None or null as parsing error
     mock_response = MagicMock(spec=requests.Response)
     mock_response.status_code = 200
     mock_response.json.return_value = {
@@ -405,7 +405,7 @@ def test_response_parsing_invalid_content_type() -> None:
 
 
 def test_response_parsing_error_message_truncation() -> None:
-    """Verify large error payloads are truncated to prevent log and memory bloating (Finding 3.3)."""
+    """Verify large error payloads are truncated to prevent log and memory bloating."""
     mock_session = MagicMock(spec=requests.Session)
     client = VisionClient(session=mock_session)
 

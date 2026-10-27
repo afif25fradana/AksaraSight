@@ -534,7 +534,7 @@ def test_server_manager_lifecycle_callback_on_start_and_stop(tmp_path):
 
 
 def test_server_manager_lifecycle_callback_may_reenter_manager(tmp_path):
-    """B10: a lifecycle callback that calls poll_status()/get_status_info() must not deadlock."""
+    """Verify a lifecycle callback that calls poll_status()/get_status_info() does not deadlock."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -575,8 +575,8 @@ def test_server_manager_lifecycle_callback_may_reenter_manager(tmp_path):
     worker.join(timeout=10.0)
 
     try:
-        assert not worker.is_alive(), "B10: lifecycle callback re-entering ServerManager deadlocked"
-        assert outcome["error"] is None, f"B10: callback raised {outcome['error']!r}"
+        assert not worker.is_alive(), "Lifecycle callback re-entering ServerManager deadlocked"
+        assert outcome["error"] is None, f"Callback raised {outcome['error']!r}"
     finally:
         mgr.on_lifecycle_change = None
         if not worker.is_alive():
@@ -586,7 +586,7 @@ def test_server_manager_lifecycle_callback_may_reenter_manager(tmp_path):
 
 
 def test_server_manager_stop_does_not_block_stdout_reader(tmp_path):
-    """B11: stop() must release the state lock while waiting so the reader keeps draining."""
+    """Verify stop() releases the state lock while waiting so the reader keeps draining."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -636,8 +636,8 @@ def test_server_manager_stop_does_not_block_stdout_reader(tmp_path):
             mgr.stop()
             elapsed = time.time() - t0
 
-        assert elapsed < 1.5, f"B11: stop() blocked on the stdout reader for {elapsed:.2f}s"
-        assert drained.is_set(), "B11: reader never drained the burst while stop() waited"
+        assert elapsed < 1.5, f"Stop() blocked on the stdout reader for {elapsed:.2f}s"
+        assert drained.is_set(), "Reader never drained the burst while stop() waited"
         assert len(mgr.get_recent_logs(1000)) >= burst_size
     finally:
         mgr.on_lifecycle_change = None
@@ -645,7 +645,7 @@ def test_server_manager_stop_does_not_block_stdout_reader(tmp_path):
 
 
 def test_server_manager_start_waits_for_inflight_stop(tmp_path):
-    """B11: start() arriving during stop() waits until the old process is reported dead."""
+    """Verify start() arriving during stop() waits until the old process is reported dead."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -733,7 +733,7 @@ def test_server_manager_start_waits_for_inflight_stop(tmp_path):
 
 
 def test_server_manager_poll_status_during_stop_does_not_adopt_or_corrupt_state(tmp_path):
-    """B11: poll_status() called mid-stop() while probe answers READY must not adopt as EXTERNAL."""
+    """Verify poll_status() called mid-stop() while probe answers READY does not adopt as EXTERNAL."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -808,7 +808,7 @@ def test_server_manager_poll_status_during_stop_does_not_adopt_or_corrupt_state(
 
 
 def test_server_manager_lifecycle_callback_may_call_stop_or_start_from_adoption():
-    """B11: callback invoked on external adoption may call stop()/start() without deadlocking."""
+    """Verify callback invoked on external adoption may call stop()/start() without deadlocking."""
     mgr = ServerManager()
     atexit.unregister(mgr._atexit_hook)
     call_log = []
@@ -845,7 +845,7 @@ def test_server_manager_lifecycle_callback_may_call_stop_or_start_from_adoption(
 
 
 def test_server_manager_lifecycle_callback_may_call_stop_from_managed_spawn(tmp_path):
-    """B11: callback invoked on managed spawn may call stop() without deadlocking."""
+    """Verify callback invoked on managed spawn may call stop() without deadlocking."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -896,7 +896,7 @@ def test_server_manager_lifecycle_callback_may_call_stop_from_managed_spawn(tmp_
 
 
 def test_server_manager_lifecycle_callback_may_call_start_from_stop(tmp_path):
-    """B11: callback invoked on stop() may call poll_status()/start() without deadlocking."""
+    """Verify callback invoked on stop() may call poll_status()/start() without deadlocking."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -947,7 +947,7 @@ def test_server_manager_lifecycle_callback_may_call_start_from_stop(tmp_path):
 
 
 def test_server_manager_start_failure_after_popen_kills_orphan_and_sets_error(tmp_path):
-    """B11: failure after Popen (e.g. reader thread or job setup) kills the child and sets ERROR."""
+    """Verify failure after Popen (e.g. reader thread or job setup) kills the child and sets ERROR."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -1408,7 +1408,7 @@ def test_poll_status_releases_lock_during_health_probe():
 
 
 def test_server_manager_start_vram_warning(tmp_path, caplog):
-    """B6: start() logs a warning if detected VRAM is below recommended 2.2 GB."""
+    """Verify start() logs a warning if detected VRAM is below recommended 2.2 GB."""
     from core.hardware import HardwareProfile
 
     fake_exe = tmp_path / "llama-server.exe"
@@ -1445,7 +1445,7 @@ def test_server_manager_start_vram_warning(tmp_path, caplog):
 
 
 def test_server_manager_start_vram_warning_cold_start(tmp_path, caplog):
-    """B6: start() spawns async worker and warns when cold-start detection completes."""
+    """Verify start() spawns async worker and warns when cold-start detection completes."""
     from core.hardware import HardwareProfile
 
     fake_exe = tmp_path / "llama-server.exe"
@@ -1489,7 +1489,7 @@ def test_server_manager_start_vram_warning_cold_start(tmp_path, caplog):
 
 
 def test_shutdown_vram_check_thread_bounded_timeout() -> None:
-    """B6: shutdown(timeout=None) bounds _vram_check_thread.join timeout to 2.0s."""
+    """Verify shutdown(timeout=None) bounds _vram_check_thread.join timeout to 2.0s."""
     settings = Settings(
         llama_server_path="dummy_server.exe",
         runtime_mode="custom",

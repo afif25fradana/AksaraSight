@@ -138,7 +138,7 @@ def test_save_artifacts_in_memory_fallback_stem(tmp_path: Path) -> None:
     assert expected_json.exists()
 
 
-# Filename Stem Sanitization Tests (Finding 1.2)
+# Filename Stem Sanitization Tests
 
 @pytest.mark.parametrize(
     ("raw_stem", "expected"),
@@ -165,7 +165,7 @@ def test_sanitize_filename_stem(raw_stem: str, expected: str) -> None:
     assert sanitize_filename_stem(raw_stem) == expected
 
 
-# Unique Collision Resolution Tests (Finding 1.1)
+# Unique Collision Resolution Tests
 
 def test_resolve_unique_stem_with_existing_disk_files(tmp_path: Path) -> None:
     # Pre-create disk files
@@ -243,7 +243,7 @@ def test_save_artifacts_avoids_clobbering_existing_disk_files(
     assert (tmp_path / "financial_audit_2.md").exists()
 
 
-# Path Privacy Export Sanitization Tests (Finding 4.1)
+# Path Privacy Export Sanitization Tests
 
 def test_sanitize_export_path_relative_to_base_and_cwd(tmp_path: Path) -> None:
     """Verify sanitize_export_path relativizes within base_dir or cwd."""
@@ -309,7 +309,7 @@ def test_save_artifacts_atomic_write_preserves_existing_on_error(
     sample_ocr_result: OCRResult,
     tmp_path: Path,
 ) -> None:
-    """Verify save_artifacts writes atomically and unlinks .tmp without corrupting existing file on error (C-6)."""
+    """Verify save_artifacts writes atomically and unlinks .tmp without corrupting existing file on error."""
     config = JobConfig(output_format=OutputFormat.BOTH)
 
     # 1. Clean run writes files atomically

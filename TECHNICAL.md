@@ -160,13 +160,13 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 
 ### Settings & Configuration
 - `GET /api/settings`: Returns the active configuration dictionary (with sensitive paths sanitized).
-- `PATCH /api/settings`: Updates mutable runtime parameters (`backend`, `endpoint`, `runtime_mode`, `dpi`, `max_image_dimension`, `max_tokens`, `output_dir`).
+- `PATCH /api/settings`: Updates mutable runtime parameters (`backend`, `local_endpoint`, `runtime_mode`, `managed_backend_override`, `dpi`, `max_image_dimension`, `max_tokens`, `output_dir`, `auto_start_server`, `model_repo`).
 - `POST /api/dialog/file`: Triggers a native Windows file or folder browse dialog to select binaries or directories.
 
 ### Document Pipeline & Extraction
 - `GET /api/documents`: Lists all uploaded documents in the session queue.
 - `POST /api/documents`: Multipart upload for documents (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`).
-- `GET /api/documents/{job_id}/pages/{page}/preview`: Renders and returns a JPEG page image preview.
+- `GET /api/documents/{job_id}/pages/{page}/preview`: Renders and returns a PNG page image preview.
 - `POST /api/documents/{job_id}/extract`: Enqueues document extraction with request payload `{"prompt_mode": "text"|"table"|"formula", "dpi": 100|150}`.
 - `POST /api/documents/{job_id}/cancel`: Requests cooperative cancellation of an active extraction job.
 - `DELETE /api/documents/{job_id}`: Removes a document from the queue and cleans up cached artifacts.
@@ -268,19 +268,25 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 
 - **Markdown (`.md`)**: Raw transcription retaining headings, Markdown pipe tables, list hierarchies, and LaTeX inline equations.
 - **Word Document (`.docx`)**: Generated via `core/docx_export.py` using OOXML styling. Tables include repeating header rows (`w:tblHeader`) and row-split prevention (`w:cantSplit`). Document styles map headings to native Word levels (`Heading 1–3`), and page breaks are inserted strictly between non-empty scanned pages.
-- **Structured JSON (`.json`)**: Contains complete processing metadata:
+- **Structured JSON (`.json`)**: Contains complete processing metadata matching `OCRResult.to_dict()`:
   ```json
   {
-    "document": "sample.pdf",
-    "total_pages": 2,
-    "processed_dpi": 100,
-    "elapsed_seconds": 5.4,
+    "file_path": "sample.pdf",
+    "status": "success",
+    "total_duration": 5.4,
+    "error": null,
+    "aborted": false,
+    "cancelled": false,
+    "page_count": 2,
     "pages": [
       {
-        "page_number": 1,
+        "page_num": 1,
         "status": "success",
-        "duration_seconds": 2.7,
-        "text": "# Transcribed Heading\n\nContent..."
+        "latency": 2.7,
+        "markdown": "# Transcribed Heading\n\nContent...",
+        "error": null,
+        "raw_json": null,
+        "truncated": false
       }
     ]
   }

@@ -1,4 +1,4 @@
-"""Headless queue orchestrator for the AksaraSight Web UI spike."""
+"""Headless queue orchestrator for the AksaraSight Web UI."""
 
 import asyncio
 import copy

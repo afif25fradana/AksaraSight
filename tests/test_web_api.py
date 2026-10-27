@@ -424,12 +424,19 @@ def test_upload_path_traversal_protection(tmp_path: Path) -> None:
     assert uploaded_files[0].resolve().is_relative_to(tmp_path.resolve())
 
 
-def test_no_routes_modify_allow_remote_or_endpoint() -> None:
-    """Verify that no API routes expose settings mutation or non-loopback bindings."""
+def test_patch_settings_enforces_loopback_unless_allow_remote_true() -> None:
+    """Verify PATCH /api/settings rejects non-loopback local_endpoint when allow_remote is False."""
     app = create_app()
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        assert "settings" not in path.lower() or "update" not in path.lower()
+    client = AsgiClient(app)
+    status, _, resp = client.request(
+        "PATCH",
+        "/api/settings",
+        body=json.dumps({"local_endpoint": "http://192.168.1.50:8080/v1", "allow_remote": False}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 400
+    data = json.loads(resp.decode("utf-8"))
+    assert "Non-loopback endpoint" in data["detail"]
 
     # Enforce loopback check helper
     enforce_loopback_host("127.0.0.1")

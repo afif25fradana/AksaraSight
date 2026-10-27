@@ -183,7 +183,7 @@ def test_real_hardware_smoke() -> None:
 
 
 def test_probe_nvidia_smi_prioritizes_system_paths_over_shutil_which() -> None:
-    """Verify _probe_nvidia_smi checks known System32/Program Files paths before shutil.which (SEC-MR2)."""
+    """Verify _probe_nvidia_smi checks known System32/Program Files paths before shutil.which."""
     from pathlib import Path
 
     mock_res = MagicMock()

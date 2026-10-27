@@ -3,7 +3,7 @@
 Ensures that an arbitrary failure from any major collaborator surfaces as a
 user-visible FAILED/PARTIAL status with a non-empty error message, never a
 silent swallow or an uncaught crash that loses sibling work. Recommended by
-the B1–B5 audit round as a permanent regression net.
+the high-severity defect regression net.
 
 Each test injects a different exception type (RuntimeError) than the specific
 bugs already fixed, so it tests the safety net's shape rather than duplicating
@@ -311,7 +311,7 @@ def test_failure_error_messages_are_safe_strings(
 ) -> None:
     """Verify that error messages produced by failure isolation are safe strings:
     non-empty, serializable, and calling str() / repr() on them doesn't throw.
-    This is the class of bug that B2's NameError-in-error-message exposed."""
+    This is the class of bug where an unhandled error inside exception formatting masked the root failure."""
     mock_client.complete.side_effect = [
         ClientError("Error with special chars: <>&\"'\\n\\t"),
         ServerOfflineError("Offline error with unicode: café résumé"),

@@ -200,7 +200,7 @@ def test_remote_endpoint_rejected_via_env_var_when_not_opted_in(monkeypatch):
 
 
 def test_new_settings_fields_defaults():
-    """Verify default values for Stage A settings additions."""
+    """Verify default values for settings additions."""
     s = Settings()
     assert s.llama_server_path is None
     assert s.model_repo == "ggml-org/GLM-OCR-GGUF"
@@ -239,7 +239,7 @@ def test_max_pages_valid():
 
 
 def test_max_pages_from_env_valid(monkeypatch):
-    """Verify OCR_MAX_PAGES parses and coerces to int in Settings.from_env (B8)."""
+    """Verify OCR_MAX_PAGES parses and coerces to int in Settings.from_env."""
     monkeypatch.setenv("OCR_MAX_PAGES", "5")
     s = Settings.from_env()
     assert s.max_pages == 5
@@ -248,7 +248,7 @@ def test_max_pages_from_env_valid(monkeypatch):
 
 @pytest.mark.parametrize("empty_val", [None, "", "   "])
 def test_max_pages_from_env_empty_or_unset(monkeypatch, empty_val):
-    """Verify unset or whitespace OCR_MAX_PAGES defaults to None (B8)."""
+    """Verify unset or whitespace OCR_MAX_PAGES defaults to None."""
     if empty_val is None:
         monkeypatch.delenv("OCR_MAX_PAGES", raising=False)
         monkeypatch.delenv("MAX_PAGES", raising=False)
@@ -260,7 +260,7 @@ def test_max_pages_from_env_empty_or_unset(monkeypatch, empty_val):
 
 @pytest.mark.parametrize("bad_pages", ["abc", "0", "-1"])
 def test_max_pages_from_env_invalid(monkeypatch, bad_pages):
-    """Verify non-positive or non-numeric OCR_MAX_PAGES raises clean ValueError via __post_init__ (B8)."""
+    """Verify non-positive or non-numeric OCR_MAX_PAGES raises clean ValueError via __post_init__."""
     monkeypatch.setenv("OCR_MAX_PAGES", bad_pages)
     with pytest.raises(ValueError, match="MAX_PAGES must be a positive integer or None"):
         Settings.from_env()
@@ -479,7 +479,7 @@ def test_runtime_mode_defaults_and_backward_compatibility(tmp_path, monkeypatch)
 
 
 def test_settings_direct_and_from_env_agree_on_default_runtime_mode(monkeypatch):
-    """Verify Settings() and Settings.from_env() agree on the default runtime_mode (B7).
+    """Verify Settings() and Settings.from_env() agree on the default runtime_mode.
 
     Both construction paths must yield 'managed' on a clean machine so that
     library-style construction (OCREngine(), ServerManager(), VisionClient())

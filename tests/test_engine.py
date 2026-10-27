@@ -243,7 +243,7 @@ def test_engine_handles_pipeline_rasterization_failure(mock_client: MagicMock) -
     assert mock_client.complete.call_count == 1
 
 
-# Page Limits & Cancellation Tests (Finding 3.1)
+# Page Limits & Cancellation Tests
 
 def test_engine_max_pages_limit(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Verify max_pages limits number of pages processed on multi-page documents."""
@@ -281,7 +281,7 @@ def test_engine_inter_page_cancellation(sample_pdf_path: Path, mock_client: Magi
     assert result.pages[0].markdown == "# Page 1 Text"
 
 
-# Progress Callback & Image Retention Tests (Stage A)
+# Progress Callback & Image Retention Tests
 
 def test_engine_progress_callback_invoked(sample_pdf_path: Path, mock_client: MagicMock) -> None:
     """Verify progress_callback is called after each page with current_page, total_pages, and PageResult."""

@@ -450,6 +450,9 @@ def run_diagnostics(
                     message=f"FAILED ({exc})",
                 )
             )
+        finally:
+            if hasattr(engine, "close"):
+                engine.close()
 
     # Final Result & Summary
     lines.append("==================================================")

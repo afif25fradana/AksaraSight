@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib3
 
 from PIL import Image
@@ -4841,3 +4841,58 @@ def test_export_document_sets_sanitized_persist_error_header_on_write_failure(tm
             assert str(fake_home_leak) not in err_val
     finally:
         orchestrator.stop()
+
+
+def test_export_document_failed_job_notice_sanitizes_path(tmp_path: Path) -> None:
+    """Verify export_document sanitizes internal paths in notice for failed jobs."""
+    out_dir = tmp_path / "output"
+    upload_dir = tmp_path / "uploads"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    app = create_app(output_dir=out_dir, upload_dir=upload_dir, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-fail-notice-job"
+        secret_dir = Path.home() / "secret_folder"
+        raw_error = f"Ingestion error in {secret_dir / 'corrupt.pdf'}: Corrupted structure"
+        job = JobState(
+            job_id=job_id,
+            filename="corrupt.pdf",
+            file_path=secret_dir / "corrupt.pdf",
+            page_count=1,
+            status=JobStatus.FAILED,
+            error=raw_error,
+            pages_data={1: {"text": "Partial text"}},
+        )
+        orchestrator.register_job(job)
+
+        status, _, body = client.get(f"/api/documents/{job_id}/export?format=md")
+        assert status == 200
+        content_str = body.decode("utf-8")
+        assert "Incomplete extraction:" in content_str
+        assert str(secret_dir) not in content_str
+    finally:
+        orchestrator.stop()
+
+
+def test_diagnostics_run_closes_engine() -> None:
+    """Verify run_diagnostics() closes the allocated engine in finally block."""
+    from core.diagnostics import run_diagnostics
+    from core.hardware import HardwareProfile
+    settings = Settings()
+    mock_engine = MagicMock(spec=OCREngine)
+
+    report = run_diagnostics(
+        settings=settings,
+        server_prober=lambda *a, **k: (ServerStatus.READY, "Online"),
+        runtime_checker=lambda *a, **k: True,
+        runtime_path_getter=lambda *a, **k: Path("llama-server.exe"),
+        hardware_detector=lambda: HardwareProfile(cpu_name="Test CPU", vram_mb=4096),
+        engine_factory=lambda **k: mock_engine,
+    )
+    assert report is not None
+    mock_engine.verify_backend.assert_called_once_with(force=True)
+    mock_engine.close.assert_called_once()

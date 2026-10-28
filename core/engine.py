@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import threading
 import time
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient, resolve_chat_endpoint
@@ -231,6 +231,12 @@ class OCREngine:
         """Release underlying client network session and connection pool resources."""
         if self.client and hasattr(self.client, "close"):
             self.client.close()
+
+    def __enter__(self) -> "OCREngine":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
 
 

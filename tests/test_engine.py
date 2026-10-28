@@ -385,6 +385,14 @@ def test_engine_close_lifecycle() -> None:
     engine_no_client.close()
 
 
+def test_engine_context_manager_lifecycle() -> None:
+    """Verify engine context manager (__enter__/__exit__) closes client session."""
+    client = MagicMock(spec=VisionClient)
+    with OCREngine(client=client) as engine:
+        assert isinstance(engine, OCREngine)
+    assert client.close.call_count == 1
+
+
 def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path) -> None:
     """Verify complete vertical stack: pypdfium2 PDF -> OCREngine -> VisionClient -> TCP loopback server."""
     import http.server

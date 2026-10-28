@@ -1462,3 +1462,16 @@ def test_cli_prewarm_skipped_for_diagnostics(mock_prewarm: MagicMock) -> None:
 
 
 
+
+
+def test_cli_main_ensures_engine_closed(tmp_path: Path, mock_success_result: OCRResult) -> None:
+    """Verify cli main() invokes engine.close() in finally block on exit."""
+    test_file = tmp_path / "sample.png"
+    test_file.write_bytes(b"dummy")
+    with patch("cli.main.OCREngine", autospec=True) as mock_cls:
+        mock_inst = mock_cls.return_value
+        mock_inst.verify_backend.return_value = None
+        mock_inst.process_document.return_value = mock_success_result
+        exit_code = main([str(test_file), "-q"])
+        assert exit_code == 0
+        mock_inst.close.assert_called_once()

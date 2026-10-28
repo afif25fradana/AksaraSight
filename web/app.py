@@ -371,6 +371,10 @@ def create_app(
         else:
             logger.info("Web application shutting down; external server left untouched.")
 
+        app_eng = getattr(app_instance.state, "engine", None)
+        if app_eng and hasattr(app_eng, "close"):
+            await asyncio.to_thread(app_eng.close)
+
         if orch:
             with orch._lock:
                 tracked_jobs = list(orch.jobs.values())
@@ -1010,8 +1014,13 @@ def create_app(
         out_dir = get_output_dir(app)
         raw_stem = Path(job.filename).stem if job.filename else "extracted_document"
         stem = sanitize_filename_stem(raw_stem)
+        clean_job_err = (
+            sanitize_export_error(job.error, file_path=job.file_path, base_dir=target_upload_dir)
+            if job.error
+            else None
+        )
         notice = (
-            f"Incomplete extraction: {job.error or 'Processing failed'}"
+            f"Incomplete extraction: {clean_job_err or 'Processing failed'}"
             if job.status == JobStatus.FAILED
             else None
         )
@@ -1471,7 +1480,7 @@ def create_app(
         settings: Settings = getattr(app.state, "settings", app_settings)
         target_backend = getattr(settings, "managed_backend_override", "auto")
         if target_backend == "auto":
-            profile = get_cached_hardware_profile()
+            profile = await asyncio.to_thread(get_cached_hardware_profile, blocking=True)
             target_backend = profile.recommended_backend if profile else "cpu"
         target_backend = str(target_backend).lower()
 

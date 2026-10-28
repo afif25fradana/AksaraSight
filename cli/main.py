@@ -255,112 +255,115 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         start_hardware_prewarm()
 
     engine = OCREngine(settings=settings)
-
-    # Pre-flight startup self-test before processing the first document
     try:
-        engine.verify_backend()
-    except Exception as probe_exc:
-        sys.stderr.write(f"Error: {probe_exc}\n")
-        return 1
 
-    if settings.is_loopback:
-        profile = get_cached_hardware_profile(blocking=True)
-        if (
-            profile is not None
-            and profile.cuda_available
-            and profile.vram_mb is not None
-            and profile.vram_mb < 2200
-        ):
-            sys.stderr.write(
-                f"WARNING: Detected {profile.vram_mb} MB VRAM on '{profile.gpu_name or 'CUDA device'}', "
-                f"below recommended ~2.2 GB for GLM-OCR (-c 8192). Server may encounter CUDA out-of-memory errors.\n"
-            )
-
-    has_aborted = False
-    all_success = True
-    total_files = len(file_list)
-    used_stems: Set[str] = set()
-
-    for idx, doc_path in enumerate(file_list, 1):
-        if not args.quiet and total_files > 1:
-            sys.stdout.write(f"[{idx}/{total_files}] Processing {doc_path.name}...\n")
-            sys.stdout.flush()
-
+        # Pre-flight startup self-test before processing the first document
         try:
-            result = engine.process_document(doc_path, config=job_config)
-        except Exception as exc:
-            all_success = False
-            sys.stderr.write(f"Error processing {doc_path.name}: {exc}\n")
-            sys.stderr.flush()
-            continue
-
-        if result.aborted:
-            has_aborted = True
-        if result.status != JobStatus.SUCCESS:
-            all_success = False
-
-        # Save to disk if -o is specified; format and emit to stdout otherwise.
-        # A failure here (e.g. corrupt markdown AST, disk full on this file only,
-        # NTFS name too long) is document-specific, not systemic — isolate it so
-        # the remaining batch documents are still exported.
-        # Note: KeyboardInterrupt is a BaseException, not Exception, so it is
-        # never caught here and always propagates immediately.
-        try:
-            if args.output is not None:
-                save_artifacts(
-                    result,
-                    job_config,
-                    output_dir=args.output,
-                    used_stems=used_stems,
-                    base_dir=input_path if input_path.is_dir() else None,
-                )
-                if not args.quiet and total_files > 1:
-                    status_label = result.status.value
-                    sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")
-                    sys.stdout.flush()
-            else:
-                # Single-file stdout streaming mode
-                if result.status == JobStatus.FAILED and not result.pages:
-                    sys.stderr.write(f"Processing failed: {result.error}\n")
-                else:
-                    formatted = format_output(result, output_fmt, sanitize_path=True)
-                    if output_fmt == OutputFormat.MARKDOWN:
-                        md = formatted["markdown"]
-                        sys.stdout.write(md)
-                        if not md.endswith("\n"):
-                            sys.stdout.write("\n")
-                    elif output_fmt == OutputFormat.JSON:
-                        sys.stdout.write(formatted["json"] + "\n")
-                    elif output_fmt == OutputFormat.DOCX:
-                        raw_docx = formatted["docx"]
-                        if hasattr(sys.stdout, "buffer"):
-                            sys.stdout.buffer.write(raw_docx)
-                        else:
-                            sys.stderr.write("Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk.\n")
-                            return 1
-                    else:  # BOTH to stdout
-                        sys.stdout.write(formatted["markdown"])
-                        sys.stdout.write("\n\n---\n\n")
-                        sys.stdout.write(formatted["json"] + "\n")
-                    sys.stdout.flush()
-        except Exception as export_exc:
-            all_success = False
-            sys.stderr.write(f"Error saving output for {doc_path.name}: {export_exc}\n")
-            sys.stderr.flush()
-
-        # If processing was aborted due to backend offline, fail fast immediately
-        if result.aborted:
-            if not args.quiet:
-                sys.stderr.write(f"Aborted: {result.error}\n")
+            engine.verify_backend()
+        except Exception as probe_exc:
+            sys.stderr.write(f"Error: {probe_exc}\n")
             return 1
 
-    if has_aborted:
-        raise RuntimeError("unreachable: aborted batch jobs must fail fast and return early")
+        if settings.is_loopback:
+            profile = get_cached_hardware_profile(blocking=True)
+            if (
+                profile is not None
+                and profile.cuda_available
+                and profile.vram_mb is not None
+                and profile.vram_mb < 2200
+            ):
+                sys.stderr.write(
+                    f"WARNING: Detected {profile.vram_mb} MB VRAM on '{profile.gpu_name or 'CUDA device'}', "
+                    f"below recommended ~2.2 GB for GLM-OCR (-c 8192). Server may encounter CUDA out-of-memory errors.\n"
+                )
 
-    if all_success:
-        return 0
+        has_aborted = False
+        all_success = True
+        total_files = len(file_list)
+        used_stems: Set[str] = set()
 
-    return 2
+        for idx, doc_path in enumerate(file_list, 1):
+            if not args.quiet and total_files > 1:
+                sys.stdout.write(f"[{idx}/{total_files}] Processing {doc_path.name}...\n")
+                sys.stdout.flush()
+
+            try:
+                result = engine.process_document(doc_path, config=job_config)
+            except Exception as exc:
+                all_success = False
+                sys.stderr.write(f"Error processing {doc_path.name}: {exc}\n")
+                sys.stderr.flush()
+                continue
+
+            if result.aborted:
+                has_aborted = True
+            if result.status != JobStatus.SUCCESS:
+                all_success = False
+
+            # Save to disk if -o is specified; format and emit to stdout otherwise.
+            # A failure here (e.g. corrupt markdown AST, disk full on this file only,
+            # NTFS name too long) is document-specific, not systemic — isolate it so
+            # the remaining batch documents are still exported.
+            # Note: KeyboardInterrupt is a BaseException, not Exception, so it is
+            # never caught here and always propagates immediately.
+            try:
+                if args.output is not None:
+                    save_artifacts(
+                        result,
+                        job_config,
+                        output_dir=args.output,
+                        used_stems=used_stems,
+                        base_dir=input_path if input_path.is_dir() else None,
+                    )
+                    if not args.quiet and total_files > 1:
+                        status_label = result.status.value
+                        sys.stdout.write(f"[{idx}/{total_files}] {doc_path.name} -> {status_label} ({result.total_duration:.2f}s)\n")
+                        sys.stdout.flush()
+                else:
+                    # Single-file stdout streaming mode
+                    if result.status == JobStatus.FAILED and not result.pages:
+                        sys.stderr.write(f"Processing failed: {result.error}\n")
+                    else:
+                        formatted = format_output(result, output_fmt, sanitize_path=True)
+                        if output_fmt == OutputFormat.MARKDOWN:
+                            md = formatted["markdown"]
+                            sys.stdout.write(md)
+                            if not md.endswith("\n"):
+                                sys.stdout.write("\n")
+                        elif output_fmt == OutputFormat.JSON:
+                            sys.stdout.write(formatted["json"] + "\n")
+                        elif output_fmt == OutputFormat.DOCX:
+                            raw_docx = formatted["docx"]
+                            if hasattr(sys.stdout, "buffer"):
+                                sys.stdout.buffer.write(raw_docx)
+                            else:
+                                sys.stderr.write("Error: stdout does not support binary output. Specify -o/--output to write DOCX to disk.\n")
+                                return 1
+                        else:  # BOTH to stdout
+                            sys.stdout.write(formatted["markdown"])
+                            sys.stdout.write("\n\n---\n\n")
+                            sys.stdout.write(formatted["json"] + "\n")
+                        sys.stdout.flush()
+            except Exception as export_exc:
+                all_success = False
+                sys.stderr.write(f"Error saving output for {doc_path.name}: {export_exc}\n")
+                sys.stderr.flush()
+
+            # If processing was aborted due to backend offline, fail fast immediately
+            if result.aborted:
+                if not args.quiet:
+                    sys.stderr.write(f"Aborted: {result.error}\n")
+                return 1
+
+        if has_aborted:
+            raise RuntimeError("unreachable: aborted batch jobs must fail fast and return early")
+
+        if all_success:
+            return 0
+
+        return 2
+    finally:
+        engine.close()
 
 
 if __name__ == "__main__":

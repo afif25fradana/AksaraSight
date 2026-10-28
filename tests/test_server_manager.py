@@ -1054,6 +1054,7 @@ def test_server_manager_stop_managed_terminates():
 
     mgr.stop()
     mock_proc.terminate.assert_called_once()
+    mock_proc.stdout.close.assert_called_once()
     assert mgr._process is None
     assert mgr.ownership == ServerOwnership.NONE
     assert mgr.status == ServerStatus.OFFLINE

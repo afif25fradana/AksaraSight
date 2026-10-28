@@ -836,6 +836,11 @@ class ServerManager:
             except Exception as stop_exc:
                 logger.warning("Error stopping server process: %s", stop_exc)
             finally:
+                if proc.stdout is not None:
+                    try:
+                        proc.stdout.close()
+                    except Exception:
+                        pass
                 if sys.platform == "win32" and job_handle is not None:
                     _close_job_handle(job_handle)
                 with self._lock:

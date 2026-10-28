@@ -1,5 +1,7 @@
+import os
 import hashlib
 from pathlib import Path
+import shutil
 import pytest
 import dotenv
 import config.settings
@@ -43,3 +45,24 @@ def guard_repo_env_immutability():
                 f"pre=(exists={pre_exists}, sha256={pre_hash}), "
                 f"post=(exists={post_exists}, sha256={post_hash})"
             )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_test_output_directory(tmp_path_factory: pytest.TempPathFactory):
+    """Redirect OCR_OUTPUT_DIR to an isolated session temp directory during tests.
+
+    Prevents tests that invoke export endpoints without an explicit output_dir
+    from writing mock test artifacts into the user's real ~/Documents/AksaraSight/output.
+    Performs immediate teardown cleanup upon test session completion.
+    """
+    test_out_dir = tmp_path_factory.mktemp("aksarasight_isolated_output")
+    old_output_env = os.environ.get("OCR_OUTPUT_DIR")
+    os.environ["OCR_OUTPUT_DIR"] = str(test_out_dir)
+    try:
+        yield test_out_dir
+    finally:
+        if old_output_env is not None:
+            os.environ["OCR_OUTPUT_DIR"] = old_output_env
+        else:
+            os.environ.pop("OCR_OUTPUT_DIR", None)
+        shutil.rmtree(test_out_dir, ignore_errors=True)

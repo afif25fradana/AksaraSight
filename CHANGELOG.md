@@ -10,6 +10,25 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## Milestones
 
+### v1.3.2: Deterministic Cleanup, Path Sanitization & API Resilience (October 29, 2026)
+*Focus: Deterministic network and process lifecycle cleanup, local path redaction in exports, event loop offloading, and pre-release stability hardening.*
+
+### Added
+- **OCREngine Context Manager Lifecycle**: Implemented `__enter__` and `__exit__` protocols on `OCREngine` in `core/engine.py`, guaranteeing automatic session cleanup upon scope exit.
+
+### Changed
+- **Async Hardware Profiling in Runtime Download**: Offloaded `get_cached_hardware_profile(blocking=True)` inside `post_runtime_download` in `web/app.py` via `await asyncio.to_thread(...)`, preventing event loop latency spikes during cold-start hardware detection.
+- **API Documentation Synchronization**: Aligned `TECHNICAL.md` with active mutable settings keys and standardized JSON response models.
+
+### Fixed
+- **Local Path Sanitization in Export Notices**: Export notices in Markdown and DOCX documents generated for failed extraction jobs now redact local filesystem paths via `sanitize_export_error()`, matching the path isolation standard of JSON exports.
+- **HTTP Header Injection & Protocol Protection**: Stripped carriage return (`\r`) and newline (`\n`) characters from error messages before populating the `X-Output-Persist-Error` response header, preventing ASGI header formatting failures.
+- **Graceful Oversized Image Preview Handling**: Added explicit handling for `OversizedImageError` in `GET /api/documents/{job_id}/pages/{page_num}/preview`, returning an HTTP 422 with sanitized diagnostics instead of unhandled 500 tracebacks.
+- **Deterministic HTTP Session & Subprocess Pipe Cleanup**:
+  - Bound `run_diagnostics()` (`POST /api/doctor`), `cli/main.py`, and application shutdown lifespan in `web/app.py` with explicit `engine.close()` calls in `finally:` blocks, deterministically releasing underlying `requests.Session` socket connection pools.
+  - Ensured ephemeral HTTP sessions created during release asset metadata fetching and asset verification in `core/runtime_manager.py` are explicitly closed in `finally:` blocks.
+  - Closed `proc.stdout` stream pipes explicitly in `ServerManager.stop()`'s `finally:` block in strict alignment with ADR-0010 Decision 5.
+
 ### v1.3.1: Concurrency Hardening, Settings Decoupling & UI Polish (October 23, 2026)
 *Focus: Concurrency & thread safety hardening, settings decoupling, SSE lifecycle streaming, zero-dependency focus trapping, and desktop workspace polish.*
 

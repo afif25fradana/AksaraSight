@@ -28,6 +28,7 @@ A chronological overview of the development, architecture, security hardening, a
   - Bound `run_diagnostics()` (`POST /api/doctor`), `cli/main.py`, and application shutdown lifespan in `web/app.py` with explicit `engine.close()` calls in `finally:` blocks, deterministically releasing underlying `requests.Session` socket connection pools.
   - Ensured ephemeral HTTP sessions created during release asset metadata fetching and asset verification in `core/runtime_manager.py` are explicitly closed in `finally:` blocks.
   - Closed `proc.stdout` stream pipes explicitly in `ServerManager.stop()`'s `finally:` block in strict alignment with ADR-0010 Decision 5.
+- **Test Harness Output Isolation**: Added session-scoped temporary directory isolation in `tests/conftest.py` with immediate teardown cleanup, preventing test export artifacts from polluting the user's local Documents folder during test runs.
 
 ### v1.3.1: Concurrency Hardening, Settings Decoupling & UI Polish (October 23, 2026)
 *Focus: Concurrency & thread safety hardening, settings decoupling, SSE lifecycle streaming, zero-dependency focus trapping, and desktop workspace polish.*
@@ -58,8 +59,6 @@ A chronological overview of the development, architecture, security hardening, a
 - **WCAG AA Color Contrast**: Adjusted muted text and badge color tokens in dark mode to achieve 12.5:1 contrast ratios, surpassing WCAG AA standards.
 
 ---
-
-## Milestones
 
 ### v1.3.0: Web UI & Portable Distribution (October 20, 2026)
 *Focus: Browser-based local workspace Web UI, managed runtime downloader, per-job DPI routing, and portable Windows distribution.*

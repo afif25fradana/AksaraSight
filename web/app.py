@@ -44,7 +44,7 @@ from core.model_manager import (
     get_model_downloader,
 )
 from core.models import OutputFormat, PROMPT_PRESETS
-from core.pipeline import EncryptedDocumentError, get_page_count, rasterize_page
+from core.pipeline import EncryptedDocumentError, OversizedImageError, get_page_count, rasterize_page
 from core.runtime_manager import (
     _EXE_NAME,
     ensure_runtime,
@@ -894,6 +894,9 @@ def create_app(
             return Response(content=png_bytes, media_type="image/png")
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Document file not found") from exc
+        except OversizedImageError as exc:
+            clean_err = sanitize_export_error(str(exc), file_path=job.file_path, base_dir=target_upload_dir) or str(exc)
+            raise HTTPException(status_code=422, detail=f"Page dimensions exceed preview limit: {clean_err}") from exc
         except Exception as e:
             logger.exception("Failed to rasterize preview for job %s page %s", job_id, page)
             clean_err = sanitize_export_error(str(e), file_path=job.file_path, base_dir=target_upload_dir) or str(e)
@@ -1046,12 +1049,17 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'")
         saved_to_output = True
         output_write_error: Optional[str] = None
+        out_file = out_dir / Path(filename).name
         try:
-            out_file = out_dir / Path(filename).name
             await asyncio.to_thread(out_file.write_bytes, content_bytes)
         except Exception as exc:
             saved_to_output = False
-            output_write_error = str(exc)
+            clean_persist_err = (
+                sanitize_export_error(str(exc), file_path=out_file, base_dir=out_dir)
+                or getattr(exc, "strerror", None)
+                or "Failed to write file to output directory"
+            )
+            output_write_error = clean_persist_err.replace("\r", " ").replace("\n", " ").strip()
             logger.warning("Failed to persist export artifact to %s: %s", out_dir / filename, exc)
 
         content_disposition_filename = quote(filename)

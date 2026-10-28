@@ -928,3 +928,50 @@ def test_ensure_runtime_legacy_progress_callback_positional_only(tmp_path: Path)
         assert any("Extracting llama-b11361-bin-win-cpu-x64.zip..." in m for m in messages)
 
 
+def test_fetch_release_assets_metadata_ephemeral_session_closed() -> None:
+    """Verify ephemeral requests.Session has trust_env=False and is closed in finally."""
+    with patch("requests.Session") as mock_session_cls:
+        mock_instance = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "assets": [
+                {
+                    "name": "llama-b11361-bin-win-vulkan-x64.zip",
+                    "browser_download_url": "https://github.com/mock/vulkan.zip",
+                    "size": 1234,
+                }
+            ]
+        }
+        mock_instance.get.return_value = mock_resp
+        mock_session_cls.return_value = mock_instance
+
+        assets = fetch_release_assets_metadata("b11361", session=None)
+        assert len(assets) == 1
+        assert mock_instance.trust_env is False
+        mock_instance.close.assert_called_once()
+
+
+def test_download_and_verify_asset_ephemeral_session_closed(tmp_path: Path) -> None:
+    """Verify ephemeral requests.Session in download_and_verify_asset is closed in finally."""
+    asset = ReleaseAssetInfo(
+        name="llama-b11361-bin-win-cpu-x64.zip",
+        download_url="https://github.com/mock/cpu.zip",
+        size=10,
+        digest="sha256:" + "0" * 64,
+    )
+    with patch("requests.Session") as mock_session_cls:
+        mock_instance = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Length": "0"}
+        mock_resp.iter_content.return_value = []
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+        mock_instance.get.return_value = mock_resp
+        mock_session_cls.return_value = mock_instance
+
+        with pytest.raises(RuntimeIntegrityError):
+            download_and_verify_asset(asset, tmp_path, session=None)
+        assert mock_instance.trust_env is False
+        mock_instance.close.assert_called_once()

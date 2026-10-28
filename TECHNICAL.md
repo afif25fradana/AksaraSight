@@ -160,7 +160,7 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 
 ### Settings & Configuration
 - `GET /api/settings`: Returns the active configuration dictionary (with sensitive paths sanitized).
-- `PATCH /api/settings`: Updates mutable runtime parameters (`backend`, `local_endpoint`, `runtime_mode`, `managed_backend_override`, `dpi`, `max_image_dimension`, `max_tokens`, `output_dir`, `auto_start_server`, `model_repo`).
+- `PATCH /api/settings`: Updates mutable runtime parameters (`backend`, `local_endpoint`, `allow_remote`, `runtime_mode`, `managed_backend_override`, `llama_server_path`, `dpi`, `max_image_dimension`, `max_tokens`, `timeout`, `max_retries`, `auto_start_server`, `model_repo`).
 - `POST /api/dialog/file`: Triggers a native Windows file or folder browse dialog to select binaries or directories.
 
 ### Document Pipeline & Extraction
@@ -272,7 +272,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
   ```json
   {
     "file_path": "sample.pdf",
-    "status": "success",
+    "status": "SUCCESS",
     "total_duration": 5.4,
     "error": null,
     "aborted": false,
@@ -281,7 +281,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
     "pages": [
       {
         "page_num": 1,
-        "status": "success",
+        "status": "SUCCESS",
         "latency": 2.7,
         "markdown": "# Transcribed Heading\n\nContent...",
         "error": null,

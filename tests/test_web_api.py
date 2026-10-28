@@ -23,6 +23,7 @@ from core.models import JobConfig, JobStatus as CoreJobStatus, OCRResult, PageRe
 from core.server_manager import ServerOwnership, ServerStatus, ServerStatusInfo
 from web.app import create_app, enforce_loopback_host
 from web.orchestrator import JobState, JobStatus, WebOrchestrator
+from core.pipeline import OversizedImageError
 from tests.test_pipeline import MINIMAL_ENCRYPTED_PDF
 
 
@@ -4769,3 +4770,70 @@ def test_patch_settings_returns_500_on_env_persistence_failure() -> None:
         assert status == 500
         data = json.loads(resp.decode("utf-8"))
         assert "Failed to persist settings to disk" in data["detail"]
+
+
+def test_get_page_preview_oversized_image_returns_422(tmp_path: Path) -> None:
+    """Verify get_page_preview returns 422 with sanitized error on OversizedImageError."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    file_path = tmp_path / "huge.png"
+    job = JobState(
+        job_id="test_huge_preview_job",
+        filename="huge.png",
+        file_path=file_path,
+        page_count=1,
+    )
+    app.state.orchestrator.register_job(job)
+
+    with patch("web.app.rasterize_page", side_effect=OversizedImageError(f"Image dimensions exceed threshold: {file_path}")):
+        status, _, body = client.get(f"/api/documents/{job.job_id}/pages/1/preview")
+        assert status == 422
+        data = json.loads(body.decode("utf-8"))
+        assert "Page dimensions exceed preview limit" in data["detail"]
+        assert str(file_path) not in data["detail"]
+
+
+def test_export_document_sets_sanitized_persist_error_header_on_write_failure(tmp_path: Path) -> None:
+    """Verify write failure sets sanitized X-Output-Persist-Error without CRLF or host paths."""
+    out_dir = tmp_path / "output_artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    app = create_app(output_dir=out_dir, orchestrator=orchestrator)
+    client = AsgiClient(app)
+
+    try:
+        job_id = "test-export-fail-job"
+        page = PageResult(
+            page_num=1,
+            markdown="Sample markdown",
+            status=CoreJobStatus.SUCCESS,
+        )
+        ocr_result = OCRResult(
+            file_path="sample.pdf",
+            pages=[page],
+            status=CoreJobStatus.SUCCESS,
+        )
+        job = JobState(
+            job_id=job_id,
+            filename="sample.pdf",
+            file_path=tmp_path / "sample.pdf",
+            page_count=1,
+            status=JobStatus.SUCCESS,
+            result=ocr_result,
+        )
+        orchestrator.register_job(job)
+
+        with patch("pathlib.Path.write_bytes", side_effect=OSError(13, f"Disk write failure\r\nPrivate {out_dir / 'secret'}")):
+            status, headers, body = client.get(f"/api/documents/{job_id}/export?format=md")
+            assert status == 200
+            assert body.decode("utf-8") == "Sample markdown"
+            assert "x-output-persist-error" in headers
+            err_val = headers["x-output-persist-error"]
+            assert "\r" not in err_val
+            assert "\n" not in err_val
+            assert "Private" in err_val
+            assert str(out_dir / "secret") not in err_val
+    finally:
+        orchestrator.stop()

@@ -611,7 +611,7 @@ def rasterize_page(
                                     f"Page {idx + 1} dimensions ({pixel_width}x{pixel_height} = "
                                     f"{pixel_area:,} pixels) exceed safety threshold of "
                                     f"{MAX_RASTER_PIXELS:,} pixels"
-                                )
+                                ) from img_exc
                             bitmap = page.render(scale=scale)
                             try:
                                 raw_pil = bitmap.to_pil()

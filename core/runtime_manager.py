@@ -150,6 +150,7 @@ def fetch_release_assets_metadata(
         RuntimeDownloadError: If the release cannot be fetched or response is malformed.
     """
     url = f"{GITHUB_API_BASE}/releases/tags/{tag.strip()}"
+    owns_session = session is None
     if session is None:
         http_client = requests.Session()
         http_client.trust_env = False
@@ -202,6 +203,9 @@ def fetch_release_assets_metadata(
         raise RuntimeDownloadError(f"Network error querying GitHub releases: {req_err}") from req_err
     except Exception as exc:
         raise RuntimeDownloadError(f"Unexpected error resolving release assets: {exc}") from exc
+    finally:
+        if owns_session:
+            http_client.close()
 
 
 def download_and_verify_asset(
@@ -239,6 +243,7 @@ def download_and_verify_asset(
     if part_path.exists():
         part_path.unlink()
 
+    owns_session = session is None
     if session is None:
         http_client = requests.Session()
         http_client.trust_env = False
@@ -272,6 +277,9 @@ def download_and_verify_asset(
             part_path.unlink()
         logger.warning("Download failed for %s: %s", asset.name, down_exc)
         raise RuntimeDownloadError(f"Failed to download {asset.name}: {down_exc}") from down_exc
+    finally:
+        if owns_session:
+            http_client.close()
 
     # Cryptographic Integrity Verification
     computed_hex = hasher.hexdigest().lower()

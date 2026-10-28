@@ -4825,7 +4825,9 @@ def test_export_document_sets_sanitized_persist_error_header_on_write_failure(tm
         )
         orchestrator.register_job(job)
 
-        with patch("pathlib.Path.write_bytes", side_effect=OSError(13, f"Disk write failure\r\nPrivate {out_dir / 'secret'}")):
+        target_out_file = out_dir / "sample.md"
+        fake_home_leak = Path.home() / "secret_folder"
+        with patch("pathlib.Path.write_bytes", side_effect=OSError(13, f"Disk write failure\r\nPrivate {target_out_file} at {fake_home_leak}")):
             status, headers, body = client.get(f"/api/documents/{job_id}/export?format=md")
             assert status == 200
             assert body.decode("utf-8") == "Sample markdown"
@@ -4834,6 +4836,8 @@ def test_export_document_sets_sanitized_persist_error_header_on_write_failure(tm
             assert "\r" not in err_val
             assert "\n" not in err_val
             assert "Private" in err_val
-            assert str(out_dir / "secret") not in err_val
+            assert "sample.md" in err_val
+            assert str(target_out_file) not in err_val
+            assert str(fake_home_leak) not in err_val
     finally:
         orchestrator.stop()

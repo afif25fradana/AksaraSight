@@ -1,8 +1,10 @@
 """Tests for Web API, security middleware, and queue lifecycle."""
 
 import asyncio
+import contextlib
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -4896,3 +4898,218 @@ def test_diagnostics_run_closes_engine() -> None:
     assert report is not None
     mock_engine.verify_backend.assert_called_once_with(force=True)
     mock_engine.close.assert_called_once()
+
+
+
+def test_web_entrypoint_is_port_in_use_and_parser():
+    """Verify is_port_in_use and build_parser in web.__main__."""
+    import socket
+    from web.__main__ import is_port_in_use, build_parser
+    parser = build_parser()
+    args = parser.parse_args(["--port", "9999", "--dev", "--reload", "--no-browser"])
+    assert args.port == 9999
+    assert args.dev is True
+    assert args.reload is True
+    assert args.no_browser is True
+
+    # Free port check
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        free_port = s.getsockname()[1]
+    assert is_port_in_use("127.0.0.1", free_port) is False
+
+    # Occupied port check
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        busy_port = s.getsockname()[1]
+        assert is_port_in_use("127.0.0.1", busy_port) is True
+
+
+def test_web_entrypoint_main_host_rejection(monkeypatch):
+    """Verify main() rejects non-loopback host binding with exit code 1."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "argv", ["web", "--host", "192.168.1.50"])
+    with pytest.raises(SystemExit) as exc_info:
+        web_main.main()
+    assert exc_info.value.code == 1
+
+
+def test_web_entrypoint_main_port_in_use(monkeypatch):
+    """Verify main() rejects startup if port is already bound."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "argv", ["web", "--port", "8000"])
+    monkeypatch.setattr(web_main, "is_port_in_use", lambda host, port: True)
+    with pytest.raises(SystemExit) as exc_info:
+        web_main.main()
+    assert exc_info.value.code == 1
+
+
+def test_web_entrypoint_main_dev_and_reload(monkeypatch):
+    """Verify main() handles --dev and --reload flags."""
+    import web.__main__ as web_main
+    run_calls = []
+    monkeypatch.delenv("AKSARA_WEB_DEV_MODE", raising=False)
+    monkeypatch.delenv("AKSARA_WEB_PORT", raising=False)
+    monkeypatch.setattr(sys, "argv", ["web", "--port", "8123", "--dev", "--reload"])
+    monkeypatch.setattr(web_main, "is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(web_main.uvicorn, "run", lambda *a, **k: run_calls.append((a, k)))
+
+    web_main.main()
+
+    assert os.environ.get("AKSARA_WEB_DEV_MODE") == "1"
+    assert os.environ.get("AKSARA_WEB_PORT") == "8123"
+    assert len(run_calls) == 1
+    assert run_calls[0][0] == ("web.app:create_app",)
+    assert run_calls[0][1]["reload"] is True
+
+
+@contextlib.contextmanager
+def _isolated_frozen_logging_state():
+    """Isolate root logger handlers, level, excepthook, and std streams during frozen logging tests."""
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    original_level = root_logger.level
+    original_excepthook = sys.excepthook
+    orig_stdout = sys.stdout
+    orig_stderr = sys.stderr
+    try:
+        yield
+    finally:
+        for h in list(root_logger.handlers):
+            if h not in original_handlers:
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        root_logger.handlers = original_handlers
+        root_logger.setLevel(original_level)
+        sys.excepthook = original_excepthook
+        if sys.stdout is not orig_stdout and sys.stdout is not None:
+            try:
+                sys.stdout.close()
+            except Exception:
+                pass
+            sys.stdout = orig_stdout
+        if sys.stderr is not orig_stderr and sys.stderr is not None:
+            try:
+                sys.stderr.close()
+            except Exception:
+                pass
+            sys.stderr = orig_stderr
+
+
+def test_web_entrypoint_main_default_and_frozen(monkeypatch, tmp_path):
+    """Verify main() handles standard execution and frozen browser timer."""
+    import threading
+    import web.__main__ as web_main
+    run_calls = []
+    monkeypatch.setattr(sys, "argv", ["web", "--port", "8124"])
+    monkeypatch.setattr(web_main, "is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(web_main, "create_app", lambda **k: "mock_app")
+    monkeypatch.setattr(web_main.uvicorn, "run", lambda *a, **k: run_calls.append((a, k)))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    # Spy on threading.Timer to verify browser spawn was scheduled
+    timer_created = []
+    real_timer = threading.Timer
+    def mock_timer(interval, func):
+        t = real_timer(0.01, func)
+        timer_created.append(interval)
+        return t
+    monkeypatch.setattr(threading, "Timer", mock_timer)
+    monkeypatch.setattr(web_main.webbrowser, "open", lambda url: None)
+
+    with _isolated_frozen_logging_state():
+        web_main.main()
+
+    assert len(run_calls) == 1
+    assert run_calls[0][0] == ("mock_app",)
+    assert run_calls[0][1]["port"] == 8124
+    assert len(timer_created) == 1
+    assert timer_created[0] == 0.8
+
+
+def test_web_entrypoint_setup_frozen_logging(monkeypatch, tmp_path):
+    """Verify _setup_frozen_logging creates log file and installs excepthook."""
+    import web.__main__ as web_main
+    # Not frozen -> returns None
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert web_main._setup_frozen_logging() is None
+
+    # Frozen
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with _isolated_frozen_logging_state():
+        log_file = web_main._setup_frozen_logging()
+        assert log_file is not None
+        assert log_file.name == "app.log"
+        assert log_file.exists()
+
+        # Test excepthook handles regular exception
+        hook = sys.excepthook
+        hook(ValueError, ValueError("test error"), None)
+
+        # Test KeyboardInterrupt is forwarded to default excepthook
+        forwarded = []
+        monkeypatch.setattr(sys, "__excepthook__", lambda *a: forwarded.append(a))
+        hook(KeyboardInterrupt, KeyboardInterrupt(), None)
+        assert len(forwarded) == 1
+
+
+
+def test_format_file_size_helper():
+    """Verify _format_file_size renders B, KB, and MB accurately."""
+    from web.app import _format_file_size
+    assert _format_file_size(500) == "500 B"
+    assert _format_file_size(2048) == "2.0 KB"
+    assert _format_file_size(5 * 1024 * 1024) == "5.0 MB"
+
+
+def test_instance_lock_helpers(tmp_path):
+    """Verify _acquire_instance_lock and _release_instance_lock edge cases."""
+    from web.app import _acquire_instance_lock, _release_instance_lock
+    lock1 = _acquire_instance_lock(tmp_path)
+    assert lock1 is not None
+
+    # Acquiring again in same or competing process raises error
+    if sys.platform == "win32":
+        with pytest.raises(OSError):
+            _acquire_instance_lock(tmp_path)
+
+    _release_instance_lock(lock1)
+    _release_instance_lock(None)  # No-op check
+
+
+def test_app_lifespan_auto_start_managed_server(tmp_path):
+    """Verify lifespan auto-starts managed server when auto_start_server=True and server is offline."""
+    import asyncio
+    from core.server_manager import ServerOwnership
+    settings = Settings(auto_start_server=True)
+    server_mgr = MagicMock()
+    server_mgr.ownership = ServerOwnership.MANAGED
+
+    async def _run():
+        with patch("web.app.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
+            app = create_app(settings=settings, server_manager=server_mgr, upload_dir=tmp_path)
+            async with app.router.lifespan_context(app):
+                assert getattr(app.state, "server_managed", False) is True
+            server_mgr.start.assert_called_once()
+            server_mgr.shutdown.assert_called_once()
+
+    asyncio.run(_run())
+
+
+def test_frozen_logging_none_std_streams(monkeypatch, tmp_path):
+    """Verify _setup_frozen_logging handles None sys.stdout and sys.stderr gracefully."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    with _isolated_frozen_logging_state():
+        log_path = web_main._setup_frozen_logging()
+        assert log_path is not None
+        assert log_path.exists()

@@ -467,6 +467,7 @@ class WebOrchestrator:
                         {
                             "job_id": job.job_id,
                             "pages": job.page_count,
+                            "total_pages": job.page_count,
                         },
                     )
             self._prune_terminal_jobs()

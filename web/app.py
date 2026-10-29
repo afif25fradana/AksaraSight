@@ -35,7 +35,11 @@ from core.formatter import (
     sanitize_export_error,
     sanitize_filename_stem,
 )
-from core.hardware import PINNED_LLAMA_BUILD, get_cached_hardware_profile
+from core.hardware import (
+    PINNED_LLAMA_BUILD,
+    get_cached_hardware_profile,
+    start_hardware_prewarm,
+)
 from core.model_manager import (
     PINNED_MODEL_REPO,
     PINNED_MODEL_REVISION,
@@ -315,6 +319,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
+        if app_settings.is_loopback:
+            start_hardware_prewarm()
         # Server startup check & auto-start
         if app_settings.auto_start_server:
             cur_status, _ = await asyncio.to_thread(probe_server_health, app_settings.local_endpoint)

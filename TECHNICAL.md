@@ -190,11 +190,12 @@ The frontend and external scripts subscribe to real-time events over `GET /api/e
 
 | Event Name | Payload Schema | Description |
 | --- | --- | --- |
-| `started` | `{"job_id": str, "total_pages": int}` | Emitted when OCR begins for a document. |
-| `page_progress` | `{"job_id": str, "current_page": int, "total_pages": int, "status": str}` | Emitted as each page finishes rasterization or OCR. |
-| `completed` | `{"job_id": str, "elapsed_seconds": float, "pages": [...]}` | Emitted when full document finishes processing. |
+| `queued` | `{"job_id": str}` | Emitted when a document enters the extraction queue. |
+| `started` | `{"job_id": str, "filename": str, "pages": int, "run_id": str}` | Emitted when OCR begins for a document. |
+| `page_progress` | `{"job_id": str, "page_number": int, "total_pages": int, "text": str, "latency": float, "tokens": int, "truncated": bool}` | Emitted as each page finishes rasterization or OCR. |
+| `completed` | `{"job_id": str, "pages": int, "total_pages": int}` | Emitted when full document finishes processing. |
 | `failed` | `{"job_id": str, "error": str}` | Emitted on unrecoverable processing or server disconnection errors. |
-| `cancelled` | `{"job_id": str, "pages_completed": int}` | Emitted when a job is cooperatively halted. |
+| `cancelled` | `{"job_id": str}` | Emitted when a job is cooperatively halted. |
 | `model_download_progress` | `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during GGUF model file retrieval. |
 | `runtime_download_progress`| `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during llama.cpp archive download/extraction. |
 | `_ping` | `{"timestamp": float}` | Keep-alive heartbeat emitted every 15 seconds. |

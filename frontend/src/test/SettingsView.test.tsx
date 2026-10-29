@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsView } from '../components/SettingsView';
 import { BackendSettings } from '../types';
@@ -493,5 +493,99 @@ describe('SettingsView backend integration and security', () => {
     render(<SettingsView />);
     expect(await screen.findByText('Downloading cudart-llama-bin-win-cuda-12.4-x64.zip...')).toBeInTheDocument();
     expect(screen.getByText('Part 1 of 2')).toBeInTheDocument();
+  });
+
+  it('triggers POST /api/runtime/download when Download Runtime is clicked and updates on SSE progress', async () => {
+    let runtimeStatus = {
+      installed: false,
+      is_downloading: false,
+      active_tag: 'b11361',
+      recommended_backend: 'cuda',
+      executable_path: null,
+      expected_path: 'C:\\runtimes\\llama-server.exe',
+      message: '',
+      bytes_downloaded: 0,
+      total_bytes: 0,
+      percent: 0,
+      error: null,
+    };
+
+    let downloadPostCalled = false;
+    const eventListeners: Record<string, ((e: MessageEvent) => void)[]> = {};
+
+    const mockEventSource = {
+      addEventListener: vi.fn((event: string, cb: (e: MessageEvent) => void) => {
+        if (!eventListeners[event]) eventListeners[event] = [];
+        eventListeners[event].push(cb);
+      }),
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+    };
+    (window as any).__eventSource = mockEventSource;
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/settings')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => mockDefaultSettings,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/status')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => runtimeStatus,
+        } as Response);
+      }
+      if (urlStr.includes('/api/runtime/download') && init?.method === 'POST') {
+        downloadPostCalled = true;
+        runtimeStatus = { ...runtimeStatus, is_downloading: true };
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'started' }),
+        } as Response);
+      }
+      if (urlStr.includes('/api/doctor')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ report: null }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
+    });
+
+    render(<SettingsView />);
+
+    // Wait for Download Runtime button to appear
+    const downloadBtn = await screen.findByRole('button', { name: /download runtime/i });
+    expect(downloadBtn).toBeInTheDocument();
+
+    await userEvent.click(downloadBtn);
+    expect(downloadPostCalled).toBe(true);
+
+    // Simulate runtime_download_progress SSE event
+    const sseHandler = eventListeners['runtime_download_progress']?.[0];
+    expect(sseHandler).toBeDefined();
+
+    if (sseHandler) {
+      act(() => {
+        sseHandler({
+          data: JSON.stringify({
+            is_downloading: true,
+            bytes_downloaded: 5242880,
+            total_bytes: 10485760,
+            percent: 50.0,
+            message: 'Extracting runtime archive...',
+          }),
+        } as MessageEvent);
+      });
+    }
+
+    expect(await screen.findByText('Extracting runtime archive...')).toBeInTheDocument();
+    delete (window as any).__eventSource;
   });
 });

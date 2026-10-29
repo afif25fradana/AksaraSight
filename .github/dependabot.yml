@@ -9,6 +9,9 @@ updates:
       github-actions:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "pip"
     directory: "/"
@@ -41,3 +44,6 @@ updates:
       frontend-dependencies:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"

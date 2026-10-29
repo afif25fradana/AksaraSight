@@ -18,7 +18,7 @@ jobs:
     name: Lint & Code Style
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -52,18 +52,7 @@ jobs:
             if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
               echo "::notice::Static bundle drift detected on Dependabot PR. Bypassing failure since Dependabot does not compile frontend assets."
             elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              # Only auto-sync on main if the merged commit originated from Dependabot
-              if git log -1 --pretty=%an | grep -iq "dependabot" || git log -1 --pretty=%B | grep -iqE "dependabot|bump .+ from .+ to .+"; then
-                echo "::notice::Static bundle drift detected after Dependabot merge. Auto-committing synced bundle..."
-                cd ..
-                git config user.name "github-actions[bot]"
-                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                git add web/static
-                git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
-                git push origin HEAD:main
-              else
-                echo "::notice::Static bundle drift detected on main from developer push (cross-OS minification variance). Skipping auto-commit."
-              fi
+              echo "::notice::Static bundle drift detected on main. Dedicated sync-static-bundle job will manage auto-commit."
             else
               # Pull Request from developer: check whether frontend source was modified without updating web/static
               cd ..
@@ -89,6 +78,41 @@ jobs:
           name: static-bundle-linux
           path: web/static/
 
+  sync-static-bundle:
+    name: Auto-Sync Dependabot Static Bundle
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (github.actor == 'dependabot[bot]' || github.event.head_commit.author.name == 'dependabot[bot]' || contains(github.event.head_commit.author.email, 'dependabot'))
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and auto-commit drifted bundle
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+          if [ -n "$(git status --porcelain web/static)" ]; then
+            echo "::notice::Static bundle drift detected after Dependabot merge. Auto-committing synced bundle..."
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/static
+            git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "::notice::Static bundle is already in sync with dependencies."
+          fi
 
   test-windows:
     name: Windows Python ${{ matrix.python-version }} (Full Test Suite)
@@ -116,7 +140,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run full test suite
-        run: python -m pytest
+        run: python -m pytest --cov --cov-report=term-missing --cov-fail-under=89
 
   test-linux:
     name: Linux Python ${{ matrix.python-version }} (Core & CLI Portability)
@@ -143,4 +167,4 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run test suite
-        run: python -m pytest
+        run: python -m pytest --cov --cov-report=term-missing

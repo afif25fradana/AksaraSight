@@ -1698,3 +1698,58 @@ def test_server_manager_start_port_in_use_preflight_fails(tmp_path):
         finally:
             mgr.shutdown()
 
+
+
+def test_job_object_win32_failure_branches(monkeypatch):
+    """Verify core.job_object handles Win32 API failures and exceptions gracefully."""
+    import core.job_object as jo
+
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+
+        # 1. CreateJobObjectW returns 0/NULL
+        monkeypatch.setattr(k32, "CreateJobObjectW", lambda sec, name: 0)
+        assert jo._create_kill_on_close_job() is None
+
+        # 2. SetInformationJobObject returns False
+        closed = []
+        monkeypatch.setattr(k32, "CreateJobObjectW", lambda sec, name: 1234)
+        monkeypatch.setattr(k32, "SetInformationJobObject", lambda h, info_class, ptr, size: False)
+        monkeypatch.setattr(k32, "CloseHandle", lambda h: closed.append(h) or True)
+        assert jo._create_kill_on_close_job() is None
+        assert 1234 in closed
+
+        # 3. CreateJobObjectW raises unexpected exception
+        def _boom(*args):
+            raise OSError("Access denied")
+        monkeypatch.setattr(k32, "CreateJobObjectW", _boom)
+        assert jo._create_kill_on_close_job() is None
+
+        # 4. AssignProcessToJobObject returns False
+        monkeypatch.setattr(k32, "AssignProcessToJobObject", lambda j, p: False)
+        monkeypatch.setattr(k32, "GetLastError", lambda: 5)
+        assert jo._assign_process_to_job(1234, 5678) is False
+
+        # 5. AssignProcessToJobObject raises unexpected exception
+        monkeypatch.setattr(k32, "AssignProcessToJobObject", _boom)
+        assert jo._assign_process_to_job(1234, 5678) is False
+
+        # 6. CloseHandle raises exception
+        monkeypatch.setattr(k32, "CloseHandle", _boom)
+        jo._close_job_handle(1234)  # Must not raise
+
+
+def test_job_object_non_win32_stubs(monkeypatch):
+    """Verify core.job_object non-win32 fallback stubs."""
+    from pathlib import Path
+    import types
+    mod_code = Path("core/job_object.py").read_text(encoding="utf-8")
+    fake_mod = types.ModuleType("core.job_object_linux")
+    fake_mod.__file__ = "core/job_object.py"
+    with monkeypatch.context() as m:
+        m.setattr(sys, "platform", "linux")
+        exec(compile(mod_code, "core/job_object.py", "exec"), fake_mod.__dict__)
+    assert fake_mod._create_kill_on_close_job() is None
+    assert fake_mod._assign_process_to_job(123, 456) is False
+    fake_mod._close_job_handle(123)

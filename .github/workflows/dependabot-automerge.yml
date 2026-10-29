@@ -20,7 +20,10 @@ jobs:
 
       - name: Enable auto-merge for non-major updates
         if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: |
+          gh pr merge --auto --squash "$PR_URL" || {
+            echo "::warning::Auto-merge could not be enabled (branch protection with required checks may not be active on main)."
+          }
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

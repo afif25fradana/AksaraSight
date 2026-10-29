@@ -6,6 +6,22 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
+### Added
+- **ADR-0011 (Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization)**: Established architectural decisions for Dependabot auto-merge workflows, branch protection status check gates, cross-OS coverage thresholds, and decoupled static bundle compilation.
+- **Frontend Error Recovery & Preview Tests**: Added Vitest test suites for `ErrorBoundary` component recovery and `DocumentPreviewPanel` zoom bounds, pagination, and raster fallback.
+- **Win32 Job Object Failure Branch Tests**: Added unit tests covering Win32 API failure paths (`CreateJobObjectW`, `SetInformationJobObject`, `AssignProcessToJobObject`) and non-Windows stubs in `core/job_object.py`.
+
+### Changed
+- **CI Workflow Security & Job Decoupling**: Downgraded `lint` workflow permissions from `contents: write` to `contents: read` and extracted static asset auto-sync into a separate `sync-static-bundle` job strictly gated on Dependabot push events.
+- **Cross-OS Coverage Calibration**: Enforced cross-OS coverage baseline `fail_under = 86` in `.coveragerc` and explicit `--cov-fail-under=89` on Windows test matrix jobs to account for Win32-specific platform paths.
+- **SSE Lifecycle Contract Synchronization**: Aligned SSE broadcast schemas in `TECHNICAL.md` with runtime payloads, including `total_pages` in `completed` events and verified schema field types for `started` and `page_progress`.
+- **Automatic Hardware Prewarming**: Initiated background hardware detection and pre-warming during application lifespan startup in `web/app.py` when loopback is enabled.
+
+### Fixed
+- **Dependabot GraphQL Auto-Merge Rejection**: Configured GitHub Branch Protection Rules on `main` requiring core status checks with `enforce_admins: false`, enabling native deferred auto-merge for non-major updates.
+- **Auto-Merge Resilience Guard**: Added defensive fallback notice handling in `dependabot-automerge.yml` to prevent unhandled GraphQL API error terminations.
+- **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/test_web_api.py`, ensuring root logger handlers and redirected std streams are deterministically closed and restored.
+
 ---
 
 ## Milestones

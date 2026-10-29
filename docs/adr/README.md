@@ -18,3 +18,4 @@ Each record follows the [Michael Nygard ADR format](https://cognitect.com/blog/2
 | [ADR-0008](0008-real-time-model-lifecycle-streaming-and-view-transition-isolation.md) | Real-Time Model Lifecycle Streaming and CSS View Transition Isolation | 2026-10-21 | Accepted |
 | [ADR-0009](0009-subprocess-proxy-isolation-event-loop-offloading-and-focus-trapping.md) | Subprocess Proxy Isolation, Event Loop Offloading, and Focus Trapping | 2026-10-21 | Accepted |
 | [ADR-0010](0010-core-engine-encapsulation-runtime-path-decoupling-and-concurrency-hardening.md) | Core Engine Encapsulation, Runtime Path Decoupling, and Concurrency Hardening | 2026-10-23 | Accepted |
+| [ADR-0011](0011-automated-maintenance-pipeline-cross-os-coverage-governance-and-ci-bundle-synchronization.md) | Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization | 2026-10-29 | Accepted |

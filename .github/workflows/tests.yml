@@ -140,7 +140,17 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run full test suite
-        run: python -m pytest --cov --cov-report=term-missing --cov-fail-under=89
+        run: python -m pytest --cov --cov-report=term-missing --cov-report=markdown:coverage-windows-${{ matrix.python-version }}.md --cov-fail-under=89
+
+      - name: Publish Coverage Table to Step Summary
+        if: always()
+        shell: pwsh
+        run: |
+          $covFile = "coverage-windows-${{ matrix.python-version }}.md"
+          if (Test-Path $covFile) {
+            "### Windows Python ${{ matrix.python-version }} Coverage Breakdown 📊" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            Get-Content $covFile | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
 
   test-linux:
     name: Linux Python ${{ matrix.python-version }} (Core & CLI Portability)

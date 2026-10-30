@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build & Publish Portable Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Verify Tag matches __version__
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $pyVersion = (python -c "import core.constants; print(core.constants.__version__)").Trim()
+          if ($env:RELEASE_TAG -ne "v$pyVersion") {
+            Write-Error "Release tag mismatch: tag is '$env:RELEASE_TAG', but core.constants.__version__ is '$pyVersion' (expected 'v$pyVersion')"
+            exit 1
+          }
+          Write-Host "Tag $env:RELEASE_TAG matches application version $pyVersion"
+
+      - name: Build portable Windows distribution
+        run: python scripts/build_portable.py
+
+      - name: Verify frozen CLI and headless Web UI server
+        run: python scripts/verify_frozen_build.py
+
+      - name: Verify frozen DOCX export parity
+        run: python scripts/verify_frozen_docx.py
+
+      - name: Compute Checksum & Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          $zipPath = "dist/AksaraSight-$tag-windows-x64.zip"
+          if (-not (Test-Path $zipPath)) {
+            Write-Error "Portable binary archive not found at $zipPath"
+            exit 1
+          }
+          $zipItem = Get-Item $zipPath
+          $zipName = $zipItem.Name
+          $hash = (Get-FileHash -Path $zipItem.FullName -Algorithm SHA256).Hash.ToLower()
+
+          $shaFile = "dist/$zipName.sha256"
+          "$hash  $zipName" | Out-File -FilePath $shaFile -Encoding utf8
+
+          $checksumTable = @'
+          ### Integrity Verification
+          | Archive Asset | SHA-256 Checksum |
+          | :--- | :--- |
+          | `{0}` | `{1}` |
+          '@ -f $zipName, $hash
+
+          gh release create "$tag" `
+            "$zipPath" `
+            "$shaFile" `
+            --title "AksaraSight $tag" `
+            --notes "$checksumTable" `
+            --generate-notes

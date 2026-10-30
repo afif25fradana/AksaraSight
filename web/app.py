@@ -66,7 +66,34 @@ from web.security import LoopbackSecurityMiddleware
 
 logger = logging.getLogger(__name__)
 
-FORBIDDEN_DOWNLOAD_PARAMS = frozenset({"url", "repo", "revision", "filename", "path", "dest"})
+ALLOWED_OUTPUT_EXTS: frozenset[str] = frozenset({".docx", ".md", ".json"})
+
+
+async def _reject_client_download_inputs(request: Request) -> None:
+    """Reject any client-supplied query parameters or non-empty body on pinned download endpoints."""
+    if request.query_params:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client-controlled download targets are strictly prohibited",
+        )
+
+    body_bytes = await request.body()
+    if body_bytes and body_bytes.strip():
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            ) from exc
+
+        if payload != {}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client-controlled download targets are strictly prohibited",
+            )
+
+
 _JOB_ID_REGEX = re.compile(r"^[0-9a-fA-F]{32}$")
 _dialog_lock = asyncio.Lock()
 
@@ -1158,31 +1185,45 @@ def create_app(
     async def open_output_target(body: Optional[OutputOpenRequest] = None) -> Dict[str, Any]:
         """Open output directory or reveal specific export artifact in OS file manager."""
         out_dir = get_output_dir(app).resolve()
-        req_path = body.path if body else None
-        if req_path:
-            p = Path(req_path)
-            if p.is_absolute():
-                target = p.resolve()
-            else:
-                target = (out_dir / p).resolve()
-        else:
-            target = out_dir
+        raw_path = body.path.strip() if body and body.path else None
+        if raw_path:
+            p = Path(raw_path)
+            raw_target = p if p.is_absolute() else (out_dir / p)
+            if raw_target.is_symlink():
+                raise HTTPException(status_code=400, detail="Symlinks are not permitted.")
+            try:
+                candidate = raw_target.resolve()
+                if candidate.is_symlink():
+                    raise HTTPException(status_code=400, detail="Symlinks are not permitted.")
+                if not candidate.is_relative_to(out_dir) or not candidate.exists() or not candidate.is_file():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid target path or target is not a valid output file.",
+                    )
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(status_code=400, detail="Invalid target path.") from exc
 
-        try:
-            if not target.is_relative_to(out_dir) or not target.exists():
-                raise HTTPException(status_code=400, detail="Invalid target path or target does not exist.")
-        except (ValueError, RuntimeError) as exc:
-            raise HTTPException(status_code=400, detail="Invalid target path.") from exc
+            if candidate.suffix.lower() not in ALLOWED_OUTPUT_EXTS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Target file extension '{candidate.suffix}' is not permitted.",
+                )
+            target = candidate
+        else:
+            if not out_dir.exists() or not out_dir.is_dir():
+                raise HTTPException(status_code=400, detail="Output directory does not exist or is not a directory.")
+            target = out_dir
 
         def _launch_os_shell() -> bool:
             if sys.platform == "win32":
                 if target.is_file():
-                    subprocess.run(["explorer.exe", f"/select,{str(target)}"], check=False, timeout=10)
+                    subprocess.run(f'explorer.exe /select,"{target}"', check=False, timeout=10)
                     return True
                 os.startfile(target)
                 return True
             if sys.platform == "darwin":
-                subprocess.run(["open", str(target)], check=False, timeout=10)
+                cmd = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
+                subprocess.run(cmd, check=False, timeout=10)
                 return True
             subprocess.run(["xdg-open", str(target)], check=False, timeout=10)
             return True
@@ -1238,41 +1279,7 @@ def create_app(
     @app.post("/api/model/download", status_code=status.HTTP_202_ACCEPTED)
     async def post_model_download(request: Request) -> Dict[str, Any]:
         """Initiate background download of pinned model weights with SSE progress reporting."""
-        query_keys = {str(k).strip().lower() for k in request.query_params.keys()}
-        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in query_keys):
-            raise HTTPException(
-                status_code=400,
-                detail="Client-controlled download targets are strictly prohibited",
-            )
-
-        body_bytes = await request.body()
-        if body_bytes:
-            try:
-                body_json = json.loads(body_bytes.decode("utf-8"))
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
-
-            if isinstance(body_json, dict):
-                body_keys = {str(k).strip().lower() for k in body_json.keys()}
-                if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in body_keys):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Client-controlled download targets are strictly prohibited",
-                    )
-            elif isinstance(body_json, list):
-                for item in body_json:
-                    if isinstance(item, str) and item.strip().lower() in FORBIDDEN_DOWNLOAD_PARAMS:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Client-controlled download targets are strictly prohibited",
-                        )
-                    elif isinstance(item, dict):
-                        item_keys = {str(k).strip().lower() for k in item.keys()}
-                        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in item_keys):
-                            raise HTTPException(
-                                status_code=400,
-                                detail="Client-controlled download targets are strictly prohibited",
-                            )
+        await _reject_client_download_inputs(request)
 
         downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
         if getattr(downloader, "is_downloading", False):
@@ -1441,41 +1448,7 @@ def create_app(
     @app.post("/api/runtime/download", status_code=status.HTTP_202_ACCEPTED)
     async def post_runtime_download(request: Request) -> Dict[str, Any]:
         """Initiate background download and verification of pinned llama.cpp runtime binary."""
-        query_keys = {str(k).strip().lower() for k in request.query_params.keys()}
-        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in query_keys):
-            raise HTTPException(
-                status_code=400,
-                detail="Client-controlled download targets are strictly prohibited",
-            )
-
-        body_bytes = await request.body()
-        if body_bytes:
-            try:
-                body_json = json.loads(body_bytes.decode("utf-8"))
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
-
-            if isinstance(body_json, dict):
-                body_keys = {str(k).strip().lower() for k in body_json.keys()}
-                if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in body_keys):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Client-controlled download targets are strictly prohibited",
-                    )
-            elif isinstance(body_json, list):
-                for item in body_json:
-                    if isinstance(item, str) and item.strip().lower() in FORBIDDEN_DOWNLOAD_PARAMS:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Client-controlled download targets are strictly prohibited",
-                        )
-                    elif isinstance(item, dict):
-                        item_keys = {str(k).strip().lower() for k in item.keys()}
-                        if any(k in FORBIDDEN_DOWNLOAD_PARAMS for k in item_keys):
-                            raise HTTPException(
-                                status_code=400,
-                                detail="Client-controlled download targets are strictly prohibited",
-                            )
+        await _reject_client_download_inputs(request)
 
         if getattr(app.state, "is_runtime_downloading", False):
             raise HTTPException(

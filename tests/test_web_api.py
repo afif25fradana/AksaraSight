@@ -2541,6 +2541,7 @@ def test_post_model_download_rejects_client_inputs(tmp_path: Path) -> None:
         {"dest": "C:\\Windows\\System32"},
         {"url": ""},
         {"repo": "   "},
+        {"nested": {"url": "http://evil.com"}},
     ]
 
     for payload in forbidden_payloads:
@@ -2553,15 +2554,27 @@ def test_post_model_download_rejects_client_inputs(tmp_path: Path) -> None:
         resp_data = json.loads(body.decode("utf-8"))
         assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
 
-    # Also test query parameter injection
-    status, _, body = client.request(
-        "POST",
-        "/api/model/download",
-        query_string="url=http://evil.com",
-    )
-    assert status == 400
-    resp_data = json.loads(body.decode("utf-8"))
-    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+    # Falsy JSON payloads must be rejected with HTTP 400
+    for falsy_body in [b"[]", b'""', b"false", b"null", b"0"]:
+        status, _, body = client.post(
+            "/api/model/download",
+            headers={"content-type": "application/json"},
+            body=falsy_body,
+        )
+        assert status == 400, f"Expected 400 for falsy body {falsy_body!r}, got {status}"
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+    # Also test query parameter injection (any query parameter is rejected)
+    for q in ["url=http://evil.com", "foo=bar", "repo=custom"]:
+        status, _, body = client.request(
+            "POST",
+            "/api/model/download",
+            query_string=q,
+        )
+        assert status == 400
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
 
 
 def test_post_model_download_starts_and_reports_202(tmp_path: Path) -> None:
@@ -2949,25 +2962,41 @@ def test_post_runtime_download_forbidden_params(tmp_path: Path) -> None:
     app = create_app(upload_dir=tmp_path)
     client = AsgiClient(app)
 
-    # 1. Body forbidden param
-    status, _, body = client.post(
-        "/api/runtime/download",
-        headers={"content-type": "application/json"},
-        body=b'{"url": "http://malicious.example.com/binary.zip"}',
-    )
-    assert status == 400
-    resp_data = json.loads(body.decode("utf-8"))
-    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+    # 1. Body forbidden param (dict, nested dict)
+    for payload in [
+        b'{"url": "http://malicious.example.com/binary.zip"}',
+        b'{"nested": {"dest": "/root"}}',
+    ]:
+        status, _, body = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=payload,
+        )
+        assert status == 400
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
 
-    # 2. Query param forbidden param
-    status, _, body = client.request(
-        "POST",
-        "/api/runtime/download",
-        query_string="path=/etc/shadow",
-    )
-    assert status == 400
-    resp_data = json.loads(body.decode("utf-8"))
-    assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+    # Falsy JSON payloads must be rejected with HTTP 400
+    for falsy_body in [b"[]", b'""', b"false", b"null", b"0"]:
+        status, _, body = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=falsy_body,
+        )
+        assert status == 400
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
+
+    # 2. Query param rejection (any query parameter is rejected)
+    for q in ["path=/etc/shadow", "custom=param", "revision=123"]:
+        status, _, body = client.request(
+            "POST",
+            "/api/runtime/download",
+            query_string=q,
+        )
+        assert status == 400
+        resp_data = json.loads(body.decode("utf-8"))
+        assert "Client-controlled download targets are strictly prohibited" in resp_data["detail"]
 
 
 def test_runtime_download_sse_progress_broadcasting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4131,6 +4160,53 @@ def test_output_open_endpoint_and_security(tmp_path: Path) -> None:
             body=json.dumps({"path": "../outside.txt"}).encode("utf-8"),
         )
         assert status == 400
+
+        # Disallowed file extensions inside out_dir -> 400
+        evil_exe = out_dir / "evil.exe"
+        evil_exe.write_text("fake binary", encoding="utf-8")
+        status, _, body = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "evil.exe"}).encode("utf-8"),
+        )
+        assert status == 400
+        assert "Target file extension '.exe' is not permitted" in json.loads(body.decode("utf-8"))["detail"]
+
+        notes_txt = out_dir / "notes.txt"
+        notes_txt.write_text("notes", encoding="utf-8")
+        status, _, body = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "notes.txt"}).encode("utf-8"),
+        )
+        assert status == 400
+        assert "Target file extension '.txt' is not permitted" in json.loads(body.decode("utf-8"))["detail"]
+
+        # Subdirectory target inside out_dir -> 400 (only files permitted when path is provided)
+        subdir = out_dir / "subdir"
+        subdir.mkdir(exist_ok=True)
+        status, _, _ = client.post(
+            "/api/output/open",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"path": "subdir"}).encode("utf-8"),
+        )
+        assert status == 400
+
+        # Windows Explorer quoting check: verify command string format for paths with spaces
+        spaces_file = out_dir / "sample document with spaces.docx"
+        spaces_file.write_text("spaces", encoding="utf-8")
+        with patch("sys.platform", "win32"), patch("subprocess.run") as mock_sub_run:
+            status, _, _ = client.post(
+                "/api/output/open",
+                headers={"content-type": "application/json"},
+                body=json.dumps({"path": "sample document with spaces.docx"}).encode("utf-8"),
+            )
+            assert status == 200
+            mock_sub_run.assert_called_once_with(
+                f'explorer.exe /select,"{spaces_file.resolve()}"',
+                check=False,
+                timeout=10,
+            )
 
 
 def test_output_delete_endpoint_and_security(tmp_path: Path) -> None:

@@ -79,6 +79,12 @@ class MockOCRHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            content_length = 0
+        if content_length > 0:
+            self.rfile.read(content_length)
         if self.path.endswith("/chat/completions"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -282,6 +288,7 @@ def verify_frozen_docx() -> bool:
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":

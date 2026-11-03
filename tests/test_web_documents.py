@@ -1304,11 +1304,12 @@ def test_get_page_preview_file_not_found_returns_404(tmp_path: Path) -> None:
     )
     app.state.orchestrator.register_job(job)
 
-    with patch("web.app.rasterize_page", side_effect=FileNotFoundError("Target raster file missing")):
-        status, _, body = client.get(f"/api/documents/{job.job_id}/pages/1/preview")
-        assert status == 404
-        data = json.loads(body.decode("utf-8"))
-        assert data["detail"] == "Document file not found"
+    # Calling rasterize_page without mock on non-existent file raises FilePreflightError;
+    # verify web layer translates it to 404 rather than 500
+    status, _, body = client.get(f"/api/documents/{job.job_id}/pages/1/preview")
+    assert status == 404
+    data = json.loads(body.decode("utf-8"))
+    assert data["detail"] == "Document file not found"
 
 
 def test_orchestrator_enqueue_rejects_queued_or_processing(tmp_path: Path) -> None:

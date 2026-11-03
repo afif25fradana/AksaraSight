@@ -469,6 +469,21 @@ def test_output_delete_endpoint_and_security(tmp_path: Path) -> None:
     status, _, _ = client.delete("/api/output/..%2Foutside.txt")
     assert status in (400, 404)
 
+    # Disallowed file extensions -> 400
+    evil_exe = out_dir / "evil.exe"
+    evil_exe.write_text("executable", encoding="utf-8")
+    status, _, body = client.delete("/api/output/evil.exe")
+    assert status == 400
+    assert "Target file extension '.exe' is not permitted" in json.loads(body.decode("utf-8"))["detail"]
+    assert evil_exe.exists()
+
+    notes_txt = out_dir / "notes.txt"
+    notes_txt.write_text("plain text", encoding="utf-8")
+    status, _, body = client.delete("/api/output/notes.txt")
+    assert status == 400
+    assert "Target file extension '.txt' is not permitted" in json.loads(body.decode("utf-8"))["detail"]
+    assert notes_txt.exists()
+
 
 def test_export_json_path_sanitization_avoids_upload_leak(tmp_path: Path) -> None:
     """Verify GET /api/documents/{id}/export?format=json does not leak absolute upload directory."""

@@ -48,7 +48,7 @@ from core.model_manager import (
     get_model_downloader,
 )
 from core.models import OutputFormat, PROMPT_PRESETS
-from core.pipeline import EncryptedDocumentError, OversizedImageError, get_page_count, rasterize_page
+from core.pipeline import EncryptedDocumentError, FilePreflightError, OversizedImageError, get_page_count, rasterize_page
 from core.runtime_manager import (
     _EXE_NAME,
     ensure_runtime,
@@ -424,13 +424,6 @@ def create_app(
         if held_lock is not None:
             _release_instance_lock(held_lock)
             app_instance.state.instance_lock = None
-            if active_upload_dir:
-                lock_path = Path(active_upload_dir) / ".instance.lock"
-                if lock_path.exists():
-                    try:
-                        lock_path.unlink()
-                    except OSError:
-                        pass
 
     app = FastAPI(
         title="AksaraSight Web API",
@@ -520,14 +513,15 @@ def create_app(
             "failed_checks": report.failed_checks,
             "checks": [
                 {
-                    "category": getattr(c, "category", getattr(c, "name", "")),
-                    "title": getattr(c, "title", getattr(c, "name", "")),
+                    "category": getattr(c, "category", None) or getattr(c, "name", ""),
+                    "title": getattr(c, "title", None) or getattr(c, "name", ""),
                     "status": c.status.value if hasattr(c.status, "value") else str(c.status),
-                    "details": getattr(c, "details", getattr(c, "message", None)),
+                    "details": c.details if getattr(c, "details", None) is not None else getattr(c, "message", None),
                     "remediation": getattr(c, "remediation", None),
                 }
                 for c in report.checks
             ],
+            "remediations": getattr(report, "remediations", []),
             "text": report.format_text() if hasattr(report, "format_text") else "",
         }
         app.state.last_doctor_report = report_data
@@ -655,7 +649,7 @@ def create_app(
 
             # Stream live log lines with keepalive ping
             while True:
-                if await request.is_disconnected():
+                if await request.is_disconnected() or app_orchestrator._stop_event.is_set():
                     break
                 try:
                     line = await asyncio.wait_for(queue.get(), timeout=15.0)
@@ -664,6 +658,8 @@ def create_app(
                         data={"line": line, "historical": False},
                     )
                 except (asyncio.TimeoutError, TimeoutError):
+                    if app_orchestrator._stop_event.is_set():
+                        break
                     yield ServerSentEvent(comment="ping")
         finally:
             app_server_manager.remove_log_listener(listener_callback)
@@ -946,7 +942,7 @@ def create_app(
         try:
             png_bytes = await asyncio.to_thread(rasterize_page, job.file_path, page_idx=page_idx)
             return Response(content=png_bytes, media_type="image/png")
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, FilePreflightError) as exc:
             raise HTTPException(status_code=404, detail="Document file not found") from exc
         except OversizedImageError as exc:
             clean_err = sanitize_export_error(str(exc), file_path=job.file_path, base_dir=target_upload_dir) or str(exc)
@@ -1098,7 +1094,7 @@ def create_app(
             filename = f"{stem}.md"
         elif format == "json":
             if job.result:
-                json_str = format_output(job.result, OutputFormat.JSON, sanitize_path=True, base_dir=out_dir)["json"]
+                json_str = format_output(job.result, OutputFormat.JSON, sanitize_path=True, base_dir=target_upload_dir)["json"]
             else:
                 json_str = json.dumps(job.pages_data, indent=2)
             content_bytes = json_str.encode("utf-8")
@@ -1109,8 +1105,22 @@ def create_app(
         saved_to_output = True
         output_write_error: Optional[str] = None
         out_file = out_dir / Path(filename).name
+
+        def _atomic_write(dest: Path, data: bytes) -> None:
+            tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex[:8]}.tmp")
+            try:
+                tmp.write_bytes(data)
+                os.replace(tmp, dest)
+            except Exception:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                raise
+
         try:
-            await asyncio.to_thread(out_file.write_bytes, content_bytes)
+            await asyncio.to_thread(_atomic_write, out_file, content_bytes)
         except Exception as exc:
             saved_to_output = False
             clean_persist_err = (
@@ -1257,12 +1267,23 @@ def create_app(
     async def delete_output_file(filename: str) -> Dict[str, Any]:
         """Delete an exported artifact from the output directory."""
         out_dir = get_output_dir(app).resolve()
-        target = (out_dir / filename).resolve()
+        raw_target = out_dir / filename
+        if raw_target.is_symlink():
+            raise HTTPException(status_code=400, detail="Symlinks are not permitted.")
         try:
+            target = raw_target.resolve()
+            if target.is_symlink():
+                raise HTTPException(status_code=400, detail="Symlinks are not permitted.")
             if not target.is_relative_to(out_dir) or not target.exists() or not target.is_file():
                 raise HTTPException(status_code=400, detail="Invalid filename or file not found.")
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail="Invalid filename.") from exc
+
+        if target.suffix.lower() not in ALLOWED_OUTPUT_EXTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Target file extension '{target.suffix}' is not permitted.",
+            )
 
         try:
             target.unlink()

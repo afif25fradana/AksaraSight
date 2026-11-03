@@ -46,6 +46,9 @@ class DiagnosticCheck:
     status: DiagnosticStatus
     message: str
     details: Optional[str] = None
+    category: Optional[str] = None
+    title: Optional[str] = None
+    remediation: Optional[str] = None
 
 
 @dataclass
@@ -177,6 +180,9 @@ def run_diagnostics(
                     name="Acceleration",
                     status=DiagnosticStatus.PASS,
                     message=f"CUDA 12.4 Compatible{driver_str}",
+                    details=f"CUDA 12.4 Compatible{driver_str}",
+                    category="Hardware",
+                    title="Acceleration / Hardware",
                 )
             )
         else:
@@ -191,6 +197,9 @@ def run_diagnostics(
                     name="Acceleration",
                     status=DiagnosticStatus.WARN,
                     message=f"CUDA Incompatible{reason}",
+                    details=f"CUDA Incompatible{reason}",
+                    category="Hardware",
+                    title="Acceleration / Hardware",
                 )
             )
     elif profile.vulkan_available:
@@ -201,6 +210,9 @@ def run_diagnostics(
                 name="Acceleration",
                 status=DiagnosticStatus.PASS,
                 message=f"Vulkan Compatible{dev_name}",
+                details=f"Vulkan Compatible{dev_name}",
+                category="Hardware",
+                title="Acceleration / Hardware",
             )
         )
     else:
@@ -210,6 +222,9 @@ def run_diagnostics(
                 name="Acceleration",
                 status=DiagnosticStatus.INFO,
                 message="CPU inference only",
+                details="CPU inference only",
+                category="Hardware",
+                title="Acceleration / Hardware",
             )
         )
 

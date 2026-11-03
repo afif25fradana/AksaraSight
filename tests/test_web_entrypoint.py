@@ -50,7 +50,8 @@ def test_startup_sweep_cleans_up_stale_uploads(tmp_path: Path) -> None:
             assert not stale2.exists()
 
     asyncio.run(_run())
-    assert len(list(tmp_path.iterdir())) == 0
+    assert [p.name for p in tmp_path.iterdir() if p.name != ".instance.lock"] == []
+    assert (tmp_path / ".instance.lock").exists()
 
 def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
     """Verify FastAPI lifespan shutdown cleans up tracked files in upload directory."""
@@ -74,8 +75,9 @@ def test_lifespan_cleans_up_upload_scratch(tmp_path: Path) -> None:
 
     asyncio.run(_run_lifespan())
 
-    # On shutdown, tracked files in upload directory must be deleted
-    assert len(list(tmp_path.iterdir())) == 0
+    # On shutdown, tracked files in upload directory must be deleted, retaining advisory .instance.lock
+    assert [p.name for p in tmp_path.iterdir() if p.name != ".instance.lock"] == []
+    assert (tmp_path / ".instance.lock").exists()
 
 def test_concurrent_instance_skips_startup_sweep(tmp_path: Path) -> None:
     """Verify concurrent app instance skips startup sweep when another holds .instance.lock."""
@@ -227,6 +229,47 @@ def test_setup_frozen_logging_idempotency_and_oserror_resilience(
         root_logger.handlers = original_handlers
         root_logger.setLevel(original_level)
         sys.excepthook = original_excepthook
+
+
+def test_frozen_logging_web_and_core_debug_levels(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify _setup_frozen_logging configures web and core loggers at DEBUG and root at INFO."""
+    import logging
+    import uuid
+    from web.__main__ import _setup_frozen_logging
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    web_logger = logging.getLogger("web")
+    core_logger = logging.getLogger("core")
+    orig_web_level = web_logger.level
+    orig_core_level = core_logger.level
+
+    with _isolated_frozen_logging_state():
+        try:
+            log_path = _setup_frozen_logging()
+            assert log_path is not None
+            assert logging.getLogger().level == logging.INFO
+            assert web_logger.level == logging.DEBUG
+            assert core_logger.level == logging.DEBUG
+
+            file_handlers = [
+                h for h in logging.getLogger().handlers
+                if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == str(log_path.resolve())
+            ]
+            assert len(file_handlers) >= 1
+            fh = file_handlers[0]
+            assert fh.level == logging.DEBUG
+
+            test_msg = f"TEST_DEBUG_PROBE_{uuid.uuid4().hex[:8]}"
+            web_logger.debug(test_msg)
+            fh.flush()
+
+            log_content = log_path.read_text(encoding="utf-8")
+            assert test_msg in log_content
+        finally:
+            web_logger.setLevel(orig_web_level)
+            core_logger.setLevel(orig_core_level)
 
 def test_web_entrypoint_is_port_in_use_and_parser():
     """Verify is_port_in_use and build_parser in web.__main__."""

@@ -584,6 +584,54 @@ def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
             assert (runtime_dir / "version.txt").read_bytes() == b"2.0"
 
 
+def test_ensure_runtime_validates_existing_binary_and_redownloads_on_failure(tmp_path: Path) -> None:
+    """Verify ensure_runtime(force=False) validates existing binary and triggers re-download if validation fails."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
+        zip_bytes = _create_test_zip({exe_name: b"binary fixed", "version.txt": b"1.1"})
+        zip_digest = hashlib.sha256(zip_bytes).hexdigest()
+
+        # Seed an existing installation with broken binary
+        runtime_dir = get_runtime_dir("b11361", "cpu")
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        (runtime_dir / exe_name).write_bytes(b"corrupt binary")
+        (runtime_dir / "manifest.json").write_text(json.dumps({"tag": "b11361", "backend": "cpu"}), encoding="utf-8")
+
+        mock_meta = {
+            "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
+                name="llama-b11361-bin-win-cpu-x64.zip",
+                download_url="https://mock/cpu.zip",
+                size=len(zip_bytes),
+                digest=f"sha256:{zip_digest}",
+            )
+        }
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Length": str(len(zip_bytes))}
+        mock_resp.iter_content.return_value = [zip_bytes]
+        mock_resp.__enter__.return_value = mock_resp
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = mock_resp
+
+        validation_calls = []
+
+        def mock_validate(p: Path) -> bool:
+            validation_calls.append(p)
+            if "staging" in str(p):
+                return True
+            return False
+
+        with (
+            patch("core.runtime_manager.fetch_release_assets_metadata", return_value=mock_meta),
+            patch("core.runtime_manager.validate_runtime_binary", side_effect=mock_validate),
+            patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {"llama-b11361-bin-win-cpu-x64.zip": zip_digest}),
+        ):
+            p_result = ensure_runtime(backend="cpu", tag="b11361", session=mock_session, force=False)
+            assert p_result.read_bytes() == b"binary fixed"
+            assert mock_session.get.call_count == 1
+
+
 def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
     """Verify that if binary validation fails, staging directory is wiped and error is raised."""
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):

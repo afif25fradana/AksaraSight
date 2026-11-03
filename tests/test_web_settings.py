@@ -77,6 +77,17 @@ def test_doctor_endpoint_execution_and_schema(tmp_path: Path) -> None:
         assert "status" in first_check
         assert "details" in first_check
         assert "remediation" in first_check
+
+    assert "remediations" in post_data
+    assert isinstance(post_data["remediations"], list)
+    hw_checks = [
+        c for c in post_data["checks"]
+        if "hardware" in c.get("category", "").lower() or "hardware" in c.get("title", "").lower()
+    ]
+    assert len(hw_checks) >= 1
+    hw_c = hw_checks[0]
+    assert hw_c["details"] is not None
+
     assert "text" in post_data
     assert isinstance(post_data["text"], str)
 

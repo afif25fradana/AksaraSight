@@ -540,8 +540,10 @@ def ensure_runtime(
     if not force:
         existing = get_installed_runtime_path(clean_tag, clean_backend)
         if existing is not None:
-            logger.info("Runtime %s-%s already installed at %s", clean_tag, clean_backend, existing)
-            return existing
+            if validate_runtime_binary(existing):
+                logger.info("Runtime %s-%s already installed and verified at %s", clean_tag, clean_backend, existing)
+                return existing
+            logger.warning("Installed runtime at %s failed binary validation; re-downloading...", existing)
 
     runtime_dir = get_runtime_dir(clean_tag, clean_backend)
     base_dir = get_runtime_base_dir()

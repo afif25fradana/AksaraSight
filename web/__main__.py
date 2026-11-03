@@ -29,6 +29,8 @@ def _setup_frozen_logging() -> Optional[Path]:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
+    logging.getLogger("web").setLevel(logging.DEBUG)
+    logging.getLogger("core").setLevel(logging.DEBUG)
 
     # 1. Attach console StreamHandler if sys.stdout is available (before devnull fallback)
     if sys.stdout is not None:

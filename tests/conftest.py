@@ -66,3 +66,15 @@ def isolate_test_output_directory(tmp_path_factory: pytest.TempPathFactory):
         else:
             os.environ.pop("OCR_OUTPUT_DIR", None)
         shutil.rmtree(test_out_dir, ignore_errors=True)
+
+
+@pytest.fixture
+def client(tmp_path: Path):
+    """Provide a synchronous AsgiClient wired to a fresh test app instance."""
+    from web.app import create_app
+    from tests.web_fixtures import AsgiClient
+
+    return AsgiClient(create_app(upload_dir=tmp_path))
+
+
+

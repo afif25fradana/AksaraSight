@@ -245,9 +245,6 @@ def test_settings_endpoint_lifecycle_and_security(tmp_path: Path, monkeypatch: p
         os.environ.update(pre_env)
 
 
-test_settings_api_patch_and_persistence = test_settings_endpoint_lifecycle_and_security
-
-
 def test_dialog_pick_file_endpoint(tmp_path: Path) -> None:
     """Verify POST /api/dialog/file returns picked file path or None."""
     app = create_app(upload_dir=tmp_path)

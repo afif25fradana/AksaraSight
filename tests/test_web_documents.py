@@ -558,8 +558,6 @@ def test_reextraction_resets_run_id_and_progress(tmp_path: Path) -> None:
     # 3. Cancel document
     status, _, _ = client.post(f"/api/documents/{doc_id}/cancel")
     assert status == 200
-    with orchestrator._lock:
-        orchestrator.jobs[doc_id].status = JobStatus.CANCELLED
 
     # 4. Enqueue again (re-extraction)
     status, _, _ = client.post(f"/api/documents/{doc_id}/extract")

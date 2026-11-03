@@ -240,9 +240,6 @@ def test_origin_check_covers_all_methods_with_origin(tmp_path: Path) -> None:
     assert status_head != 403
 
 
-test_origin_check_covers_all_non_safe_methods = test_origin_check_covers_all_methods_with_origin
-
-
 def test_security_headers_present_on_responses(client: AsgiClient) -> None:
     """Verify security headers are injected on all HTTP responses."""
     status, headers, _ = client.get("/health")

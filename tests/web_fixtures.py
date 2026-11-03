@@ -186,7 +186,18 @@ class MockEngine:
             self.process_gate.wait()
 
         if self.failure_mode == "offline":
-            raise ServerOfflineError("Simulated backend disconnect during process")
+            page = PageResult(
+                page_num=1,
+                status=CoreJobStatus.FAILED,
+                error="Simulated backend disconnect during process",
+            )
+            if progress_callback:
+                progress_callback(1, 1, page)
+            res = OCRResult(file_path=str(source), pages=[page])
+            res.aborted = True
+            res.status = CoreJobStatus.FAILED
+            res.error = "Simulated backend disconnect during process"
+            return res
 
         if self.process_delay > 0:
             time.sleep(self.process_delay)
@@ -325,6 +336,9 @@ class MockModelDownloader:
     def download(self) -> bool:
         self.is_downloading = True
         self.download_started.set()
+        if self.cancel_called.is_set():
+            self.is_downloading = False
+            return False
         if self.progress_callback:
             self.progress_callback({
                 "bytes_downloaded": 700000000,
@@ -334,6 +348,10 @@ class MockModelDownloader:
                 "speed": 10485760.0,
                 "is_downloading": True,
             })
+        if self.cancel_called.is_set():
+            self.is_downloading = False
+            return False
+        self.is_downloading = False
         return True
 
     def cancel(self) -> None:
@@ -343,10 +361,14 @@ class MockModelDownloader:
 
 @contextlib.contextmanager
 def _isolated_frozen_logging_state():
-    """Isolate root logger handlers, level, excepthook, and std streams during frozen logging tests."""
+    """Isolate root, web, and core logger handlers, levels, excepthook, and std streams during frozen logging tests."""
     root_logger = logging.getLogger()
+    web_logger = logging.getLogger("web")
+    core_logger = logging.getLogger("core")
     original_handlers = list(root_logger.handlers)
     original_level = root_logger.level
+    orig_web_level = web_logger.level
+    orig_core_level = core_logger.level
     original_excepthook = sys.excepthook
     orig_stdout = sys.stdout
     orig_stderr = sys.stderr
@@ -361,6 +383,8 @@ def _isolated_frozen_logging_state():
                     pass
         root_logger.handlers = original_handlers
         root_logger.setLevel(original_level)
+        web_logger.setLevel(orig_web_level)
+        core_logger.setLevel(orig_core_level)
         sys.excepthook = original_excepthook
         if sys.stdout is not orig_stdout and sys.stdout is not None:
             try:

@@ -1,7 +1,6 @@
 """Headless queue orchestrator for the AksaraSight Web UI."""
 
 import asyncio
-import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import logging

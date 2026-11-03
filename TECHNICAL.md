@@ -51,7 +51,7 @@ AksaraSight/
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── docs/                  # Project documentation and architectural records
-│   ├── adr/               # Architecture Decision Records (ADR-0001 through ADR-0010)
+│   ├── adr/               # Architecture Decision Records (ADR-0001 through ADR-0012)
 │   └── images/            # Documentation screenshots and UI assets
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
 └── tests/                 # Automated test suite (unit, functional, and integration tests)
@@ -69,6 +69,8 @@ Formal engineering decisions, context, trade-offs, and rejected alternatives are
 - **[ADR-0008](docs/adr/0008-real-time-model-lifecycle-streaming-and-view-transition-isolation.md)**: Real-time model lifecycle streaming and CSS view transition isolation.
 - **[ADR-0009](docs/adr/0009-subprocess-proxy-isolation-event-loop-offloading-and-focus-trapping.md)**: Subprocess proxy isolation, event loop offloading, and focus trapping.
 - **[ADR-0010](docs/adr/0010-core-engine-encapsulation-runtime-path-decoupling-and-concurrency-hardening.md)**: Core engine encapsulation, runtime path decoupling, and concurrency hardening.
+- **[ADR-0011](docs/adr/0011-automated-maintenance-pipeline-cross-os-coverage-governance-and-ci-bundle-synchronization.md)**: Automated maintenance pipeline, cross-OS coverage governance, and CI bundle synchronization.
+- **[ADR-0012](docs/adr/0012-concurrency-governance-run-token-queue-isolation-and-wire-contract-synchronization.md)**: Concurrency governance, run-token queue isolation, and wire contract synchronization.
 
 ### Architectural Guarantees & Concurrency
 - **Thread Safety**: `pypdfium2` PDF bindings are not thread-safe; all PDF operations are strictly serialized via `_PDFIUM_LOCK` in `core/pipeline.py`.
@@ -180,10 +182,10 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 ### Model & Runtime Management
 - `GET /api/model/status`: Returns downloaded status and integrity of GLM-OCR model weights.
 - `POST /api/model/download`: Initiates background download of model weights with SHA-256 verification.
-- `POST /api/model/download/cancel`: Cancels an active model download and cleans partial files.
+- `POST /api/model/download/cancel`: Cancels an active model download while retaining partial files for resumable download.
 - `GET /api/runtime/status`: Returns detection and installation status of managed `llama-server` binaries.
 - `POST /api/runtime/download`: Initiates background download and staging of managed llama.cpp runtime archives.
-- `POST /api/runtime/download/cancel`: Cancels an active runtime download.
+- `POST /api/runtime/download/cancel`: Returns notice that managed runtime download runs to completion/error and does not support mid-flight cancellation.
 
 ### Server-Sent Events (SSE) Contract (`GET /api/events`)
 The frontend and external scripts subscribe to real-time events over `GET /api/events`:
@@ -196,9 +198,9 @@ The frontend and external scripts subscribe to real-time events over `GET /api/e
 | `completed` | `{"job_id": str, "pages": int, "total_pages": int}` | Emitted when full document finishes processing. |
 | `failed` | `{"job_id": str, "error": str}` | Emitted on unrecoverable processing or server disconnection errors. |
 | `cancelled` | `{"job_id": str}` | Emitted when a job is cooperatively halted. |
-| `model_download_progress` | `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during GGUF model file retrieval. |
-| `runtime_download_progress`| `{"downloaded_bytes": int, "total_bytes": int, "percent": float}` | Emitted during llama.cpp archive download/extraction. |
-| `_ping` | `{"timestamp": float}` | Keep-alive heartbeat emitted every 15 seconds. |
+| `model_download_progress` | `{"bytes_downloaded": int, "total_bytes": int, "percent": float, "speed": float, "is_downloading": bool, "active_file": Optional[str], "error": Optional[str]}` | Emitted during GGUF model file retrieval. |
+| `runtime_download_progress`| `{"bytes_downloaded": int, "total_bytes": int, "percent": float, "is_downloading": bool, "tag": str, "backend": str, "error": Optional[str]}` | Emitted during llama.cpp archive download/extraction. |
+| `: ping` (comment) | None (raw comment `: ping\n\n`) | Keep-alive heartbeat comment emitted every 15 seconds. |
 
 ---
 

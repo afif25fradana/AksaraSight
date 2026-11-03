@@ -635,3 +635,123 @@ def test_runtime_download_sse_progress_broadcasting(tmp_path: Path, monkeypatch:
     assert "runtime_download_progress" in full_body
     assert "Extracting llama-server" in full_body
     assert "75.0" in full_body
+
+
+def test_model_download_cancelled_and_error_branches(tmp_path: Path) -> None:
+    """Verify background model download branches for cooperative cancellation and runtime errors."""
+    mock_engine = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)
+
+    # 1. Cooperative cancellation branch (downloader returns False)
+    class CancelledMockDownloader(MockModelDownloader):
+        def download(self) -> bool:
+            return False
+
+    dl_cancel = CancelledMockDownloader()
+    app_cancel = create_app(
+        engine=mock_engine,
+        orchestrator=orchestrator,
+        upload_dir=tmp_path,
+        model_downloader=dl_cancel,
+    )
+    client_cancel = AsgiClient(app_cancel)
+
+    try:
+        status, _, _ = client_cancel.post(
+            "/api/model/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+
+        # Poll until worker thread completes and broadcasts cancelled payload
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            st = getattr(app_cancel.state, "last_model_download_status", None)
+            if st and st.get("status") == "cancelled":
+                break
+            time.sleep(0.02)
+
+        st = getattr(app_cancel.state, "last_model_download_status", None)
+        assert st is not None
+        assert st["status"] == "cancelled"
+        assert st["is_downloading"] is False
+        assert st["downloaded"] is False
+        assert st["error"] == "Download cancelled"
+    finally:
+        orchestrator.stop()
+
+    # 2. Error branch (downloader raises unexpected exception)
+    class FailingMockDownloader(MockModelDownloader):
+        def download(self) -> bool:
+            raise RuntimeError("Simulated download disk corruption")
+
+    dl_fail = FailingMockDownloader()
+    orchestrator_fail = WebOrchestrator(engine=mock_engine)
+    app_fail = create_app(
+        engine=mock_engine,
+        orchestrator=orchestrator_fail,
+        upload_dir=tmp_path,
+        model_downloader=dl_fail,
+    )
+    client_fail = AsgiClient(app_fail)
+
+    try:
+        status, _, _ = client_fail.post(
+            "/api/model/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            st = getattr(app_fail.state, "last_model_download_status", None)
+            if st and st.get("status") == "error":
+                break
+            time.sleep(0.02)
+
+        st = getattr(app_fail.state, "last_model_download_status", None)
+        assert st is not None
+        assert st["status"] == "error"
+        assert st["is_downloading"] is False
+        assert "Simulated download disk corruption" in st["error"]
+    finally:
+        orchestrator_fail.stop()
+
+
+def test_runtime_download_error_branch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify background runtime download error branch updates state and resets downloading flag."""
+    mock_engine = MockEngine()
+    orchestrator = WebOrchestrator(engine=mock_engine)
+    app = create_app(engine=mock_engine, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    def mock_failing_ensure_runtime(*args: Any, **kwargs: Any) -> Path:
+        raise RuntimeError("Simulated archive download failure")
+
+    monkeypatch.setattr("web.app.ensure_runtime", mock_failing_ensure_runtime)
+
+    try:
+        status, _, _ = client.post(
+            "/api/runtime/download",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+        )
+        assert status == 202
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            st = getattr(app.state, "last_runtime_download_status", None)
+            if st and st.get("error") is not None:
+                break
+            time.sleep(0.02)
+
+        st = getattr(app.state, "last_runtime_download_status", None)
+        assert st is not None
+        assert st["installed"] is False
+        assert st["is_downloading"] is False
+        assert "Simulated archive download failure" in st["error"]
+        assert getattr(app.state, "is_runtime_downloading", False) is False
+    finally:
+        orchestrator.stop()

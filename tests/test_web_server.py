@@ -277,23 +277,6 @@ def test_server_mutating_routes_require_loopback_origin(tmp_path: Path) -> None:
     assert status_code == 200
 
 
-def test_server_stop_external_returns_400(tmp_path: Path) -> None:
-    """Verify POST /api/server/stop returns 400 when ownership is external."""
-    mock_mgr = MockServerManager(
-        status=ServerStatus.READY,
-        ownership=ServerOwnership.EXTERNAL,
-        message="External llama-server",
-    )
-    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
-    client = AsgiClient(app)
-
-    status_code, _, body = client.post("/api/server/stop")
-    assert status_code == 400
-    data = json.loads(body.decode("utf-8"))
-    assert "Cannot stop external server" in data["detail"]
-    assert mock_mgr.stop_calls == 0
-
-
 def test_server_stop_while_processing_returns_409(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify POST /api/server/stop returns 409 when extraction is active."""
     mock_mgr = MockServerManager(

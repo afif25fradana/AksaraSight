@@ -13,7 +13,7 @@ Accepted
 4. **Race Conditions in Batch Job Cancellation**: In `web/orchestrator.py`, job cancellation checked and updated state without atomic synchronization, allowing a race between an incoming cancel HTTP request and an in-flight worker thread transitioning from RUNNING to COMPLETED.
 5. **Orphaned Subprocess OS Handles on Windows**: In `core/server_manager.py`, terminating child processes did not explicitly close standard stream pipes (`stdout`, `stderr`) or reset job handles, leaving lingering file descriptors and kernel handles.
 6. **DLL Hijacking Attack Surface in Hardware Probe**: In `core/hardware.py`, `ctypes.util.find_library("nvcuda")` or unanchored `ctypes.WinDLL("nvcuda.dll")` searched the current working directory and system PATH, presenting a DLL search-order preloading vulnerability.
-7. **Event Loop Blockage during Artifact Directory Scanning**: In `web/app.py`, `GET /api/jobs/{job_id}/artifacts` performed synchronous filesystem traversal (`os.listdir`) and stat checks directly on the asyncio event loop, causing latency spikes when scanning large directories or network-attached storage.
+7. **Event Loop Blockage during Artifact Directory Scanning**: In `web/app.py`, artifact directory listing (`GET /api/output`) performed synchronous filesystem traversal (`os.listdir`) and stat checks directly on the asyncio event loop, causing latency spikes when scanning large directories or network-attached storage.
 8. **Permissive Mocks and Signature Drift in Test Suite**: In `tests/test_cli.py`, `unittest.mock.patch("cli.main.OCREngine")` without `autospec=True` allowed test assertions to pass even if method names or argument signatures drifted from `OCREngine`'s actual signature.
 
 ## Decision

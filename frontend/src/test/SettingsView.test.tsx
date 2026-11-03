@@ -28,6 +28,18 @@ const mockRuntimeStatus = {
   recommended_backend: 'cpu',
 };
 
+const mockModelStatusResponse = {
+  ok: true,
+  status: 200,
+  json: async () => ({
+    downloaded: true,
+    repo: 'ggml-org/GLM-OCR-GGUF',
+    model_path: 'C:\\models\\model.gguf',
+    mmproj_path: 'C:\\models\\mmproj.gguf',
+    is_downloading: false,
+  }),
+} as Response;
+
 describe('SettingsView backend integration and security', () => {
   const originalFetch = global.fetch;
 
@@ -69,6 +81,9 @@ describe('SettingsView backend integration and security', () => {
           status: 200,
           json: async () => ({ path: 'C:\\tools\\llama-server.exe' }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
@@ -137,6 +152,9 @@ describe('SettingsView backend integration and security', () => {
           status: 404,
           json: async () => ({ report: null }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
@@ -231,6 +249,9 @@ describe('SettingsView backend integration and security', () => {
           status: 404,
           json: async () => ({ report: null }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
@@ -339,6 +360,9 @@ describe('SettingsView backend integration and security', () => {
           json: async () => ({ report: null }),
         } as Response);
       }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
+      }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
 
@@ -390,6 +414,9 @@ describe('SettingsView backend integration and security', () => {
           json: async () => ({ report: null }),
         } as Response);
       }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
+      }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
 
@@ -437,6 +464,9 @@ describe('SettingsView backend integration and security', () => {
           status: 404,
           json: async () => ({ report: null }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
@@ -486,6 +516,9 @@ describe('SettingsView backend integration and security', () => {
           status: 404,
           json: async () => ({ report: null }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
@@ -554,6 +587,9 @@ describe('SettingsView backend integration and security', () => {
           status: 404,
           json: async () => ({ report: null }),
         } as Response);
+      }
+      if (urlStr.includes('/api/model/status')) {
+        return Promise.resolve(mockModelStatusResponse);
       }
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });

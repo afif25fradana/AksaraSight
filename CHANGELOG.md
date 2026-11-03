@@ -6,6 +6,13 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
+---
+
+## Milestones
+
+### v1.3.3: Run-Token Queue Isolation, Client Parameter Snapshotting & Release Automation (November 3, 2026)
+*Focus: Run-token queue isolation, in-flight client configuration snapshotting, fail-closed downloader lifecycles, atomic export sanitization, release workflow automation, and modular test decomposition.*
+
 ### Added
 - **ADR-0011 (Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization)**: Established architectural decisions for Dependabot auto-merge workflows, branch protection status check gates, cross-OS coverage thresholds, and decoupled static bundle compilation.
 - **ADR-0012 (Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization)**: Documented architectural invariants for run-token queue tracking, in-flight client parameter isolation, advisory lock retention on Windows NTFS, and fail-closed downloader lifecycles.
@@ -26,6 +33,8 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Fixed
 - **Queue & Cancellation Races in Web Orchestrator**: Replaced plain string queue tracking with `QueueToken` tuple `(job_id, run_id, cancel_event)` in `web/orchestrator.py`, permitted re-enqueueing during cancelled `PROCESSING`, and guarded `on_progress` updates so dying in-flight page completions cannot corrupt re-enqueued runs.
+- **Worker Execution Parameter Snapshotting**: Isolated execution parameters (`run_dpi`, `run_prompt_mode`, `run_cancel_event`) within the worker lock in `web/orchestrator.py`, guaranteeing that cancelled jobs and subsequent re-enqueued runs maintain complete parameter and cancellation token isolation.
+- **Frozen Windows Entrypoint Multiprocessing Support**: Added `multiprocessing.freeze_support()` at frozen CLI and Web UI entrypoints to prevent spawned helper processes from re-executing `main()`.
 - **Downloader Permanent 409 Deadlock**: Wrapped `ModelDownloader._execute_download()` in a top-level `try...except...finally` block resetting `self.is_downloading = False` under all filesystem or network exceptions.
 - **Server Ownership Drift & Backend Verification Invalidation**: Synchronized `app.state.server_managed = False` when server ownership transitions away from managed mode, and wired `server_manager.on_lifecycle_change = app_engine.invalidate_backend_verification`.
 - **Output Path Leak & Atomic Export Replacement**: Relativized source paths against `target_upload_dir` instead of output directories in JSON exports, wrote exported artifacts atomically via temporary `.tmp` files and `os.replace`, and enforced extension allowlists and symlink rejection on `DELETE /api/output/{filename}`.
@@ -35,10 +44,6 @@ A chronological overview of the development, architecture, security hardening, a
 - **Dependabot GraphQL Auto-Merge Rejection**: Configured GitHub Branch Protection Rules on `main` requiring core status checks with `enforce_admins: false`, enabling native deferred auto-merge for non-major updates.
 - **Dependabot Auto-Merge Fallback**: Added fallback error handling in `dependabot-automerge.yml` to prevent unhandled GraphQL API errors from halting CI runs.
 - **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/web_fixtures.py`, ensuring root and internal loggers and redirected std streams are deterministically closed and restored.
-
----
-
-## Milestones
 
 ### v1.3.2: Deterministic Cleanup, Path Sanitization & API Resilience (October 29, 2026)
 *Focus: Deterministic network and process lifecycle cleanup, local path redaction in exports, event loop offloading, and pre-release stability hardening.*

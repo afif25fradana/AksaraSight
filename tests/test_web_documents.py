@@ -1616,3 +1616,77 @@ def test_cancel_processing_then_reextract_permits_enqueue(tmp_path: Path) -> Non
     finally:
         gate.set()
         orchestrator.stop()
+
+
+def test_cancel_processing_then_immediate_reextract_isolates_run_cancel_tokens(tmp_path: Path) -> None:
+    """Verify that when an active job is cancelled and immediately re-enqueued, Run 1 receives Run 1's set cancel_token."""
+    gate = threading.Event()
+    started = threading.Event()
+    mock_eng = MockEngine(process_gate=gate, processing_started=started)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        # Upload doc
+        png_bytes = _create_sample_png_bytes(50, 50)
+        body, ct = urllib3.encode_multipart_formdata({"file": ("isolate_test.png", png_bytes, "image/png")})
+        status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+        assert status == 200
+        doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+        # Enqueue Run 1 with dpi=100 and prompt_mode="text"
+        status, _, _ = client.post(
+            f"/api/documents/{doc_id}/extract",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"dpi": 100, "prompt_mode": "text"}).encode("utf-8"),
+        )
+        assert status == 202
+
+        # Wait until Run 1 starts processing and pauses at gate
+        assert started.wait(timeout=5.0)
+
+        # Cancel Run 1 while processing
+        status, _, _ = client.post(f"/api/documents/{doc_id}/cancel")
+        assert status == 200
+
+        # Immediately re-extract as Run 2 with dpi=150 and prompt_mode="table"
+        status, _, _ = client.post(
+            f"/api/documents/{doc_id}/extract",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"dpi": 150, "prompt_mode": "table"}).encode("utf-8"),
+        )
+        assert status == 202
+
+        # Release gate so Run 1 finishes and worker can process Run 2
+        gate.set()
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(doc_id)
+            if j and j.status == JobStatus.SUCCESS and len(mock_eng.executed_cancel_tokens) >= 2:
+                break
+            time.sleep(0.05)
+
+        # Verify two executions occurred
+        assert len(mock_eng.executed_cancel_tokens) == 2
+        run1_token = mock_eng.executed_cancel_tokens[0]
+        run2_token = mock_eng.executed_cancel_tokens[1]
+
+        # Run 1 received Run 1's cancel token, which was set upon cancellation
+        assert run1_token is not None
+        assert run1_token.is_set() is True
+
+        # Run 2 received a separate, fresh cancel token that was never cancelled
+        assert run2_token is not None
+        assert run2_token is not run1_token
+
+        # Verify parameter snapshot isolation
+        assert len(mock_eng.executed_configs) == 2
+        assert mock_eng.executed_configs[0].dpi == 100
+        assert mock_eng.executed_configs[0].prompt_mode == "text"
+        assert mock_eng.executed_configs[1].dpi == 150
+        assert mock_eng.executed_configs[1].prompt_mode == "table"
+    finally:
+        gate.set()
+        orchestrator.stop()

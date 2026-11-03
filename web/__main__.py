@@ -3,6 +3,7 @@
 import argparse
 import logging
 from logging.handlers import RotatingFileHandler
+import multiprocessing
 import os
 from pathlib import Path
 import socket
@@ -153,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Parse CLI flags, enforce loopback binding, and run the uvicorn web server."""
+    multiprocessing.freeze_support()
     _setup_frozen_logging()
     parser = build_parser()
     args = parser.parse_args()

@@ -91,7 +91,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     MockEventSource.instances = [];
     global.EventSource = MockEventSource as any;
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
+    globalThis.fetch = window.fetch = vi.fn().mockImplementation((url: string) => {
       const urlStr = String(url);
       if (urlStr.includes('/api/model/status')) {
         return Promise.resolve({
@@ -158,7 +158,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
 
   // Test 1: renders model status from GET /api/model/status and displays downloaded badge
   it('renders model status from GET /api/model/status and displays downloaded badge', async () => {
-    global.fetch = vi.fn().mockImplementation((url: string) => {
+    globalThis.fetch = window.fetch = vi.fn().mockImplementation((url: string) => {
       const urlStr = String(url);
       if (urlStr.includes('/api/model/status')) {
         return Promise.resolve({
@@ -323,7 +323,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
   it('App integration: receives model_download_progress SSE event and updates SettingsView', async () => {
     const user = userEvent.setup();
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
+    globalThis.fetch = window.fetch = vi.fn().mockImplementation((url: string) => {
       const urlStr = String(url);
       if (urlStr === '/api/server/status') {
         return Promise.resolve({
@@ -359,6 +359,18 @@ describe('Model Weights Management UI and Download Workflow', () => {
           ok: true,
           status: 200,
           json: async () => ({ status: 'ok' }),
+        } as Response);
+      }
+      if (urlStr.includes('/api/doctor')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            overall_status: 'ok',
+            checks: [
+              { name: 'Hardware Acceleration', status: 'ok', message: 'NVIDIA RTX 4090' },
+            ],
+          }),
         } as Response);
       }
       if (urlStr.includes('/api/doctor')) {
@@ -487,7 +499,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     const user = userEvent.setup();
     let currentStatus = mockNotDownloadedStatus;
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
+    globalThis.fetch = window.fetch = vi.fn().mockImplementation((url: string) => {
       const urlStr = String(url);
       if (urlStr === '/api/server/status') {
         return Promise.resolve({
@@ -532,6 +544,18 @@ describe('Model Weights Management UI and Download Workflow', () => {
           json: async () => ({ status: 'ok' }),
         } as Response);
       }
+      if (urlStr.includes('/api/doctor')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            overall_status: 'ok',
+            checks: [
+              { name: 'Hardware Acceleration', status: 'ok', message: 'NVIDIA RTX 4090' },
+            ],
+          }),
+        } as Response);
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -564,5 +588,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     });
 
     expect(await screen.findByText(/Downloaded \(Verified Local Weights\)/i)).toBeInTheDocument();
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/doctor'));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/settings'));
   });
 });

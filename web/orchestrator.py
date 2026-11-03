@@ -349,6 +349,13 @@ class WebOrchestrator:
                     continue
 
                 job.status = JobStatus.PROCESSING
+                run_dpi = job.dpi
+                run_prompt_mode = job.prompt_mode
+                run_cancel_event = (
+                    item_cancel_event
+                    if item_cancel_event is not None
+                    else job.cancel_event
+                )
                 self.broadcast(
                     "started",
                     {
@@ -363,7 +370,7 @@ class WebOrchestrator:
                 with self._lock:
                     if (
                         (item_run_id is not None and job.run_id != item_run_id)
-                        or (item_cancel_event is not None and item_cancel_event.is_set())
+                        or (run_cancel_event is not None and run_cancel_event.is_set())
                         or job.cancel_event.is_set()
                     ):
                         return
@@ -398,23 +405,23 @@ class WebOrchestrator:
 
             doc_settings = getattr(self.engine, "settings", None)
             effective_dpi = (
-                job.dpi
-                if job.dpi is not None
+                run_dpi
+                if run_dpi is not None
                 else (getattr(doc_settings, "dpi", 100) if doc_settings is not None else 100)
             )
             if doc_settings is not None:
                 cfg = JobConfig(
                     dpi=effective_dpi,
                     max_image_dimension=getattr(doc_settings, "max_image_dimension", 2048),
-                    prompt_mode=job.prompt_mode,
+                    prompt_mode=run_prompt_mode,
                 )
             else:
-                cfg = JobConfig(dpi=effective_dpi, prompt_mode=job.prompt_mode)
+                cfg = JobConfig(dpi=effective_dpi, prompt_mode=run_prompt_mode)
 
             logger.info(
                 "Executing job %s with prompt_mode '%s' (effective prompt: %r)",
                 job.job_id,
-                job.prompt_mode,
+                run_prompt_mode,
                 cfg.effective_prompt,
             )
 
@@ -422,7 +429,7 @@ class WebOrchestrator:
                 result = self.engine.process_document(
                     source=job.file_path,
                     config=cfg,
-                    cancel_token=job.cancel_event,
+                    cancel_token=run_cancel_event,
                     progress_callback=on_progress,
                 )
                 with self._lock:
@@ -433,7 +440,7 @@ class WebOrchestrator:
                 with self._lock:
                     if item_run_id is None or job.run_id == item_run_id:
                         is_cancelling = (
-                            (item_cancel_event is not None and item_cancel_event.is_set())
+                            (run_cancel_event is not None and run_cancel_event.is_set())
                             or job.cancel_event.is_set()
                         )
                         if not is_cancelling:
@@ -445,7 +452,7 @@ class WebOrchestrator:
                 with self._lock:
                     if item_run_id is None or job.run_id == item_run_id:
                         is_cancelling = (
-                            (item_cancel_event is not None and item_cancel_event.is_set())
+                            (run_cancel_event is not None and run_cancel_event.is_set())
                             or job.cancel_event.is_set()
                         )
                         if not is_cancelling:
@@ -469,7 +476,7 @@ class WebOrchestrator:
                 if item_run_id is not None and job.run_id != item_run_id:
                     continue
                 if (
-                    (item_cancel_event is not None and item_cancel_event.is_set())
+                    (run_cancel_event is not None and run_cancel_event.is_set())
                     or job.cancel_event.is_set()
                     or getattr(result, "status", None) == CoreJobStatus.CANCELLED
                 ):

@@ -170,13 +170,13 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 - `POST /api/documents`: Multipart upload for documents (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`).
 - `GET /api/documents/{job_id}/pages/{page}/preview`: Renders and returns a PNG page image preview.
 - `POST /api/documents/{job_id}/extract`: Enqueues document extraction with request payload `{"prompt_mode": "text"|"table"|"formula", "dpi": 100|150}`.
-- `POST /api/documents/{job_id}/cancel`: Requests cooperative cancellation of an active extraction job.
+- `POST /api/documents/{job_id}/cancel`: Requests cooperative cancellation of an active extraction job (supports optional `?delete_file=true` to delete uploaded file on cancellation).
 - `DELETE /api/documents/{job_id}`: Removes a document from the queue and cleans up cached artifacts.
 
 ### Artifact Export & Output Management
 - `GET /api/documents/{job_id}/export?format=md|json|docx`: Downloads the converted document in the requested format.
 - `GET /api/output`: Lists previously exported files in the designated output folder.
-- `POST /api/output/open`: Opens the output folder in Windows File Explorer.
+- `POST /api/output/open`: Opens the output folder or highlights a specific artifact in Windows File Explorer (optional payload `{"path": "filename.md"}`).
 - `DELETE /api/output/{filename}`: Deletes an exported artifact from the output directory.
 
 ### Model & Runtime Management

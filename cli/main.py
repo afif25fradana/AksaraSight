@@ -2,6 +2,7 @@
 
 import argparse
 import dataclasses
+import multiprocessing
 from pathlib import Path
 import sys
 from typing import List, Optional, Sequence, Set
@@ -367,4 +368,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     sys.exit(main())

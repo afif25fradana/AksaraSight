@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: AksaraSight Version
-      description: What version of AksaraSight are you running? (e.g., 1.3.1, or commit hash)
-      placeholder: "1.3.1"
+      description: What version of AksaraSight are you running? (e.g., 1.3.3, or commit hash)
+      placeholder: "1.3.3"
     validations:
       required: true
 

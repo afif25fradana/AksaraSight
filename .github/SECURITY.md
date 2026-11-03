@@ -8,7 +8,7 @@ Only the latest release on the `main` branch receives security updates.
 
 | Version | Supported |
 |---|---|
-| Latest Release (>= 1.3.1) | :white_check_mark: |
+| Latest Release (>= 1.3.3) | :white_check_mark: |
 | Older releases | :x: |
 
 ---

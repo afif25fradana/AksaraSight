@@ -159,6 +159,7 @@ class MockEngine:
     ) -> None:
         self.failure_mode = failure_mode
         self.last_cancel_token: Optional[threading.Event] = None
+        self.executed_cancel_tokens: list[Optional[threading.Event]] = []
         self.process_delay: float = 0.0
         self.process_gate = process_gate
         self.processing_started = processing_started
@@ -178,6 +179,7 @@ class MockEngine:
         progress_callback: Optional[Any] = None,
     ) -> OCRResult:
         self.last_cancel_token = cancel_token
+        self.executed_cancel_tokens.append(cancel_token)
         self.last_config = config
         self.executed_configs.append(config)
         if self.processing_started:

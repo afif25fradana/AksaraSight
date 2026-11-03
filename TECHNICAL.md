@@ -262,7 +262,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 - **Win32 Job Object Supervision**: On Windows, the managed `llama-server` process runs inside a Win32 Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`. If the Web UI or CLI process is terminated, the OS kernel terminates child server processes automatically.
 - **Cryptographic Verification**: Managed runtime binaries and CUDA support DLLs downloaded from GitHub release assets are verified against pinned SHA-256 digests prior to archive extraction.
 - **Zip-Slip Protection**: Directory extraction asserts canonical path boundaries, rejecting archives containing directory traversal attacks (`../`).
-- **Pixel-Bomb Defense**: Images and PDF pages exceeding 89,478,485 pixels (`MAX_RASTER_PIXELS`) are rejected prior to rasterization to eliminate decompression memory bombs.
+- **Decompression Bomb Protection**: Images and PDF pages exceeding ~89.5 million pixels (`MAX_RASTER_PIXELS`) are rejected before rasterization to prevent memory exhaustion from maliciously crafted files.
 - **Atomic File Writes**: Exports write to `.tmp` files first, renaming them into place atomically to prevent partial writes. The exporter relativizes paths in JSON output to prevent leaking username paths.
 
 ---
@@ -304,7 +304,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
   - `150 DPI` (~3.8 MP): ~5.6s per page. Recommended for dense small-print receipts or low-resolution scans.
   - `72 DPI`: ~1.5s per page. Faster throughput, but may introduce OCR distortion on fine print.
 - **Currency Symbol Delimiter Formatting (`$DIGIT`)**:
-  Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, GLM-OCR's tokenizer may interpret `$` as an inline LaTeX math delimiter, which can occasionally produce token-spaced formatting like `$ 1 0 0 . 0 0`. Financial workflows with mixed formula environments should verify formula and currency spacing in exported documents.
+  Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, GLM-OCR's tokenizer may interpret `$` as an inline LaTeX math delimiter, which can occasionally produce token-spaced formatting like `$ 1 0 0 . 0 0`. If your scans mix math and currency, double-check dollar amounts in the preview before exporting.
 - **Page-Boundary Cancellation**: Active HTTP vision requests cannot be safely terminated mid-transfer without destroying the underlying HTTP connection pool. Cancelling multi-page jobs completes the current in-flight page before gracefully halting.
 
 ---
@@ -321,7 +321,7 @@ When running as a packaged desktop application, runtime logs are written directl
 ### Hardware Pre-Flight & Cold-Start Diagnostics
 GLM-OCR inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 2.2 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
 - **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Web UI (`web/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
-- **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without freezing process supervision.
+- **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without delaying server launch or freezing UI responsiveness.
 - **Diagnostic Recommendations (`--doctor`, `--detect-hardware`)**: Comprehensive system health diagnostics recommend >= 3,000 MB dedicated VRAM to guarantee headroom for OS display compositing. Values between 2,200 MB and 3,000 MB log a non-blocking advisory note while permitting normal server startup.
 
 ---
@@ -334,8 +334,14 @@ The test suite is configured via `pytest.ini` (`testpaths = tests`). All tests a
 Run tests from the repository root:
 
 ```powershell
+# Run backend Python tests (unit, functional, integration)
 pip install -r requirements-dev.txt
 python -m pytest
+
+# Run frontend Vitest test suite
+cd frontend
+npm test
+cd ..
 ```
 
 ### Code Style & Linting

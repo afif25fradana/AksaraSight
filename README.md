@@ -3,9 +3,11 @@
 [![Tests](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml/badge.svg)](https://github.com/afif25fradana/AksaraSight/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-AksaraSight is a local OCR workspace running on your computer. It takes scanned documents, PDFs, receipts, or images and converts them into Markdown, Word documents (.docx), or structured JSON.
+AksaraSight is a local, privacy-first OCR workspace for your desktop. It turns scanned documents, PDFs, receipts, and images into clean Markdown, Word documents (.docx), or structured JSON.
 
-I built this because most modern OCR tools require uploading files to third-party cloud APIs. If you are scanning tax papers, legal contracts, medical records, or personal notes, sending them off to a remote server is often unacceptable. AksaraSight runs entirely offline using the GLM-OCR model and llama.cpp under the hood. There is no cloud fallback. If the local backend is unreachable, it stops instead of quietly routing your files across the internet.
+I built this because almost every modern OCR tool requires uploading files to someone else's cloud. If you are handling tax returns, legal contracts, medical records, or personal notes, sending sensitive files across the internet is a dealbreaker.
+
+AksaraSight runs inference entirely on your computer using GLM-OCR and llama.cpp. Aside from a one-time download of the runtime engine and model weights during first setup, all document processing happens 100% offline. There is no cloud fallback. If the local engine is unreachable, it stops—it will never quietly send your documents anywhere else.
 
 <p align="center">
   <img src="docs/images/webui_workspace_light.png" alt="AksaraSight Web UI Workspace - Archival Light Theme" width="49%">
@@ -14,11 +16,11 @@ I built this because most modern OCR tools require uploading files to third-part
 
 ## What it can do
 
-- **Completely offline**: Everything runs on your machine. Your documents never touch the internet.
+- **100% private document processing**: After a one-time initial download of the model and runtime, all document processing runs locally on your machine. Your files never touch the internet.
 - **Export to Word, Markdown, and JSON**: Generates clean `.docx` files with preserved headings and tables, as well as raw `.md` and `.json`.
-- **Browser-based workspace interface**: Drag and drop single files or folders to queue them up. You can view the original scan side-by-side with the extracted text, formatted preview, and JSON output.
-- **Built-in runtime setup**: You don't need to manually configure llama.cpp or compile CUDA drivers. The app checks your hardware (NVIDIA GPU, Vulkan, or CPU) and downloads the matching build for you.
-- **Command-line interface**: If you prefer terminals or want to script batch conversions, you can use the CLI directly.
+- **Side-by-side workspace**: Drag and drop single files or entire folders. Compare the original scan directly against extracted text, a formatted preview, or structured JSON.
+- **Automatic runtime setup**: No manual llama.cpp configuration or CUDA driver compilation. AksaraSight probes your hardware (NVIDIA GPU, Vulkan, or CPU) and downloads the right build for you.
+- **Scriptable CLI**: Stream Markdown directly to stdout or batch-process entire directories from PowerShell, Command Prompt, or bash.
 
 ## Getting Started
 
@@ -38,7 +40,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 # On Linux / macOS (bash/zsh):
 # source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements.txt
+# Optional: pip install -r requirements-dev.txt (for running automated tests)
 python -m web
 ```
 
@@ -52,7 +55,7 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
 | `python -m web --dev` | Start Web UI in development mode (permits Vite dev server on port 5173) |
 | `python -m cli.main <file>` | Run OCR on a single file, streaming Markdown to stdout |
 | `python -m cli.main <dir> -o <out> -f docx -r` | Batch convert directory recursively to Word (.docx) files |
-| `python -m cli.main --doctor` | Run 5-stage diagnostics check (settings, hardware, runtime, model, API) |
+| `python -m cli.main --doctor` | Run 5-stage diagnostics check (configuration, hardware, runtime, server, vision probe) |
 | `python -m cli.main --detect-hardware` | Probe GPU acceleration and display recommended backend |
 | `python -m pytest` | Run backend test suite (unit, functional, integration) |
 | `cd frontend && npm test` | Run frontend Vitest test suite |
@@ -75,16 +78,19 @@ Open your web browser and navigate to `http://127.0.0.1:8000`.
 4. Click **Start Server** in the navigation bar. Once the status shows `Local Engine Ready`, switch back to **Workspace** and drop a scan or PDF into the drop zone.
 5. Check the result in the preview tabs, then click **Export** to save your files.
 
-## A few things to keep in mind
+## A few practical notes
 
-AksaraSight is a personal open-source project with real-world limitations:
+Before getting started, here are a few practical expectations regarding hardware, speed, and formatting:
 
-- **Hardware and testing**: I built and tested this primarily on my personal laptop (NVIDIA GeForce RTX 3050 6GB Laptop GPU, 16GB RAM). Around 2.2 GB VRAM is recommended for GPU inference; CPU fallback works if you don't have a dedicated GPU, but it is noticeably slower. While the underlying engine includes support for Vulkan as well, I don't own other PCs, laptops, or AMD/Intel graphics cards to test every hardware setup myself. If you run into issues on other hardware, bug reports and feedback are very welcome.
-- **First-launch download requirements**: AksaraSight itself is lightweight, but the first launch requires an internet connection to download the local inference engine and weights: ~1.43 GB for the GLM-OCR model weights (GLM-OCR-Q8_0.gguf ~950 MB + mmproj-GLM-OCR-Q8_0.gguf ~484 MB) and between ~26 MB and ~655 MB for the llama.cpp runtime archives depending on your backend (CPU ~26 MB, Vulkan ~35 MB, CUDA ~655 MB total across llama ~263 MB + cudart ~391 MB). Once downloaded, all processing is 100% offline.
-- **Scan quality and resolution cap**: It handles cleanly printed sheets, forms, and receipts well. Documents and images are automatically normalized and capped to a maximum dimension of 2048px before model inference; this resolution cap has not been exhaustively tested on very high-resolution phone camera photos (e.g., 48MP+ captures). Heavily skewed photos, bad lighting, crumpled paper, or messy handwriting will likely have transcription mistakes.
-- **Speed**: On my laptop with an NVIDIA GPU, processing takes about 2 to 3 seconds per page. On CPU, it works reliably, but it takes noticeably longer.
-- **Dollar signs and currency formatting**: Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, the model may interpret `$` as a LaTeX delimiter, which can occasionally cause token-spaced formatting like `$ 1 0 0 . 0 0`. If you encounter math spacing in financial scans, verify formulas and currency formatting in the preview.
-- **Cancellation**: If you cancel a multi-page job while it is processing, it finishes the current page first so you keep whatever pages were already finished.
+- **Hardware and testing**: I built and tested AksaraSight primarily on my personal laptop (NVIDIA GeForce RTX 3050 6GB Laptop GPU, 16 GB RAM). Dedicated GPU inference requires at least 2.2 GB VRAM (3.0 GB+ recommended for display headroom). CPU fallback works reliably if you don't have a dedicated GPU, but processing takes longer. While the engine also supports Vulkan, I don't own extra test rigs or AMD/Intel graphics cards to verify every hardware combination myself. If you run into quirks on your setup, bug reports and feedback are very welcome!
+- **First-launch download**: The app itself is lightweight, but your initial setup needs an internet connection to download the local engine and model weights:
+  - **GLM-OCR weights**: ~1.43 GB total (`GLM-OCR-Q8_0.gguf` ~950 MB + `mmproj` ~484 MB).
+  - **llama.cpp runtime**: ~26 MB for CPU, ~35 MB for Vulkan, or ~655 MB for NVIDIA CUDA.
+  Once downloaded, you can disconnect from the internet—all document processing runs 100% offline.
+- **Scan quality and image sizing**: Cleanly printed sheets, forms, and receipts work great. Documents are automatically scaled to a 2048px bounding box before inference to protect your system from out-of-memory crashes. Heavily skewed photos, dark shadows, crumpled receipts, or messy handwriting will likely need manual review.
+- **Processing speed**: On my laptop GPU (RTX 3050), pages transcribe in about 2 to 3 seconds each. On CPU, it runs reliably, but expect roughly 15 to 30 seconds per page depending on your processor.
+- **Currency formatting and formulas**: Standard currency amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text and tables. However, in documents that also contain mathematical formulas, the vision model may interpret `$` as a LaTeX math delimiter, producing spaced tokens like `$ 1 0 0 . 0 0`. If your scans mix math and currency, double-check dollar amounts in the preview before exporting.
+- **Cancellation**: If you cancel a multi-page job while it is processing, it finishes the current page first so you keep whatever pages were already completed.
 
 ## Technical documentation
 

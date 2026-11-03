@@ -317,6 +317,8 @@ def create_app(
     )
     app_server_manager = server_manager or ServerManager(settings=app_settings)
     app_model_downloader = model_downloader or get_model_downloader()
+    if hasattr(app_server_manager, "on_lifecycle_change") and hasattr(app_engine, "invalidate_backend_verification"):
+        app_server_manager.on_lifecycle_change = app_engine.invalidate_backend_verification
 
     dev_mode = dev_mode or os.environ.get("AKSARA_WEB_DEV_MODE", "").lower() in ("1", "true")
 
@@ -543,6 +545,8 @@ def create_app(
     async def get_server_status() -> Dict[str, Any]:
         """Return execution and ownership status of backend inference server."""
         info = await asyncio.to_thread(app_server_manager.poll_status)
+        if info.ownership != ServerOwnership.MANAGED:
+            app.state.server_managed = False
         pid = None
         if app_server_manager._process and app_server_manager._process.poll() is None:
             pid = app_server_manager._process.pid
@@ -559,12 +563,15 @@ def create_app(
     @app.post("/api/server/start")
     async def post_server_start() -> Dict[str, Any]:
         """Start managed backend server if offline or stopped."""
-        if app_server_manager.status in (ServerStatus.READY, ServerStatus.STARTING):
+        info = await asyncio.to_thread(app_server_manager.poll_status)
+        if info.ownership != ServerOwnership.MANAGED:
+            app.state.server_managed = False
+        if info.status in (ServerStatus.READY, ServerStatus.STARTING):
             return {
                 "started": False,
-                "message": f"Server is already running ({app_server_manager.ownership.value})",
-                "status": app_server_manager.status.value,
-                "ownership": app_server_manager.ownership.value,
+                "message": f"Server is already running ({info.ownership.value})",
+                "status": info.status.value,
+                "ownership": info.ownership.value,
             }
         if app_orchestrator.is_processing():
             raise HTTPException(
@@ -588,7 +595,9 @@ def create_app(
     @app.post("/api/server/stop")
     async def post_server_stop() -> Dict[str, Any]:
         """Stop managed backend server if running and managed."""
-        info = app_server_manager.get_status_info()
+        info = await asyncio.to_thread(app_server_manager.poll_status)
+        if info.ownership != ServerOwnership.MANAGED:
+            app.state.server_managed = False
         if info.ownership == ServerOwnership.EXTERNAL:
             raise HTTPException(
                 status_code=400,
@@ -770,6 +779,23 @@ def create_app(
             clean_err = sanitize_export_error(str(e)) or str(e)
             raise HTTPException(status_code=400, detail=f"Failed to update settings: {clean_err}") from e
 
+        server_keys = {
+            "backend",
+            "runtime_mode",
+            "managed_backend_override",
+            "llama_server_path",
+            "model_repo",
+            "local_endpoint",
+        }
+        server_config_changed = any(
+            getattr(new_settings, k) != getattr(current_settings, k) for k in server_keys
+        )
+        if server_config_changed and app_orchestrator.is_processing():
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot modify backend server configuration while document processing is actively in progress.",
+            )
+
         try:
             await asyncio.to_thread(new_settings.save_to_env, env_path=getattr(app.state, "env_path", None))
         except Exception as e:
@@ -789,23 +815,14 @@ def create_app(
         server_stopped = False
         if hasattr(app.state, "server_manager") and app.state.server_manager:
             app.state.server_manager.settings = new_settings
-            server_keys = {
-                "backend",
-                "runtime_mode",
-                "managed_backend_override",
-                "llama_server_path",
-                "model_repo",
-                "local_endpoint",
-            }
-            server_config_changed = any(
-                getattr(new_settings, k) != getattr(current_settings, k) for k in server_keys
-            )
             if server_config_changed:
-                info = app.state.server_manager.get_status_info()
+                info = await asyncio.to_thread(app.state.server_manager.poll_status)
+                if info.ownership != ServerOwnership.MANAGED:
+                    app.state.server_managed = False
                 is_running_managed = (
-                    getattr(app.state, "server_managed", False)
-                    or info.ownership == ServerOwnership.MANAGED
-                ) and app.state.server_manager.status in (ServerStatus.READY, ServerStatus.STARTING)
+                    info.ownership == ServerOwnership.MANAGED
+                    and info.status in (ServerStatus.READY, ServerStatus.STARTING)
+                )
                 if is_running_managed:
                     await asyncio.to_thread(app.state.server_manager.stop)
                     app.state.server_managed = False
@@ -1349,11 +1366,26 @@ def create_app(
                     }
                     app.state.last_model_download_status = completed_payload
                     app_orchestrator.broadcast("model_download_progress", completed_payload)
+                else:
+                    cancelled_payload = {
+                        "status": "cancelled",
+                        "repo": PINNED_MODEL_REPO,
+                        "revision": PINNED_MODEL_REVISION,
+                        "downloaded": False,
+                        "is_downloading": False,
+                        "bytes_downloaded": getattr(downloader, "bytes_downloaded", 0),
+                        "total_bytes": TOTAL_MODEL_BYTES,
+                        "percent": getattr(downloader, "get_status", lambda: {})().get("percent", 0.0),
+                        "error": "Download cancelled",
+                    }
+                    app.state.last_model_download_status = cancelled_payload
+                    app_orchestrator.broadcast("model_download_progress", cancelled_payload)
             except Exception as exc:
                 logger.exception("Background model download encountered an error: %s", exc)
                 err_payload = {
                     "status": "error",
                     "progress": 0.0,
+                    "percent": 0.0,
                     "speed": 0.0,
                     "bytes_downloaded": 0,
                     "total_bytes": 0,
@@ -1368,6 +1400,8 @@ def create_app(
             daemon=True,
             name="AksaraSight-ModelDownloadWorker",
         )
+        if hasattr(downloader, "is_downloading"):
+            downloader.is_downloading = True
         thread.start()
 
         return {"started": True, "message": "Model download initiated"}

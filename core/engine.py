@@ -120,6 +120,13 @@ class OCREngine:
             else (getattr(doc_settings, "max_image_dimension", 2048) if doc_settings else 2048)
         )
         effective_max_tokens = getattr(doc_settings, "max_tokens", None) if doc_settings else None
+        effective_endpoint = (
+            resolve_chat_endpoint(doc_settings.local_endpoint)
+            if doc_settings and hasattr(doc_settings, "local_endpoint")
+            else getattr(self.client, "endpoint", None)
+        )
+        effective_timeout = getattr(doc_settings, "timeout", None) if doc_settings else None
+        effective_max_retries = getattr(doc_settings, "max_retries", None) if doc_settings else None
 
         try:
             # Note: ingest() is a generator; validation and pre-flight execute
@@ -155,11 +162,27 @@ class OCREngine:
                     try:
                         if page.image_b64 is None:
                             raise CorruptDocumentError(f"Extracted page {page.page_num} contains no image data")
-                        text, raw_json, latency, truncated = self.client.complete(
-                            image_b64=page.image_b64,
-                            prompt=cfg.effective_prompt,
-                            max_tokens=effective_max_tokens,
-                        )
+                        complete_kwargs = {
+                            "image_b64": page.image_b64,
+                            "prompt": cfg.effective_prompt,
+                            "max_tokens": effective_max_tokens,
+                        }
+                        if effective_endpoint is not None:
+                            complete_kwargs["endpoint"] = effective_endpoint
+                        if effective_timeout is not None:
+                            complete_kwargs["timeout"] = effective_timeout
+                        if effective_max_retries is not None:
+                            complete_kwargs["max_retries"] = effective_max_retries
+
+                        try:
+                            text, raw_json, latency, truncated = self.client.complete(**complete_kwargs)
+                        except TypeError:
+                            # Fallback for custom mock clients that do not accept endpoint/timeout kwargs
+                            text, raw_json, latency, truncated = self.client.complete(
+                                image_b64=page.image_b64,
+                                prompt=cfg.effective_prompt,
+                                max_tokens=effective_max_tokens,
+                            )
                         page_res = PageResult(
                             page_num=page.page_num,
                             markdown=text,

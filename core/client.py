@@ -134,6 +134,9 @@ class VisionClient:
         model: str = "glm-ocr",
         max_tokens: Optional[int] = None,
         temperature: float = 0.0,
+        endpoint: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
     ) -> Tuple[str, Dict[str, Any], float, bool]:
         """Send a single page image and prompt to the local vision backend.
 
@@ -144,6 +147,9 @@ class VisionClient:
             max_tokens: Maximum tokens to generate (defaults to settings.max_tokens,
                 justified by GLM-OCR 128k context and page density).
             temperature: Sampling temperature (default: 0.0 for deterministic OCR).
+            endpoint: Optional per-request endpoint override (defaults to self.endpoint).
+            timeout: Optional per-request timeout override (defaults to settings.timeout).
+            max_retries: Optional per-request retry override (defaults to settings.max_retries).
 
         Returns:
             Tuple[str, Dict[str, Any], float, bool]:
@@ -154,7 +160,7 @@ class VisionClient:
 
         Raises:
             ServerOfflineError: If connection to the local backend fails (fail-fast).
-            ServerTimeoutError: If the request exceeds settings.timeout.
+            ServerTimeoutError: If the request exceeds timeout.
             BadRequestError: If backend responds with HTTP 400 (malformed payload).
             ServerError: If backend returns 5xx or 429 after retries are exhausted.
             ResponseParsingError: If backend returns invalid JSON or schema violations.
@@ -162,6 +168,10 @@ class VisionClient:
         effective_max_tokens = (
             max_tokens if max_tokens is not None else getattr(self.settings, "max_tokens", 4096)
         )
+        eff_endpoint = endpoint or self.endpoint
+        eff_timeout = timeout if timeout is not None else self.settings.timeout
+        eff_retries = max(0, max_retries if max_retries is not None else self.settings.max_retries)
+
         payload = {
             "model": model,
             "messages": [
@@ -179,28 +189,27 @@ class VisionClient:
         }
 
         headers = {"Content-Type": "application/json"}
-        max_retries = max(0, self.settings.max_retries)
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(eff_retries + 1):
             start_time = time.perf_counter()
             try:
                 response = self._session.post(
-                    self.endpoint,
+                    eff_endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=self.settings.timeout,
+                    timeout=eff_timeout,
                 )
             except requests.exceptions.Timeout as exc:
                 raise ServerTimeoutError(
-                    f"Request to '{self.endpoint}' timed out after {self.settings.timeout:.1f}s."
+                    f"Request to '{eff_endpoint}' timed out after {eff_timeout:.1f}s."
                 ) from exc
             except requests.exceptions.ConnectionError as exc:
                 raise ServerOfflineError(
-                    f"Cannot connect to local backend at '{self.endpoint}'. "
+                    f"Cannot connect to local backend at '{eff_endpoint}'. "
                     "Ensure llama-server or Ollama is running."
                 ) from exc
             except requests.exceptions.RequestException as exc:
-                raise ClientError(f"HTTP request to '{self.endpoint}' failed: {exc}") from exc
+                raise ClientError(f"HTTP request to '{eff_endpoint}' failed: {exc}") from exc
 
             latency = time.perf_counter() - start_time
 
@@ -217,7 +226,7 @@ class VisionClient:
 
             # Retryable server errors
             if response.status_code in RETRYABLE_STATUS_CODES:
-                if attempt < max_retries:
+                if attempt < eff_retries:
                     # Full-jitter exponential backoff: sleep in [0, backoff_factor * 2^attempt]
                     max_sleep = self.backoff_factor * (2 ** attempt)
                     sleep_time = random.uniform(0, max_sleep)

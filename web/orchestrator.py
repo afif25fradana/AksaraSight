@@ -208,22 +208,31 @@ class WebOrchestrator:
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(f"Job '{job_id}' not found")
-            if job.status in (JobStatus.PROCESSING, JobStatus.QUEUED):
+            if job.status == JobStatus.QUEUED:
                 raise RuntimeError(
-                    f"Job '{job_id}' is already {job.status.value.lower()}"
+                    f"Job '{job_id}' is already queued"
                 )
+            if job.status == JobStatus.PROCESSING:
+                if not job.cancel_event.is_set():
+                    raise RuntimeError(
+                        f"Job '{job_id}' is already processing"
+                    )
+
+            run_id = uuid.uuid4().hex[:8]
+            cancel_event = threading.Event()
+            token = (job_id, run_id, cancel_event)
             try:
-                self._queue.put_nowait(job_id)
+                self._queue.put_nowait(token)
             except queue.Full as exc:
                 raise queue.Full(
                     f"Processing queue is full (max {self._queue.maxsize} jobs)"
                 ) from exc
             job.prompt_mode = prompt_mode
             job.dpi = dpi
-            job.run_id = uuid.uuid4().hex[:8]
+            job.run_id = run_id
             job.pages_data.clear()
             job.current_page = 0
-            job.cancel_event = threading.Event()
+            job.cancel_event = cancel_event
             job.error = None
             job.result = None
             job.status = JobStatus.QUEUED
@@ -237,7 +246,7 @@ class WebOrchestrator:
             if not job:
                 return False
             job.cancel_event.set()
-            if job.status in (JobStatus.QUEUED, JobStatus.UPLOADED):
+            if job.status in (JobStatus.QUEUED, JobStatus.UPLOADED, JobStatus.PROCESSING):
                 job.status = JobStatus.CANCELLED
                 self.broadcast("cancelled", {"job_id": job.job_id})
         self._prune_terminal_jobs()
@@ -309,24 +318,35 @@ class WebOrchestrator:
         """Background thread executing queued jobs sequentially."""
         while not self._stop_event.is_set():
             try:
-                job_id = self._queue.get()
+                raw_item = self._queue.get()
             except Exception as exc:
                 if self._stop_event.is_set():
                     break
                 logger.exception("Unexpected exception retrieving job from queue: %s", exc)
                 continue
 
-            if self._stop_event.is_set() or not job_id:
+            if self._stop_event.is_set() or not raw_item:
                 break
+
+            if isinstance(raw_item, tuple):
+                job_id, item_run_id, item_cancel_event = raw_item
+            else:
+                job_id = raw_item
+                item_run_id = None
+                item_cancel_event = None
 
             with self._lock:
                 job = self.jobs.get(job_id)
                 if not job:
                     continue
 
-                if job.cancel_event.is_set():
-                    job.status = JobStatus.CANCELLED
-                    self.broadcast("cancelled", {"job_id": job.job_id})
+                if item_run_id is not None and job.run_id != item_run_id:
+                    continue
+
+                if (item_cancel_event is not None and item_cancel_event.is_set()) or job.cancel_event.is_set():
+                    if job.status != JobStatus.CANCELLED:
+                        job.status = JobStatus.CANCELLED
+                        self.broadcast("cancelled", {"job_id": job.job_id})
                     continue
 
                 job.status = JobStatus.PROCESSING
@@ -341,16 +361,22 @@ class WebOrchestrator:
                 )
 
             def on_progress(page_num: int, total_pages: int, page_res: PageResult) -> None:
-                tokens = 0
-                if page_res.raw_json and isinstance(page_res.raw_json, dict):
-                    usage = page_res.raw_json.get("usage", {})
-                    if isinstance(usage, dict):
-                        tokens = usage.get("total_tokens", 0)
-                text = page_res.markdown or ""
-                latency = getattr(page_res, "latency", 0.0)
-                truncated = getattr(page_res, "truncated", False)
-
                 with self._lock:
+                    if (
+                        (item_run_id is not None and job.run_id != item_run_id)
+                        or (item_cancel_event is not None and item_cancel_event.is_set())
+                        or job.cancel_event.is_set()
+                    ):
+                        return
+                    tokens = 0
+                    if page_res.raw_json and isinstance(page_res.raw_json, dict):
+                        usage = page_res.raw_json.get("usage", {})
+                        if isinstance(usage, dict):
+                            tokens = usage.get("total_tokens", 0)
+                    text = page_res.markdown or ""
+                    latency = getattr(page_res, "latency", 0.0)
+                    truncated = getattr(page_res, "truncated", False)
+
                     job.current_page = page_num
                     job.pages_data[page_num] = {
                         "text": text,
@@ -378,7 +404,6 @@ class WebOrchestrator:
                 else (getattr(doc_settings, "dpi", 100) if doc_settings is not None else 100)
             )
             if doc_settings is not None:
-                doc_settings = copy.deepcopy(doc_settings)
                 cfg = JobConfig(
                     dpi=effective_dpi,
                     max_image_dimension=getattr(doc_settings, "max_image_dimension", 2048),
@@ -402,20 +427,35 @@ class WebOrchestrator:
                     progress_callback=on_progress,
                 )
                 with self._lock:
-                    job.result = result
+                    if item_run_id is None or job.run_id == item_run_id:
+                        job.result = result
             except ServerOfflineError as e:
                 result = None
                 with self._lock:
-                    job.status = JobStatus.FAILED
-                    job.error = str(e)
+                    if item_run_id is None or job.run_id == item_run_id:
+                        is_cancelling = (
+                            (item_cancel_event is not None and item_cancel_event.is_set())
+                            or job.cancel_event.is_set()
+                        )
+                        if not is_cancelling:
+                            job.status = JobStatus.FAILED
+                            job.error = str(e)
             except Exception as e:
                 logger.exception("Unexpected error processing job %s", job.job_id)
                 result = None
                 with self._lock:
-                    job.status = JobStatus.FAILED
-                    job.error = str(e)
+                    if item_run_id is None or job.run_id == item_run_id:
+                        is_cancelling = (
+                            (item_cancel_event is not None and item_cancel_event.is_set())
+                            or job.cancel_event.is_set()
+                        )
+                        if not is_cancelling:
+                            job.status = JobStatus.FAILED
+                            job.error = str(e)
 
             with self._lock:
+                if item_run_id is not None and job.run_id != item_run_id:
+                    continue
                 is_removed = job.job_id not in self.jobs
 
             if is_removed:
@@ -427,11 +467,18 @@ class WebOrchestrator:
                 continue
 
             with self._lock:
-                if result is None:
+                if item_run_id is not None and job.run_id != item_run_id:
+                    continue
+                if (
+                    (item_cancel_event is not None and item_cancel_event.is_set())
+                    or job.cancel_event.is_set()
+                    or getattr(result, "status", None) == CoreJobStatus.CANCELLED
+                ):
+                    if job.status != JobStatus.CANCELLED:
+                        job.status = JobStatus.CANCELLED
+                        self.broadcast("cancelled", {"job_id": job.job_id})
+                elif result is None:
                     self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
-                elif job.cancel_event.is_set() or getattr(result, "status", None) == CoreJobStatus.CANCELLED:
-                    job.status = JobStatus.CANCELLED
-                    self.broadcast("cancelled", {"job_id": job.job_id})
                 elif (
                     getattr(result, "status", None) == CoreJobStatus.FAILED
                     or getattr(result, "aborted", False)

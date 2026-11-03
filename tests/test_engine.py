@@ -621,3 +621,31 @@ def test_engine_reconfigure() -> None:
 
 
 
+
+
+def test_process_document_in_flight_config_isolation(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Verify that in-flight document processing completes with snapshotted client config despite engine reconfigure."""
+    initial_settings = Settings(timeout=15.0, local_endpoint="http://127.0.0.1:8080/v1")
+    engine = OCREngine(settings=initial_settings, client=mock_client)
+    
+    reconfigured_settings = Settings(timeout=99.0, local_endpoint="http://127.0.0.1:9999/v1")
+
+    call_kwargs_history = []
+
+    def complete_side_effect(*args, **kwargs):
+        call_kwargs_history.append(kwargs)
+        # Reconfigure engine mid-document between pages
+        engine.reconfigure(reconfigured_settings)
+        return ("# Page Text", load_real_glm_ocr_response(content="# Page Text", cmpl_id="cmpl-1"), 0.1, False)
+
+    mock_client.complete.side_effect = complete_side_effect
+
+    result = engine.process_document(sample_pdf_path)
+    assert result.status == JobStatus.SUCCESS
+    assert len(call_kwargs_history) == 3
+
+    # In bug condition, complete() was called without endpoint/timeout kwargs, dynamically reading mutable client
+    # In fixed condition, each complete() call explicitly receives snapshotted endpoint and timeout
+    for call_kw in call_kwargs_history:
+        assert call_kw.get("endpoint") == "http://127.0.0.1:8080/v1/chat/completions"
+        assert call_kw.get("timeout") == 15.0

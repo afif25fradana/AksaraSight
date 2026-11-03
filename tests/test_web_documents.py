@@ -1507,3 +1507,113 @@ def test_get_page_preview_oversized_image_returns_422(tmp_path: Path) -> None:
         data = json.loads(body.decode("utf-8"))
         assert "Page dimensions exceed preview limit" in data["detail"]
         assert str(file_path) not in data["detail"]
+
+
+def test_cancel_queued_then_reextract_no_duplicate_execution(tmp_path: Path) -> None:
+    """Verify that cancelling a QUEUED job and immediately re-extracting executes exactly once."""
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        # Upload doc 1 (blocking job that holds worker at gate)
+        png_bytes = _create_sample_png_bytes(50, 50)
+        body, ct = urllib3.encode_multipart_formdata({"file": ("doc1.png", png_bytes, "image/png")})
+        status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+        assert status == 200
+        doc1_id = json.loads(resp.decode("utf-8"))["id"]
+
+        # Upload doc 2 (target job to be queued, cancelled, and re-extracted)
+        body, ct = urllib3.encode_multipart_formdata({"file": ("doc2.png", png_bytes, "image/png")})
+        status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+        assert status == 200
+        doc2_id = json.loads(resp.decode("utf-8"))["id"]
+
+        # Enqueue doc 1 -> enters PROCESSING and holds at gate
+        status, _, _ = client.post(f"/api/documents/{doc1_id}/extract")
+        assert status == 202
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j1 = orchestrator.get_job(doc1_id)
+            if j1 and j1.status == JobStatus.PROCESSING:
+                break
+            time.sleep(0.02)
+        assert orchestrator.get_job(doc1_id).status == JobStatus.PROCESSING
+
+        # Enqueue doc 2 -> queued behind doc 1
+        status, _, _ = client.post(f"/api/documents/{doc2_id}/extract")
+        assert status == 202
+        assert orchestrator.get_job(doc2_id).status == JobStatus.QUEUED
+
+        # Cancel doc 2 while QUEUED in queue
+        status, _, _ = client.post(f"/api/documents/{doc2_id}/cancel")
+        assert status == 200
+        assert orchestrator.get_job(doc2_id).status == JobStatus.CANCELLED
+
+        # Immediately re-extract doc 2
+        status, _, _ = client.post(f"/api/documents/{doc2_id}/extract")
+        assert status == 202
+
+        # Release gate for doc 1 to finish, allowing worker to process doc 2's queue entries
+        gate.set()
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j2 = orchestrator.get_job(doc2_id)
+            if j2 and j2.status == JobStatus.SUCCESS:
+                break
+            time.sleep(0.05)
+
+        assert orchestrator.get_job(doc2_id).status == JobStatus.SUCCESS
+        # Total executions: doc 1 (1) + doc 2 (1) = 2.
+        # In bug condition, doc 2 ran twice (total = 3).
+        # In fixed condition, doc 2 ran exactly once (total = 2).
+        assert len(mock_eng.executed_configs) == 2
+    finally:
+        gate.set()
+        orchestrator.stop()
+
+
+def test_cancel_processing_then_reextract_permits_enqueue(tmp_path: Path) -> None:
+    """Verify that cancelling an active PROCESSING job allows immediate re-extraction without 409 Conflict."""
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    try:
+        # Upload doc
+        png_bytes = _create_sample_png_bytes(50, 50)
+        body, ct = urllib3.encode_multipart_formdata({"file": ("doc.png", png_bytes, "image/png")})
+        status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+        assert status == 200
+        doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+        # Enqueue doc
+        status, _, _ = client.post(f"/api/documents/{doc_id}/extract")
+        assert status == 202
+
+        # Wait until job enters PROCESSING and pauses at gate
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(doc_id)
+            if j and j.status == JobStatus.PROCESSING:
+                break
+            time.sleep(0.02)
+        assert orchestrator.get_job(doc_id).status == JobStatus.PROCESSING
+
+        # Cancel document
+        status, _, _ = client.post(f"/api/documents/{doc_id}/cancel")
+        assert status == 200
+
+        # Immediately call extract without manually cheating status = CANCELLED
+        status, _, body = client.post(f"/api/documents/{doc_id}/extract")
+        # In bug condition, status is 409 Conflict ("Job is already processing")
+        # In fixed condition, status must be 202 Accepted
+        assert status == 202
+    finally:
+        gate.set()
+        orchestrator.stop()

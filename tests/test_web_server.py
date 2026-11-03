@@ -983,3 +983,74 @@ def test_queued_job_fails_cleanly_when_server_stopped_before_execution(tmp_path:
         assert "Local server is offline" in (docs[0].get("statusNote") or "")
     finally:
         orchestrator.stop()
+
+
+def test_server_managed_sync_on_crash(tmp_path: Path) -> None:
+    """Verify GET /api/server/status syncs app.state.server_managed to False when process has crashed."""
+    mock_mgr = MockServerManager()
+    mock_mgr._status = ServerStatus.OFFLINE
+    mock_mgr._ownership = ServerOwnership.NONE
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+    # Stale state: previously considered managed by web
+    app.state.server_managed = True
+    client = AsgiClient(app)
+
+    status_code, _, body = client.get("/api/server/status")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["status"] == "OFFLINE"
+    assert data["ownership"] == "NONE"
+    # In bug condition, managed_by_web is True because app.state.server_managed was never updated by poll_status()
+    # In fixed condition, managed_by_web must be False
+    assert data["managed_by_web"] is False
+    assert app.state.server_managed is False
+
+
+def test_patch_settings_scoped_409_guard(tmp_path: Path) -> None:
+    """Verify PATCH /api/settings returns 409 for server setting mutations during processing, but 200 for non-server settings."""
+    gate = threading.Event()
+    mock_eng = MockEngine(process_gate=gate)
+    orchestrator = WebOrchestrator(engine=mock_eng)
+    app = create_app(engine=mock_eng, orchestrator=orchestrator, upload_dir=tmp_path, env_path=tmp_path / ".env")
+    client = AsgiClient(app)
+
+    try:
+        # Upload & enqueue
+        png_bytes = _create_sample_png_bytes(50, 50)
+        body, ct = urllib3.encode_multipart_formdata({"file": ("doc.png", png_bytes, "image/png")})
+        status, _, resp = client.post("/api/documents", headers={"content-type": ct}, body=body)
+        assert status == 200
+        doc_id = json.loads(resp.decode("utf-8"))["id"]
+
+        status, _, _ = client.post(f"/api/documents/{doc_id}/extract")
+        assert status == 202
+
+        # Wait until processing
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job(doc_id)
+            if j and j.status == JobStatus.PROCESSING:
+                break
+            time.sleep(0.02)
+        assert orchestrator.is_processing() is True
+
+        # 1. Non-server settings mutation mid-flight -> HTTP 200 OK
+        status, _, body = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"timeout": 45.0, "dpi": 200}).encode("utf-8"),
+        )
+        assert status == 200
+
+        # 2. Server setting mutation mid-flight -> HTTP 409 Conflict
+        status, _, body = client.patch(
+            "/api/settings",
+            headers={"content-type": "application/json"},
+            body=json.dumps({"local_endpoint": "http://127.0.0.1:9999/v1"}).encode("utf-8"),
+        )
+        # In bug condition, status is 200 OK (server mutated mid-flight)
+        # In fixed condition, status must be 409 Conflict
+        assert status == 409
+    finally:
+        gate.set()
+        orchestrator.stop()

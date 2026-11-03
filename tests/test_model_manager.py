@@ -444,3 +444,24 @@ def test_model_downloader_default_session_has_trust_env_false() -> None:
     downloader = ModelDownloader()
     assert downloader.session is not None
     assert downloader.session.trust_env is False
+
+
+def test_model_downloader_resets_is_downloading_on_disk_error(tmp_path: Path) -> None:
+    """Verify that an unexpected disk I/O error outside the streaming block resets is_downloading to False."""
+    downloader = ModelDownloader(dest_dir=tmp_path / "models")
+    
+    # Simulate a PermissionError (e.g. Windows WinError 32) when unlinking/verifying destination file
+    with patch("core.model_manager._compute_sha256", side_effect=PermissionError(32, "File in use")):
+        # Create dummy file so _compute_sha256 gets called
+        spec = PINNED_MODEL_FILES["model"]
+        dest_file = downloader.dest_dir / spec["filename"]
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        dest_file.write_bytes(b"0" * spec["size_bytes"])
+        
+        with pytest.raises(PermissionError):
+            downloader.download()
+            
+        # In bug condition, is_downloading stays True permanently!
+        # In fixed condition, is_downloading must be False.
+        assert downloader.is_downloading is False
+        assert downloader.error_message is not None

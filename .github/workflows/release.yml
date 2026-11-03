@@ -22,6 +22,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend static bundle
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
         with:
@@ -73,19 +86,36 @@ jobs:
           $zipName = $zipItem.Name
           $hash = (Get-FileHash -Path $zipItem.FullName -Algorithm SHA256).Hash.ToLower()
 
+          # 1. Generate clean LF SHA256 file without UTF-8 BOM
           $shaFile = "dist/$zipName.sha256"
-          "$hash  $zipName" | Out-File -FilePath $shaFile -Encoding utf8
+          [System.IO.File]::WriteAllText($shaFile, "$hash  $zipName`n", [System.Text.UTF8Encoding]::new($false))
 
-          $checksumTable = @'
-          ### Integrity Verification
-          | Archive Asset | SHA-256 Checksum |
-          | :--- | :--- |
-          | `{0}` | `{1}` |
-          '@ -f $zipName, $hash
+          # 2. Write Markdown release notes table to temporary file
+          $notesFile = "dist/release-notes.md"
+          $notesLines = @(
+            "### Integrity Verification"
+            "| Archive Asset | SHA-256 Checksum |"
+            "| :--- | :--- |"
+            ('| `{0}` | `{1}` |' -f $zipName, $hash)
+          )
+          [System.IO.File]::WriteAllLines($notesFile, $notesLines, [System.Text.UTF8Encoding]::new($false))
 
-          gh release create "$tag" `
-            "$zipPath" `
-            "$shaFile" `
-            --title "AksaraSight $tag" `
-            --notes "$checksumTable" `
-            --generate-notes
+          # 3. Publish release or update assets idempotently
+          $releaseExists = $false
+          gh release view "$tag" > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            $releaseExists = $true
+          }
+
+          if ($releaseExists) {
+            Write-Host "Release $tag already exists; updating assets with --clobber..."
+            gh release upload "$tag" "$zipPath" "$shaFile" --clobber
+          } else {
+            Write-Host "Creating release $tag..."
+            gh release create "$tag" `
+              "$zipPath" `
+              "$shaFile" `
+              --title "AksaraSight $tag" `
+              --notes-file "$notesFile" `
+              --generate-notes
+          }

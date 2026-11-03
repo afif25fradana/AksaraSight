@@ -8,19 +8,33 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Added
 - **ADR-0011 (Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization)**: Established architectural decisions for Dependabot auto-merge workflows, branch protection status check gates, cross-OS coverage thresholds, and decoupled static bundle compilation.
+- **ADR-0012 (Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization)**: Documented architectural invariants for run-token queue tracking, in-flight client parameter isolation, advisory lock retention on Windows NTFS, and fail-closed downloader lifecycles.
+- **Modular Web Test Suite Decomposition**: Split the monolithic `tests/test_web_api.py` into 7 modular domain-focused suites (`test_web_security.py`, `test_web_settings.py`, `test_web_downloader.py`, `test_web_server.py`, `test_web_entrypoint.py`, `test_web_export.py`, `test_web_documents.py`) with shared fixtures in `tests/web_fixtures.py`.
+- **Downloader Failure & Cancellation Test Coverage**: Added dedicated integration tests in `tests/test_web_downloader.py` covering model download cancellation/error branches and runtime download archive failure paths.
 - **Frontend Error Recovery & Preview Tests**: Added Vitest test suites for `ErrorBoundary` component recovery and `DocumentPreviewPanel` zoom bounds, pagination, and raster fallback.
 - **Win32 Job Object Failure Branch Tests**: Added unit tests covering Win32 API failure paths (`CreateJobObjectW`, `SetInformationJobObject`, `AssignProcessToJobObject`) and non-Windows stubs in `core/job_object.py`.
 
 ### Changed
+- **In-Flight Client Parameter Snapshotting & Scoped Settings Guard**: Added optional `endpoint`, `timeout`, and `max_retries` kwargs to `VisionClient.complete()` and snapshotted parameters per document call in `OCREngine.process_document()`. Scoped the HTTP 409 guard on `PATCH /api/settings` strictly to server-restarting configuration keys while jobs are in flight.
+- **Release Workflow Hardening & Frontend Freshness Guard**: Inserted `actions/setup-node@v7` (Node.js 22) into `.github/workflows/release.yml` to compile `frontend/` before portable packaging; eliminated multiline argument limits by passing release notes via `--notes-file`; generated clean Unix LF `.sha256` files without UTF-8 BOM; and made release publishing idempotent via `gh release upload --clobber`.
+- **Scoped DEBUG Logging Hierarchy**: Configured internal `web` and `core` loggers at `logging.DEBUG` level in `_setup_frozen_logging()` while maintaining `root_logger` at `logging.INFO`.
+- **Advisory Lock Retention on Windows NTFS**: Retained the 0-byte `.instance.lock` marker on disk during lifespan shutdown, avoiding Windows `[WinError 32]` file access conflicts during rapid application restart.
 - **CI Workflow Security & Job Decoupling**: Downgraded `lint` workflow permissions from `contents: write` to `contents: read` and extracted static asset auto-sync into a separate `sync-static-bundle` job strictly gated on Dependabot push events.
 - **Cross-OS Coverage Calibration**: Enforced cross-OS coverage baseline `fail_under = 86` in `.coveragerc` and explicit `--cov-fail-under=89` on Windows test matrix jobs to account for Win32-specific platform paths.
-- **SSE Lifecycle Contract Synchronization**: Aligned SSE broadcast schemas in `TECHNICAL.md` with runtime payloads, including `total_pages` in `completed` events and verified schema field types for `started` and `page_progress`.
+- **SSE Lifecycle Contract Synchronization**: Aligned SSE broadcast schemas in `TECHNICAL.md` with runtime payloads, including `bytes_downloaded` and verified schema field types for model and runtime progress events.
 - **Automatic Hardware Prewarming**: Initiated background hardware detection and pre-warming during application lifespan startup in `web/app.py` when loopback is enabled.
 
 ### Fixed
+- **Queue & Cancellation Races in Web Orchestrator**: Replaced plain string queue tracking with `QueueToken` tuple `(job_id, run_id, cancel_event)` in `web/orchestrator.py`, permitted re-enqueueing during cancelled `PROCESSING`, and guarded `on_progress` updates so dying in-flight page completions cannot corrupt re-enqueued runs.
+- **Downloader Permanent 409 Deadlock**: Wrapped `ModelDownloader._execute_download()` in a top-level `try...except...finally` block resetting `self.is_downloading = False` under all filesystem or network exceptions.
+- **Server Ownership Drift & Backend Verification Invalidation**: Synchronized `app.state.server_managed = False` when server ownership transitions away from managed mode, and wired `server_manager.on_lifecycle_change = app_engine.invalidate_backend_verification`.
+- **Output Path Leak & Atomic Export Replacement**: Relativized source paths against `target_upload_dir` instead of output directories in JSON exports, wrote exported artifacts atomically via temporary `.tmp` files and `os.replace`, and enforced extension allowlists and symlink rejection on `DELETE /api/output/{filename}`.
+- **Page Preview 404 Preflight Alignment & Doctor Check Diagnostics**: Caught `FilePreflightError` alongside `FileNotFoundError` in `GET /api/documents/{job_id}/pages/{page_num}/preview` returning HTTP 404, and normalized `DiagnosticCheck` fallback serialization so `SettingsView.tsx` correctly renders hardware acceleration details.
+- **Test Suite Mock Drift & Test Cheating**: Updated `MockEngine.process_document` to return an aborted `OCRResult` matching production engine behavior rather than raising `ServerOfflineError`, updated `MockModelDownloader` to fail closed and respect cancellation, removed manual status mutations in `test_reextraction_resets_run_id_and_progress`, and eliminated duplicate test cases.
+- **Fatal PowerShell Here-String Crash in Release Workflow**: Resolved `WhitespaceBeforeHereStringFooter` syntax error in `.github/workflows/release.yml` by replacing indented here-strings with deterministic file-based table generation.
 - **Dependabot GraphQL Auto-Merge Rejection**: Configured GitHub Branch Protection Rules on `main` requiring core status checks with `enforce_admins: false`, enabling native deferred auto-merge for non-major updates.
 - **Auto-Merge Resilience Guard**: Added defensive fallback notice handling in `dependabot-automerge.yml` to prevent unhandled GraphQL API error terminations.
-- **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/test_web_api.py`, ensuring root logger handlers and redirected std streams are deterministically closed and restored.
+- **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/web_fixtures.py`, ensuring root and internal loggers and redirected std streams are deterministically closed and restored.
 
 ---
 

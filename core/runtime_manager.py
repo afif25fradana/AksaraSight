@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 from typing import Any, Callable, Dict, List, Optional
 import uuid
 import zipfile
@@ -36,9 +37,15 @@ KNOWN_PINNED_HASHES: Dict[str, str] = {
     "llama-b11361-bin-win-cuda-12.4-x64.zip": "e9b6a0eb9506dcabcc3dbe9b561c50e85ff06517753ab56a3fe4104c7631787f",
     "llama-b11361-bin-win-vulkan-x64.zip": "5a0825d7d8f0e27aaf9b1afb0712dc41c384876f36a45b81dc222c90b1b41994",
     "llama-b11361-bin-win-cpu-x64.zip": "0e0a61a1da9832724a292ce371361ba53bfea03c19fa72ddcfd22a4d846fc596",
+    "llama-b11361-bin-ubuntu-x64.tar.gz": "1b22cc0a6de07ff2f8a5b8cdebc75ba9cf157bab872b99f56e3ba15de6f2c469",
+    "llama-b11361-bin-ubuntu-vulkan-x64.tar.gz": "0d2ef1ccef53e878d94e921eee4b0554ffc58452d1a9c628f3c221cb48c15eff",
 }
 
-_EXE_NAME: str = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+def _get_exe_name() -> str:
+    return "llama-server.exe" if sys.platform == "win32" else "llama-server"
+
+
+_EXE_NAME: str = _get_exe_name()
 
 
 class RuntimeManagerError(Exception):
@@ -116,6 +123,19 @@ def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) ->
     """
     clean_backend = backend.strip().lower()
     clean_tag = tag.strip()
+
+    if sys.platform != "win32":
+        if clean_backend == "vulkan":
+            return [f"llama-{clean_tag}-bin-ubuntu-vulkan-x64.tar.gz"]
+        elif clean_backend == "cpu":
+            return [f"llama-{clean_tag}-bin-ubuntu-x64.tar.gz"]
+        elif clean_backend == "cuda":
+            raise ValueError(
+                f"Managed CUDA runtime is not supported on Linux for build '{clean_tag}'. "
+                "Use 'vulkan' or 'cpu', or configure a custom binary path."
+            )
+        else:
+            raise ValueError(f"Unsupported runtime backend: '{backend}'. Supported: 'cuda', 'vulkan', 'cpu'")
 
     if clean_backend == "cuda":
         # Critical: Windows CUDA builds require both primary runtime and companion cudart DLLs
@@ -366,6 +386,114 @@ def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
         logger.info("Successfully extracted %s into %s", zip_path.name, target_dir_resolved)
 
 
+def safe_extract_tar(tar_path: Path, target_dir: Path) -> None:
+    """Extract a tar.gz archive strictly verifying that no member escapes target_dir."""
+    target_dir_resolved = target_dir.resolve()
+    target_dir_resolved.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(tar_path, "r:*") as tf:
+        members = tf.getmembers()
+        if not members:
+            return
+
+        # 1. Detect single top-level directory wrapper (e.g. 'llama-b11361/')
+        prefix = ""
+        first_parts = {m.name.replace("\\", "/").strip("/").split("/")[0] for m in members if m.name.strip("./")}
+        if len(first_parts) == 1:
+            p = next(iter(first_parts))
+            if p and p not in (".", ".."):
+                prefix = p + "/"
+
+        # 2. Pre-flight security validation
+        validated: List[tuple[tarfile.TarInfo, Path, str]] = []
+        for m in members:
+            name = m.name.replace("\\", "/").strip("/")
+            if prefix and name.startswith(prefix):
+                rel = name[len(prefix):].strip("/")
+            elif prefix and name == prefix.rstrip("/"):
+                continue
+            else:
+                rel = name.strip("/")
+
+            if not rel:
+                continue
+
+            if m.isdev() or m.ischr() or m.isblk() or m.isfifo() or m.islnk():
+                raise ZipSlipSecurityError(f"Security violation: Invalid or hardlink member '{m.name}'.")
+
+            dest = (target_dir_resolved / rel).resolve()
+            try:
+                dest.relative_to(target_dir_resolved)
+            except ValueError as exc:
+                raise ZipSlipSecurityError(f"Tar-slip path traversal attempt in '{tar_path.name}': '{m.name}'") from exc
+
+            if m.issym():
+                if os.path.isabs(m.linkname) or m.linkname.startswith(("/", "\\")):
+                    raise ZipSlipSecurityError(f"Absolute symlink target in '{tar_path.name}': '{m.linkname}'")
+                link_dest = (dest.parent / m.linkname).resolve()
+                try:
+                    link_dest.relative_to(target_dir_resolved)
+                except ValueError as exc:
+                    raise ZipSlipSecurityError(f"Symlink escapes target directory: '{m.name}' -> '{m.linkname}'") from exc
+
+            validated.append((m, dest, rel))
+
+        # 3. Pass 1: Extract directories and regular files
+        for m, dest, _ in validated:
+            if m.isdir():
+                dest.mkdir(parents=True, exist_ok=True)
+            elif m.isreg():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                f_in = tf.extractfile(m)
+                if f_in is not None:
+                    with open(dest, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                    f_in.close()
+                mode = 0o755 if (dest.name == "llama-server" or dest.name.startswith("llama-") or bool(m.mode & 0o111)) else 0o644
+                try:
+                    os.chmod(dest, mode)
+                except OSError:
+                    pass
+
+        # 4. Pass 2: Extract symlinks last
+        for m, dest, _ in validated:
+            if m.issym():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_symlink() or dest.exists():
+                    try:
+                        dest.unlink()
+                    except OSError:
+                        pass
+                try:
+                    os.symlink(m.linkname, dest)
+                except OSError:
+                    # Windows fallback for non-elevated symlinks
+                    src = (dest.parent / m.linkname).resolve()
+                    if src.is_file():
+                        shutil.copyfile(src, dest)
+
+
+def safe_extract_archive(archive_path: Path, target_dir: Path) -> None:
+    """Extract an archive (.zip or .tar.gz / .tgz) with Zip-Slip / Tar-Slip protection.
+
+    Args:
+        archive_path: Path to the archive.
+        target_dir: Target extraction directory.
+
+    Raises:
+        ValueError: If archive format is unsupported.
+        ZipSlipSecurityError: If an archive member attempts directory traversal.
+    """
+    name_lower = archive_path.name.lower()
+    if name_lower.endswith(".zip"):
+        safe_extract_zip(archive_path, target_dir)
+    elif name_lower.endswith((".tar.gz", ".tgz")):
+        safe_extract_tar(archive_path, target_dir)
+    else:
+        raise ValueError(
+            f"Unsupported archive format: '{archive_path.name}'. Supported formats: .zip, .tar.gz, .tgz"
+        )
+
+
 def validate_runtime_binary(exe_path: Path) -> bool:
     """Execute minimal sanity check to confirm the binary can initialize on this machine.
 
@@ -382,7 +510,7 @@ def validate_runtime_binary(exe_path: Path) -> bool:
     if not exe_path.is_file():
         return False
 
-    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
     # Suppress Windows crash-report dialogs (SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
     prev_mode = None
@@ -400,17 +528,29 @@ def validate_runtime_binary(exe_path: Path) -> bool:
             except Exception:
                 pass
 
+    run_kwargs: Dict[str, Any] = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "timeout": 5.0,
+        "creationflags": creationflags,
+        "cwd": str(exe_path.parent),
+    }
+    if sys.platform != "win32":
+        sub_env = os.environ.copy()
+        runtime_dir_str = str(exe_path.parent)
+        if "LD_LIBRARY_PATH" in sub_env and sub_env["LD_LIBRARY_PATH"]:
+            sub_env["LD_LIBRARY_PATH"] = f"{runtime_dir_str}:{sub_env['LD_LIBRARY_PATH']}"
+        else:
+            sub_env["LD_LIBRARY_PATH"] = runtime_dir_str
+        run_kwargs["env"] = sub_env
+
     try:
         # Try --version first, then -h
         for flag in ("--version", "-h"):
             try:
                 res = subprocess.run(
                     [str(exe_path), flag],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=5.0,
-                    creationflags=creationflags,
-                    cwd=str(exe_path.parent),
+                    **run_kwargs,
                 )
                 if res.returncode == 0:
                     return True
@@ -451,9 +591,12 @@ def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -
     Returns:
         bool: True if fully installed and ready for immediate launch.
     """
+    if tag.lower() in ("cuda", "vulkan", "cpu") and backend.lower() not in ("cuda", "vulkan", "cpu"):
+        tag, backend = backend, tag
+
     runtime_dir = get_runtime_dir(tag, backend)
     manifest_path = runtime_dir / "manifest.json"
-    exe_path = runtime_dir / _EXE_NAME
+    exe_path = runtime_dir / _get_exe_name()
 
     if not runtime_dir.is_dir() or not manifest_path.is_file() or not exe_path.is_file():
         return False
@@ -470,8 +613,11 @@ def is_runtime_installed(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -
 
 def get_installed_runtime_path(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Optional[Path]:
     """Return the absolute path to the installed llama-server executable, or None."""
+    if tag.lower() in ("cuda", "vulkan", "cpu") and backend.lower() not in ("cuda", "vulkan", "cpu"):
+        tag, backend = backend, tag
+
     if is_runtime_installed(tag, backend):
-        return get_runtime_dir(tag, backend) / _EXE_NAME
+        return get_runtime_dir(tag, backend) / _get_exe_name()
     return None
 
 
@@ -552,7 +698,7 @@ def ensure_runtime(
     staging_dir = base_dir / f"staging_{clean_tag}_{clean_backend}_{uuid.uuid4().hex[:8]}"
     downloaded_archives: List[Path] = []
 
-    exe_name = _EXE_NAME
+    exe_name = _get_exe_name()
 
     try:
         required_names = resolve_required_asset_names(clean_backend, clean_tag)
@@ -619,7 +765,7 @@ def ensure_runtime(
                     progress_callback(msg, 0, 0, part=idx, total_parts=total_archives)
                 except TypeError:
                     progress_callback(msg, 0, 0)
-            safe_extract_zip(archive, staging_dir)
+            safe_extract_archive(archive, staging_dir)
 
         staging_exe = staging_dir / exe_name
         if not sys.platform.startswith("win32") and staging_exe.exists():

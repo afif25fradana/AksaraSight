@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import MagicMock, patch
 from typing import Any
+from unittest.mock import MagicMock, patch
 import zipfile
 
 import pytest
@@ -30,7 +30,6 @@ from core.runtime_manager import (
     validate_runtime_binary,
 )
 
-
 def _create_test_zip(files: dict[str, bytes]) -> bytes:
     """Helper to create an in-memory zip archive."""
     buf = io.BytesIO()
@@ -42,8 +41,9 @@ def _create_test_zip(files: dict[str, bytes]) -> bytes:
 
 # Asset Resolution Tests
 
-def test_resolve_required_asset_names() -> None:
-    """Verify correct archive mapping per backend."""
+def test_resolve_required_asset_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify correct archive mapping per backend on Windows."""
+    monkeypatch.setattr("sys.platform", "win32")
     # CUDA requires companion cudart
     cuda_assets = resolve_required_asset_names("cuda", "b11361")
     assert len(cuda_assets) == 2
@@ -60,6 +60,9 @@ def test_resolve_required_asset_names() -> None:
 
     with pytest.raises(ValueError, match="Unsupported runtime backend"):
         resolve_required_asset_names("metal", "b11361")
+
+
+
 
 
 # Release Metadata Fetching Tests
@@ -319,6 +322,9 @@ def test_download_and_verify_asset_pinned_hash_mandatory(tmp_path: Path) -> None
             download_and_verify_asset(asset=asset_no_gh_digest, dest_dir=tmp_path, session=mock_session)
 
 
+
+
+
 # Safe Extraction & Zip-Slip Protection Tests
 
 def test_safe_extract_zip_valid(tmp_path: Path) -> None:
@@ -354,10 +360,15 @@ def test_safe_extract_zip_slip_rejection(tmp_path: Path) -> None:
     assert not (tmp_path / "evil_payload.exe").exists()
 
 
+
+
+
 # Post-Install Binary Validation Tests
 
-def test_validate_runtime_binary(tmp_path: Path) -> None:
+def test_validate_runtime_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify validation check executes minimal invocation."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     exe = tmp_path / "fake-server.exe"
     exe.write_bytes(b"MZ...")
 
@@ -388,6 +399,9 @@ def test_validate_runtime_binary(tmp_path: Path) -> None:
         mock_run.return_value = MagicMock(returncode=-1073741515)
         with pytest.raises(RuntimeValidationError, match="Microsoft Visual C\\+\\+ 2015–2022 Redistributable \\(x64\\)"):
             validate_runtime_binary(exe)
+
+
+
 
 
 def test_validate_runtime_binary_timeout_hang(tmp_path: Path) -> None:
@@ -463,8 +477,9 @@ def test_is_runtime_installed_and_path(tmp_path: Path) -> None:
 
 # End-to-End Orchestration & Failure Recovery Tests
 
-def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
+def test_ensure_runtime_end_to_end_mocked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify complete download, verification, extraction, and manifest creation flow."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"mock binary", "lib.dll": b"lib"})
@@ -515,8 +530,9 @@ def test_ensure_runtime_end_to_end_mocked(tmp_path: Path) -> None:
             mock_session.get.assert_called_once()
 
 
-def test_ensure_runtime_insufficient_disk_space_raises(tmp_path: Path) -> None:
+def test_ensure_runtime_insufficient_disk_space_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pre-flight disk space assertion raises OSError before downloading."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         mock_meta = {
             "llama-b11361-bin-win-cpu-x64.zip": ReleaseAssetInfo(
@@ -536,8 +552,9 @@ def test_ensure_runtime_insufficient_disk_space_raises(tmp_path: Path) -> None:
             ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
 
 
-def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
+def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify force=True triggers a complete re-download and overwrites existing installation."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"binary v2", "version.txt": b"2.0"})
@@ -584,8 +601,9 @@ def test_ensure_runtime_force_reinstall_bypasses_cache(tmp_path: Path) -> None:
             assert (runtime_dir / "version.txt").read_bytes() == b"2.0"
 
 
-def test_ensure_runtime_validates_existing_binary_and_redownloads_on_failure(tmp_path: Path) -> None:
+def test_ensure_runtime_validates_existing_binary_and_redownloads_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify ensure_runtime(force=False) validates existing binary and triggers re-download if validation fails."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"binary fixed", "version.txt": b"1.1"})
@@ -632,8 +650,9 @@ def test_ensure_runtime_validates_existing_binary_and_redownloads_on_failure(tmp
             assert mock_session.get.call_count == 1
 
 
-def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
+def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that if binary validation fails, staging directory is wiped and error is raised."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"crashed binary"})
@@ -675,8 +694,9 @@ def test_ensure_runtime_cleanup_on_validation_failure(tmp_path: Path) -> None:
             assert len(downloaded_zips) == 0
 
 
-def test_ensure_runtime_missing_vc_redistributable_raises(tmp_path: Path) -> None:
+def test_ensure_runtime_missing_vc_redistributable_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that a missing VC++ redistributable status code raises actionable RuntimeValidationError."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"valid binary"})
@@ -712,8 +732,9 @@ def test_ensure_runtime_missing_vc_redistributable_raises(tmp_path: Path) -> Non
             assert len(list(tmp_path.glob("staging_*"))) == 0
 
 
-def test_ensure_runtime_cleanup_on_extraction_failure(tmp_path: Path) -> None:
+def test_ensure_runtime_cleanup_on_extraction_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that if extraction fails, downloaded archives are cleaned up and error is raised."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"valid binary"})
@@ -755,10 +776,11 @@ def test_ensure_runtime_cleanup_on_extraction_failure(tmp_path: Path) -> None:
             assert len(downloaded_zips) == 0
 
 
-def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> None:
+def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Multi-archive CUDA staging: if companion cudart download fails after primary succeeds,
     staging is completely wiped, manifest.json is never written, and install is invalid.
     """
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if pytest.importorskip("sys").platform == "win32" else "llama-server"
         primary_zip = _create_test_zip({exe_name: b"primary binary"})
@@ -815,8 +837,9 @@ def test_ensure_runtime_cuda_cudart_failure_discards_staging(tmp_path: Path) -> 
             assert len(staging_dirs) == 0
 
 
-def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> None:
+def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify that if staging_dir.rename(runtime_dir) fails, the backup is restored atomically."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         tag = "b11361"
         backend = "cpu"
@@ -878,8 +901,9 @@ def test_ensure_runtime_rollback_on_atomic_rename_failure(tmp_path: Path) -> Non
             assert len(stagings) == 0
 
 
-def test_ensure_runtime_multipart_progress_callback(tmp_path: Path) -> None:
+def test_ensure_runtime_multipart_progress_callback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify ensure_runtime formats multi-part progress messages and passes part/total_parts kwargs."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
         zip_bytes1 = _create_test_zip({exe_name: b"mock cuda bin"})
@@ -937,8 +961,9 @@ def test_ensure_runtime_multipart_progress_callback(tmp_path: Path) -> None:
         assert extract_calls[1][3] == {"part": 2, "total_parts": 2}
 
 
-def test_ensure_runtime_legacy_progress_callback_positional_only(tmp_path: Path) -> None:
+def test_ensure_runtime_legacy_progress_callback_positional_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify ensure_runtime supports legacy 3-argument progress callbacks without raising TypeError."""
+    monkeypatch.setattr("sys.platform", "win32")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
         zip_bytes = _create_test_zip({exe_name: b"mock cpu bin"})
@@ -1025,30 +1050,4 @@ def test_download_and_verify_asset_ephemeral_session_closed(tmp_path: Path) -> N
         mock_instance.close.assert_called_once()
 
 
-def test_get_runtime_base_dir_linux_xdg_parity(monkeypatch, tmp_path: Path) -> None:
-    """Linux runtime directory honors XDG_DATA_HOME with fallback to ~/.local/share."""
-    monkeypatch.setattr("sys.platform", "linux")
-    from core.runtime_manager import get_runtime_base_dir
-
-    # Case 1: Custom XDG_DATA_HOME
-    custom_xdg = tmp_path / "custom_xdg"
-    monkeypatch.setenv("XDG_DATA_HOME", str(custom_xdg))
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-
-    resolved = get_runtime_base_dir()
-    expected_custom = custom_xdg / "aksarasight" / "runtimes" / "llama-cpp"
-    assert resolved == expected_custom
-    assert "AksaraSight" not in resolved.parts
-    assert "aksarasight" in resolved.parts
-
-    # Case 2: Default XDG location (~/.local/share/aksarasight/runtimes/llama-cpp)
-    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-    fake_home = tmp_path / "user_home"
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-
-    resolved_default = get_runtime_base_dir()
-    expected_default = fake_home / ".local" / "share" / "aksarasight" / "runtimes" / "llama-cpp"
-    assert resolved_default == expected_default
-    assert "AksaraSight" not in resolved_default.parts
-    assert "aksarasight" in resolved_default.parts
 

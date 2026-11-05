@@ -398,7 +398,8 @@ def safe_extract_tar(tar_path: Path, target_dir: Path) -> None:
         # 1. Detect single top-level directory wrapper (e.g. 'llama-b11361/')
         prefix = ""
         first_parts = {m.name.replace("\\", "/").strip("/").split("/")[0] for m in members if m.name.strip("./")}
-        if len(first_parts) == 1:
+        has_dirs_or_subpaths = any(m.isdir() or "/" in m.name.replace("\\", "/").strip("./") for m in members)
+        if has_dirs_or_subpaths and len(first_parts) == 1:
             p = next(iter(first_parts))
             if p and p not in (".", ".."):
                 prefix = p + "/"

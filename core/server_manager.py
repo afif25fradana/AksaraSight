@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -543,14 +544,15 @@ class ServerManager:
                             f"Managed llama.cpp runtime is not installed for backend '{backend}'. "
                             "Open Settings to download the recommended runtime."
                         )
+                    exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
                     if not candidate_path:
                         raise FileNotFoundError(
                             "llama-server executable path is not configured. "
-                            "Configure the path to llama-server.exe in Settings."
+                            f"Configure the path to {exe_name} in Settings."
                         )
                     raise FileNotFoundError(
                         f"llama-server executable not found at '{candidate_path}'. "
-                        "Configure the path to llama-server.exe in Settings."
+                        f"Configure the path to {exe_name} in Settings."
                     )
 
                 candidate_name = Path(str(candidate_path).replace("\\", "/")).name.lower()
@@ -688,7 +690,7 @@ class ServerManager:
                         f"Port {port} is already in use on 127.0.0.1 by another process: {bind_err}"
                     ) from bind_err
 
-                creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
                 # Sanitize subprocess environment against proxy interception
                 sub_env = os.environ.copy()
@@ -700,20 +702,31 @@ class ServerManager:
                 sub_env["NO_PROXY"] = "*"
                 sub_env["no_proxy"] = "*"
 
+                runtime_dir_str = str(Path(resolved_path).parent)
+                popen_kwargs = {
+                    "stdout": subprocess.PIPE,
+                    "stderr": subprocess.STDOUT,
+                    "text": True,
+                    "bufsize": 1,
+                    "encoding": "utf-8",
+                    "errors": "replace",
+                    "creationflags": creationflags,
+                    "env": sub_env,
+                    "cwd": runtime_dir_str,
+                }
+                if sys.platform != "win32":
+                    popen_kwargs["start_new_session"] = True
+                    existing_ld = sub_env.get("LD_LIBRARY_PATH", "")
+                    sub_env["LD_LIBRARY_PATH"] = (
+                        f"{runtime_dir_str}:{existing_ld}" if existing_ld else runtime_dir_str
+                    )
+
                 proc: Optional[subprocess.Popen] = None
                 job_handle: Optional[int] = None
                 try:
                     proc = subprocess.Popen(
                         cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        encoding="utf-8",
-                        errors="replace",
-                        creationflags=creationflags,
-                        env=sub_env,
-                        cwd=str(Path(resolved_path).parent),
+                        **popen_kwargs,
                     )
 
                     # Attach to Windows Job Object with KILL_ON_JOB_CLOSE
@@ -768,10 +781,26 @@ class ServerManager:
 
                 except Exception as spawn_exc:
                     if proc is not None:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                        if sys.platform != "win32":
+                            try:
+                                sigkill = getattr(signal, "SIGKILL", 9)
+                                pgid = proc.pid
+                                if hasattr(os, "getpgid"):
+                                    try:
+                                        pgid = os.getpgid(proc.pid)
+                                    except (ProcessLookupError, PermissionError, OSError):
+                                        pgid = proc.pid
+                                if hasattr(os, "killpg"):
+                                    os.killpg(pgid, sigkill)
+                                else:
+                                    proc.kill()
+                            except (ProcessLookupError, PermissionError, OSError):
+                                pass
+                        else:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
                         try:
                             proc.wait(timeout=2.0)
                         except Exception:
@@ -826,13 +855,46 @@ class ServerManager:
             # _lifecycle_lock) so _drain_stdout() keeps draining and a chatty child
             # can exit cleanly instead of filling its stdout pipe and being killed.
             try:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    logger.warning("Server process did not exit within 3s, killing...")
-                    proc.kill()
-                    proc.wait(timeout=2.0)
+                if sys.platform != "win32":
+                    try:
+                        pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pgid = proc.pid
+
+                    try:
+                        if hasattr(os, "killpg"):
+                            os.killpg(pgid, signal.SIGTERM)
+                        else:
+                            proc.terminate()
+                    except (ProcessLookupError, PermissionError, OSError) as term_exc:
+                        logger.debug("Process group already terminated on SIGTERM: %s", term_exc)
+
+                    try:
+                        proc.wait(timeout=3.0)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("Server process did not exit within 3s, killing...")
+                        sigkill = getattr(signal, "SIGKILL", 9)
+                        try:
+                            if hasattr(os, "killpg"):
+                                os.killpg(pgid, sigkill)
+                            else:
+                                proc.kill()
+                        except (ProcessLookupError, PermissionError, OSError) as kill_exc:
+                            logger.debug("Process group already terminated on SIGKILL: %s", kill_exc)
+                        try:
+                            proc.wait(timeout=2.0)
+                        except Exception:
+                            pass
+                    except Exception as wait_exc:
+                        logger.warning("Error waiting for server process: %s", wait_exc)
+                else:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3.0)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("Server process did not exit within 3s, killing...")
+                        proc.kill()
+                        proc.wait(timeout=2.0)
             except Exception as stop_exc:
                 logger.warning("Error stopping server process: %s", stop_exc)
             finally:

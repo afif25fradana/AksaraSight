@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from config.settings import Settings
+from core.hardware import HardwareProfile
 from core.server_manager import (
     ServerManager,
     ServerOwnership,
@@ -644,8 +645,13 @@ def test_server_manager_stop_does_not_block_stdout_reader(tmp_path):
         mgr.shutdown()
 
 
-def test_server_manager_start_waits_for_inflight_stop(tmp_path):
+def test_server_manager_start_waits_for_inflight_stop(tmp_path, monkeypatch):
     """Verify start() arriving during stop() waits until the old process is reported dead."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        "core.server_manager.get_cached_hardware_profile",
+        lambda *a, **k: HardwareProfile(recommended_backend="cpu"),
+    )
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -946,8 +952,13 @@ def test_server_manager_lifecycle_callback_may_call_start_from_stop(tmp_path):
             mgr.shutdown()
 
 
-def test_server_manager_start_failure_after_popen_kills_orphan_and_sets_error(tmp_path):
+def test_server_manager_start_failure_after_popen_kills_orphan_and_sets_error(tmp_path, monkeypatch):
     """Verify failure after Popen (e.g. reader thread or job setup) kills the child and sets ERROR."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        "core.server_manager.get_cached_hardware_profile",
+        lambda *a, **k: HardwareProfile(recommended_backend="cpu"),
+    )
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -1041,8 +1052,9 @@ def test_server_manager_stop_external_is_noop():
         mgr.shutdown()
 
 
-def test_server_manager_stop_managed_terminates():
+def test_server_manager_stop_managed_terminates(monkeypatch):
     """Verify stop() terminates and reaps a managed subprocess."""
+    monkeypatch.setattr(sys, "platform", "win32")
     mgr = ServerManager()
     mock_proc = MagicMock()
     mock_proc.pid = 12345
@@ -1333,12 +1345,17 @@ def test_server_manager_trust_env_disabled() -> None:
         mgr.shutdown()
 
 
-def test_server_manager_start_popen_raises_oserror_leaves_no_orphan(tmp_path):
+def test_server_manager_start_popen_raises_oserror_leaves_no_orphan(tmp_path, monkeypatch):
     """Popen raising OSError must surface as RuntimeError with the original message.
 
     Because proc is never assigned, the kill/wait/stdout.close cleanup branch
     must not be entered, and state must be cleanly ERROR/NONE with no job handle.
     """
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        "core.server_manager.get_cached_hardware_profile",
+        lambda *a, **k: HardwareProfile(recommended_backend="cpu"),
+    )
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -1639,8 +1656,9 @@ def test_server_manager_start_while_starting_raises(tmp_path):
         mgr.shutdown()
 
 
-def test_server_manager_stop_while_starting_terminates(tmp_path):
+def test_server_manager_stop_while_starting_terminates(tmp_path, monkeypatch):
     """Verify stop() terminates active process when server is in STARTING state."""
+    monkeypatch.setattr(sys, "platform", "win32")
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 

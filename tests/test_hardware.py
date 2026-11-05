@@ -22,8 +22,9 @@ def test_parse_driver_version() -> None:
     assert _parse_driver_version(None) is None
 
 
-def test_detect_hardware_cuda_compatible() -> None:
+def test_detect_hardware_cuda_compatible(monkeypatch) -> None:
     """NVIDIA GPU with modern driver (>= 550.54 / API >= 12040) recommends CUDA."""
+    monkeypatch.setattr("sys.platform", "win32")
     with (
         patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GeForce RTX 4090", 24576, "555.85")),
         patch("core.hardware._probe_nvcuda_ctypes", return_value=12040),
@@ -108,8 +109,9 @@ def test_detect_hardware_cpu_only() -> None:
         assert "No hardware acceleration" in profile.details
 
 
-def test_detect_hardware_nvidia_smi_missing_fallback_to_nvcuda_dll() -> None:
+def test_detect_hardware_nvidia_smi_missing_fallback_to_nvcuda_dll(monkeypatch) -> None:
     """When nvidia-smi is not in PATH, nvcuda.dll ctypes probe satisfies CUDA check."""
+    monkeypatch.setattr("sys.platform", "win32")
     with (
         patch("core.hardware._probe_nvidia_smi", return_value=None),
         patch("core.hardware._probe_nvcuda_ctypes", return_value=12040),
@@ -356,3 +358,168 @@ def test_probe_vulkan_ctypes_anchored_to_system32(monkeypatch) -> None:
             assert available is False
             assert name is None
             mock_cdll.assert_not_called()
+
+
+def test_detect_hardware_linux_nvidia_routes_to_vulkan_when_available(monkeypatch) -> None:
+    """Linux system with NVIDIA GPU and Vulkan support routes to Vulkan (never CUDA)."""
+    monkeypatch.setattr("sys.platform", "linux")
+    with (
+        patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GeForce RTX 3060", 12288, "550.54")),
+        patch("core.hardware._probe_vulkan_ctypes", return_value=(True, "NVIDIA GeForce RTX 3060")),
+        patch("core.hardware._probe_cpu_info", return_value="x86_64"),
+    ):
+        profile = detect_hardware()
+        assert profile.cuda_available is True
+        assert profile.cuda_supported is False
+        assert "Managed CUDA runtime is not supported on Linux" in (profile.cuda_incompatibility_reason or "")
+        assert profile.recommended_backend == "vulkan"
+        assert profile.recommended_backend != "cuda"
+        assert "Vulkan" in profile.details
+
+
+def test_detect_hardware_linux_nvidia_routes_to_cpu_when_vulkan_unavailable(monkeypatch) -> None:
+    """Linux system with NVIDIA GPU but no Vulkan routes to CPU (never CUDA)."""
+    monkeypatch.setattr("sys.platform", "linux")
+    with (
+        patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GeForce RTX 3060", 12288, "550.54")),
+        patch("core.hardware._probe_vulkan_ctypes", return_value=(False, None)),
+        patch("core.hardware._probe_cpu_info", return_value="x86_64"),
+    ):
+        profile = detect_hardware()
+        assert profile.cuda_available is True
+        assert profile.cuda_supported is False
+        assert "Managed CUDA runtime is not supported on Linux" in (profile.cuda_incompatibility_reason or "")
+        assert profile.recommended_backend == "cpu"
+        assert profile.recommended_backend != "cuda"
+
+
+def test_probe_vulkan_linux_libvulkan_so(monkeypatch) -> None:
+    """Linux ctypes probe loads libvulkan.so.1 / libvulkan.so and enumerates physical devices."""
+    import ctypes
+    from core.hardware import _probe_vulkan_ctypes
+
+    monkeypatch.setattr("sys.platform", "linux")
+
+    mock_vk = MagicMock()
+
+    def fake_create_instance(info, alloc, p_inst):
+        ctypes.cast(p_inst, ctypes.POINTER(ctypes.c_void_p)).contents.value = 0x12345678
+        return 0
+
+    def fake_enumerate(inst, p_count, p_devs):
+        if p_devs is None:
+            ctypes.cast(p_count, ctypes.POINTER(ctypes.c_uint32)).contents.value = 1
+        else:
+            p_devs[0] = 0xDEADBEEF
+        return 0
+
+    def fake_get_props(dev, buf):
+        # deviceType == 2 is VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+        buf[16:20] = (2).to_bytes(4, "little")
+        name_bytes = b"Vulkan API Discrete GPU\x00"
+        buf[20 : 20 + len(name_bytes)] = name_bytes
+
+    mock_vk.vkCreateInstance.side_effect = fake_create_instance
+    mock_vk.vkEnumeratePhysicalDevices.side_effect = fake_enumerate
+    mock_vk.vkGetPhysicalDeviceProperties.side_effect = fake_get_props
+    mock_vk.vkDestroyInstance.return_value = 0
+
+    with patch("ctypes.CDLL", return_value=mock_vk) as mock_cdll:
+        available, dev_name = _probe_vulkan_ctypes()
+        assert mock_cdll.called, "Vulkan library must be loaded via ctypes.CDLL on Linux"
+        assert available is True
+        assert dev_name == "Vulkan API Discrete GPU"
+
+
+def test_probe_vulkan_linux_lavapipe_rejected(monkeypatch) -> None:
+    """Vulkan physical device with deviceType == 4 (CPU / Lavapipe rasterizer) is rejected."""
+    import ctypes
+    from core.hardware import _probe_vulkan_ctypes
+
+    monkeypatch.setattr("sys.platform", "linux")
+
+    mock_vk = MagicMock()
+
+    def fake_create_instance(info, alloc, p_inst):
+        ctypes.cast(p_inst, ctypes.POINTER(ctypes.c_void_p)).contents.value = 0x12345678
+        return 0
+
+    def fake_enumerate(inst, p_count, p_devs):
+        if p_devs is None:
+            ctypes.cast(p_count, ctypes.POINTER(ctypes.c_uint32)).contents.value = 1
+        else:
+            p_devs[0] = 0xDEADBEEF
+        return 0
+
+    def fake_get_props(dev, buf):
+        # deviceType == 4 is VK_PHYSICAL_DEVICE_TYPE_CPU (Lavapipe/llvmpipe)
+        buf[16:20] = (4).to_bytes(4, "little")
+        name_bytes = b"llvmpipe (LLVM 15.0.7, 256 bits)\x00"
+        buf[20 : 20 + len(name_bytes)] = name_bytes
+
+    mock_vk.vkCreateInstance.side_effect = fake_create_instance
+    mock_vk.vkEnumeratePhysicalDevices.side_effect = fake_enumerate
+    mock_vk.vkGetPhysicalDeviceProperties.side_effect = fake_get_props
+    mock_vk.vkDestroyInstance.return_value = 0
+
+    with patch("ctypes.CDLL", return_value=mock_vk) as mock_cdll:
+        available, dev_name = _probe_vulkan_ctypes()
+        assert mock_cdll.called, "Vulkan library must be loaded via ctypes.CDLL on Linux"
+        assert available is False
+        assert dev_name is None
+
+
+def test_probe_linux_drm_sysfs_discrete_over_integrated(monkeypatch, tmp_path) -> None:
+    """DRM sysfs probe prioritizes discrete GPU (NVIDIA 0x10de) over integrated GPU (Intel 0x8086)."""
+    import core.hardware
+
+    monkeypatch.setattr("sys.platform", "linux")
+    drm_dir = tmp_path / "sys" / "class" / "drm"
+    card0 = drm_dir / "card0" / "device"
+    card0.mkdir(parents=True)
+    (card0 / "vendor").write_text("0x8086\n", encoding="utf-8")
+
+    card1 = drm_dir / "card1" / "device"
+    card1.mkdir(parents=True)
+    (card1 / "vendor").write_text("0x10de\n", encoding="utf-8")
+    (card1 / "mem_info_vram_total").write_text("8589934592\n", encoding="utf-8")
+
+    probe_fn = getattr(core.hardware, "_probe_linux_drm_sysfs", None)
+    assert callable(probe_fn), "_probe_linux_drm_sysfs must be implemented in core.hardware"
+
+    if hasattr(core.hardware, "_SYSFS_DRM_PATH"):
+        monkeypatch.setattr(core.hardware, "_SYSFS_DRM_PATH", drm_dir)
+    try:
+        res = probe_fn(sysfs_dir=drm_dir)
+    except TypeError:
+        res = probe_fn()
+
+    assert res is not None
+    res_str = str(res).lower()
+    assert "10de" in res_str or "nvidia" in res_str
+
+
+def test_probe_linux_wsl_detection(monkeypatch) -> None:
+    """Linux environment with /dev/dxg or /usr/lib/wsl/lib is identified as WSL."""
+    import core.hardware
+    from pathlib import Path
+
+    monkeypatch.setattr("sys.platform", "linux")
+    probe_fn = core.hardware._probe_wsl
+    assert callable(probe_fn), "_probe_wsl must be implemented in core.hardware"
+
+    def fake_exists_dxg(self: Path) -> bool:
+        return self.as_posix() == "/dev/dxg"
+
+    def fake_is_dir_wsl_lib(self: Path) -> bool:
+        return self.as_posix() == "/usr/lib/wsl/lib"
+
+    with patch.object(Path, "exists", fake_exists_dxg), patch.object(Path, "is_dir", return_value=False):
+        assert probe_fn() is True
+
+    with patch.object(Path, "exists", return_value=False), patch.object(Path, "is_dir", fake_is_dir_wsl_lib):
+        assert probe_fn() is True
+
+    with patch.object(Path, "exists", return_value=False), patch.object(Path, "is_dir", return_value=False):
+        assert probe_fn() is False
+

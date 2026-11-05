@@ -197,18 +197,42 @@ def _probe_nvcuda_ctypes() -> Optional[int]:
     return None
 
 
-def _probe_vulkan_ctypes() -> Tuple[bool, Optional[str]]:
-    """Probe Vulkan 1.2+ physical devices via vulkan-1.dll using pure ctypes."""
-    if sys.platform != "win32":
-        return False, None
+def _probe_wsl() -> bool:
+    """Detect if running under Linux WSL (Windows Subsystem for Linux)."""
+    if sys.platform == "win32":
+        return False
+    try:
+        return Path("/dev/dxg").exists() or Path("/usr/lib/wsl/lib").is_dir()
+    except OSError:
+        return False
 
+
+def _probe_vulkan_ctypes() -> Tuple[bool, Optional[str]]:
+    """Probe Vulkan 1.2+ physical devices via pure ctypes."""
     import ctypes
 
     try:
-        vk_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "vulkan-1.dll"
-        if not vk_path.is_file():
+        vk = None
+        if sys.platform == "win32":
+            vk_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "vulkan-1.dll"
+            if not vk_path.is_file():
+                return False, None
+            vk = ctypes.CDLL(str(vk_path))
+        else:
+            candidates = ["libvulkan.so.1", "libvulkan.so"]
+            if _probe_wsl():
+                candidates.append("/usr/lib/wsl/lib/libvulkan.so.1")
+
+            for cand in candidates:
+                try:
+                    vk = ctypes.CDLL(cand)
+                    if vk:
+                        break
+                except Exception:
+                    continue
+
+        if not vk:
             return False, None
-        vk = ctypes.CDLL(str(vk_path))
 
         class VkInstanceCreateInfo(ctypes.Structure):
             _fields_ = [
@@ -253,12 +277,16 @@ def _probe_vulkan_ctypes() -> Tuple[bool, Optional[str]]:
                 vk.vkGetPhysicalDeviceProperties(dev, props_buf)
                 dev_type = int.from_bytes(props_buf.raw[16:20], "little")
                 dev_name = props_buf.raw[20:276].split(b"\x00")[0].decode("utf-8", "replace").strip()
+                if dev_type in (0, 4):  # Skip OTHER and CPU / Lavapipe / llvmpipe rasterizers
+                    continue
                 if dev_type == 2:  # VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
                     best_device_name = dev_name
                     break
                 if not best_device_name:
                     best_device_name = dev_name
 
+            if not best_device_name:
+                return False, None
             return True, best_device_name
         finally:
             vk.vkDestroyInstance(instance, None)
@@ -272,6 +300,72 @@ def _probe_cpu_info() -> str:
     """Retrieve processor name and architecture."""
     proc = platform.processor() or platform.machine()
     return proc.strip() or "x86_64"
+
+
+_SYSFS_DRM_PATH: Path = Path("/sys/class/drm")
+
+
+def _probe_linux_drm_sysfs(sysfs_dir: Optional[Path] = None) -> Optional[Tuple[str, int]]:
+    """Inspect Linux DRM sysfs interface (/sys/class/drm) for installed GPUs.
+
+    Matches PCI vendor IDs to identify discrete GPUs over integrated GPUs:
+    - 0x10de: NVIDIA (discrete)
+    - 0x1002: AMD (discrete)
+    - 0x8086: Intel (integrated)
+    - 0x1414: Microsoft WSL (integrated)
+
+    Returns:
+        (name, vram_mb) of the highest priority GPU, or None.
+    """
+    drm_path = sysfs_dir if sysfs_dir is not None else _SYSFS_DRM_PATH
+    if not drm_path.is_dir():
+        return None
+
+    vendor_table = {
+        "0x10de": ("NVIDIA GPU", True),
+        "0x1002": ("AMD GPU", True),
+        "0x8086": ("Intel Graphics", False),
+        "0x1414": ("Microsoft WSL GPU", False),
+    }
+
+    gpus = []
+    try:
+        for card_path in drm_path.glob("card[0-9]*"):
+            vendor_path = card_path / "device" / "vendor"
+            if not vendor_path.is_file():
+                continue
+            try:
+                raw_vendor = vendor_path.read_text(encoding="utf-8").strip().lower()
+            except OSError:
+                continue
+
+            matched = vendor_table.get(raw_vendor)
+            if not matched:
+                continue
+
+            name, is_discrete = matched
+            vram_mb = 0
+            vram_path = card_path / "device" / "mem_info_vram_total"
+            if vram_path.is_file():
+                try:
+                    vram_bytes = int(vram_path.read_text(encoding="utf-8").strip())
+                    vram_mb = vram_bytes // (1024 * 1024)
+                except (ValueError, OSError):
+                    pass
+
+            gpus.append((name, vram_mb, is_discrete))
+    except Exception as exc:
+        logger.debug("Linux DRM sysfs probe failed: %s", exc)
+        return None
+
+    if not gpus:
+        return None
+
+    # Discrete GPUs take precedence over integrated GPUs, then highest VRAM
+    gpus.sort(key=lambda x: (1 if x[2] else 0, x[1]), reverse=True)
+    best = gpus[0]
+    return best[0], best[1]
+
 
 
 def detect_hardware() -> HardwareProfile:
@@ -303,6 +397,10 @@ def detect_hardware() -> HardwareProfile:
     if smi_res is not None:
         gpu_name, vram_mb, cuda_driver_version = smi_res
         cuda_available = True
+    elif sys.platform != "win32":
+        drm_res = _probe_linux_drm_sysfs()
+        if drm_res is not None:
+            gpu_name, vram_mb = drm_res
 
     # Check CUDA driver API version via ctypes
     api_ver = _probe_nvcuda_ctypes()
@@ -312,64 +410,88 @@ def detect_hardware() -> HardwareProfile:
 
     # Validate Driver Version Compatibility if CUDA hardware was detected
     if cuda_available:
-        parsed_driver = _parse_driver_version(cuda_driver_version) if cuda_driver_version else None
-        driver_incompatible = False
-        reason_parts = []
-
-        if parsed_driver is not None and parsed_driver < MIN_CUDA_DRIVER_VERSION:
-            driver_incompatible = True
-            min_str = f"{MIN_CUDA_DRIVER_VERSION[0]}.{MIN_CUDA_DRIVER_VERSION[1]}"
-            reason_parts.append(
-                f"Installed NVIDIA display driver {cuda_driver_version} does not meet CUDA 12.4 requirement (>= {min_str})"
-            )
-
-        if cuda_driver_api_version is not None and cuda_driver_api_version < MIN_CUDA_DRIVER_API_VERSION:
-            driver_incompatible = True
-            reason_parts.append(
-                f"Driver API version {cuda_driver_api_version} is below CUDA 12.4 requirement (>= {MIN_CUDA_DRIVER_API_VERSION})"
-            )
-
-        if parsed_driver is None and cuda_driver_api_version is None:
-            driver_incompatible = True
-            reason_parts.append(
-                "NVIDIA driver version could not be determined or verified for CUDA 12.4 requirement"
-            )
-
-        if driver_incompatible:
+        if sys.platform != "win32":
             cuda_supported = False
-            cuda_incompatibility_reason = "; ".join(reason_parts)
-            logger.warning("CUDA hardware detected but driver is incompatible: %s", cuda_incompatibility_reason)
+            cuda_incompatibility_reason = "Managed CUDA runtime is not supported on Linux; using Vulkan or CPU"
         else:
-            cuda_supported = True
+            parsed_driver = _parse_driver_version(cuda_driver_version) if cuda_driver_version else None
+            driver_incompatible = False
+            reason_parts = []
+
+            if parsed_driver is not None and parsed_driver < MIN_CUDA_DRIVER_VERSION:
+                driver_incompatible = True
+                min_str = f"{MIN_CUDA_DRIVER_VERSION[0]}.{MIN_CUDA_DRIVER_VERSION[1]}"
+                reason_parts.append(
+                    f"Installed NVIDIA display driver {cuda_driver_version} does not meet CUDA 12.4 requirement (>= {min_str})"
+                )
+
+            if cuda_driver_api_version is not None and cuda_driver_api_version < MIN_CUDA_DRIVER_API_VERSION:
+                driver_incompatible = True
+                reason_parts.append(
+                    f"Driver API version {cuda_driver_api_version} is below CUDA 12.4 requirement (>= {MIN_CUDA_DRIVER_API_VERSION})"
+                )
+
+            if parsed_driver is None and cuda_driver_api_version is None:
+                driver_incompatible = True
+                reason_parts.append(
+                    "NVIDIA driver version could not be determined or verified for CUDA 12.4 requirement"
+                )
+
+            if driver_incompatible:
+                cuda_supported = False
+                cuda_incompatibility_reason = "; ".join(reason_parts)
+                logger.warning("CUDA hardware detected but driver is incompatible: %s", cuda_incompatibility_reason)
+            else:
+                cuda_supported = True
 
     vulkan_available, vulkan_device_name = _probe_vulkan_ctypes()
 
-    if cuda_available and cuda_supported:
-        rec_backend = "cuda"
-        vram_info = f" with {vram_mb} MB VRAM" if vram_mb else ""
-        details = (
-            f"NVIDIA GPU '{gpu_name or 'NVIDIA Device'}'{vram_info} supports CUDA 12.4 acceleration "
-            f"(driver: {cuda_driver_version or 'detected'})."
-        )
-    elif vulkan_available:
-        rec_backend = "vulkan"
-        if cuda_available and not cuda_supported:
-            details = (
-                f"NVIDIA GPU detected but driver is incompatible ({cuda_incompatibility_reason}). "
-                f"Falling back to Vulkan acceleration on '{vulkan_device_name or 'Vulkan Device'}'."
-            )
-        else:
+    if sys.platform != "win32":
+        # On Linux, AksaraSight does not bundle or recommend CUDA binaries;
+        # route to Vulkan if capable hardware exists, otherwise CPU fallback.
+        if vulkan_available:
+            rec_backend = "vulkan"
             gpu_name = gpu_name or vulkan_device_name
-            details = f"Vulkan-capable device '{vulkan_device_name or 'GPU'}' detected for hardware acceleration."
-    else:
-        rec_backend = "cpu"
-        if cuda_available and not cuda_supported:
-            details = (
-                f"NVIDIA GPU detected but driver is incompatible ({cuda_incompatibility_reason}) "
-                "and Vulkan is unavailable. Falling back to CPU inference."
-            )
+            if cuda_available or (gpu_name and "nvidia" in gpu_name.lower()):
+                details = (
+                    f"NVIDIA GPU detected on Linux. Using Vulkan acceleration on '{vulkan_device_name or gpu_name}'."
+                )
+            else:
+                details = f"Vulkan-capable device '{vulkan_device_name or 'GPU'}' detected for hardware acceleration."
         else:
-            details = "No hardware acceleration (CUDA/Vulkan) detected. Falling back to CPU inference."
+            rec_backend = "cpu"
+            if cuda_available or (gpu_name and "nvidia" in gpu_name.lower()):
+                details = "NVIDIA GPU detected on Linux but Vulkan is unavailable. Falling back to CPU inference."
+            else:
+                details = "No hardware acceleration (Vulkan) detected. Falling back to CPU inference."
+    else:
+        # Windows evaluation flow (CUDA -> Vulkan -> CPU)
+        if cuda_available and cuda_supported:
+            rec_backend = "cuda"
+            vram_info = f" with {vram_mb} MB VRAM" if vram_mb else ""
+            details = (
+                f"NVIDIA GPU '{gpu_name or 'NVIDIA Device'}'{vram_info} supports CUDA 12.4 acceleration "
+                f"(driver: {cuda_driver_version or 'detected'})."
+            )
+        elif vulkan_available:
+            rec_backend = "vulkan"
+            if cuda_available and not cuda_supported:
+                details = (
+                    f"NVIDIA GPU detected but driver is incompatible ({cuda_incompatibility_reason}). "
+                    f"Falling back to Vulkan acceleration on '{vulkan_device_name or 'Vulkan Device'}'."
+                )
+            else:
+                gpu_name = gpu_name or vulkan_device_name
+                details = f"Vulkan-capable device '{vulkan_device_name or 'GPU'}' detected for hardware acceleration."
+        else:
+            rec_backend = "cpu"
+            if cuda_available and not cuda_supported:
+                details = (
+                    f"NVIDIA GPU detected but driver is incompatible ({cuda_incompatibility_reason}) "
+                    "and Vulkan is unavailable. Falling back to CPU inference."
+                )
+            else:
+                details = "No hardware acceleration (CUDA/Vulkan) detected. Falling back to CPU inference."
 
     return HardwareProfile(
         gpu_name=gpu_name,

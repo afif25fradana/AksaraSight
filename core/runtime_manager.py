@@ -87,10 +87,11 @@ def get_runtime_base_dir() -> Path:
             base = Path(local_app_data) / "AksaraSight" / "runtimes" / "llama-cpp"
         else:
             base = Path.home() / "AppData" / "Local" / "AksaraSight" / "runtimes" / "llama-cpp"
-    else:
-        base = Path.home() / ".local" / "share" / "aksarasight" / "runtimes" / "llama-cpp"
+        return base.resolve()
 
-    return base.resolve()
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
+    return (base / "aksarasight" / "runtimes" / "llama-cpp").resolve()
 
 
 def get_runtime_dir(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Path:

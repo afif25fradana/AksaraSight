@@ -466,3 +466,76 @@ def test_model_downloader_resets_is_downloading_on_disk_error(tmp_path: Path) ->
         # In fixed condition, is_downloading must be False.
         assert downloader.is_downloading is False
         assert downloader.error_message is not None
+
+
+def test_get_models_dir_linux_xdg_parity(monkeypatch, tmp_path: Path) -> None:
+    """Linux models directory adheres to XDG Base Directory specification and lowercase aksarasight."""
+    monkeypatch.setattr("sys.platform", "linux")
+    from core.model_manager import get_models_dir
+
+    # Case 1: Custom XDG_DATA_HOME
+    custom_xdg = tmp_path / "custom_data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(custom_xdg))
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    resolved = get_models_dir()
+    expected_custom = custom_xdg / "aksarasight" / "models" / "glm-ocr-q8_0"
+    assert resolved == expected_custom
+    assert "AksaraSight" not in resolved.parts
+    assert "aksarasight" in resolved.parts
+
+    # Case 2: Default XDG location (~/.local/share/aksarasight/models/glm-ocr-q8_0)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    fake_home = tmp_path / "user_home"
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+    resolved_default = get_models_dir()
+    expected_default = fake_home / ".local" / "share" / "aksarasight" / "models" / "glm-ocr-q8_0"
+    assert resolved_default == expected_default
+    assert "AksaraSight" not in resolved_default.parts
+    assert "aksarasight" in resolved_default.parts
+
+
+def test_models_dir_linux_legacy_migration_fallback(monkeypatch, tmp_path: Path) -> None:
+    """Legacy ~/.local/share/AksaraSight/models with weights migrates or falls back to canonical lowercase path."""
+    from core.model_manager import get_models_dir
+
+    monkeypatch.setattr("sys.platform", "linux")
+    fake_home = tmp_path / "user_home"
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    xdg_data = tmp_path / "xdg_data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg_data))
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    legacy_dir = fake_home / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
+    legacy_dir.mkdir(parents=True)
+    fake_model = legacy_dir / "GLM-OCR-Q8_0.gguf"
+    fake_mmproj = legacy_dir / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model.write_bytes(b"legacy-model-weights")
+    fake_mmproj.write_bytes(b"legacy-mmproj-weights")
+
+    resolved = get_models_dir()
+    assert "AksaraSight" not in resolved.parts
+    assert "aksarasight" in resolved.parts
+    assert (resolved / "GLM-OCR-Q8_0.gguf").read_bytes() == b"legacy-model-weights"
+    assert (resolved / "mmproj-GLM-OCR-Q8_0.gguf").read_bytes() == b"legacy-mmproj-weights"
+    assert not fake_model.exists()
+    assert not fake_mmproj.exists()
+    assert not (fake_home / ".local" / "share" / "AksaraSight").exists()
+
+
+def test_migrate_legacy_models_samefile_guard(tmp_path: Path) -> None:
+    """Verify _migrate_legacy_models returns False when legacy_dir and canonical_dir refer to the same directory."""
+    from core.model_manager import _migrate_legacy_models
+
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True)
+    dummy_file = models_dir / "dummy.txt"
+    dummy_file.write_text("content", encoding="utf-8")
+
+    result = _migrate_legacy_models(legacy_dir=models_dir, canonical_dir=models_dir)
+    assert result is False
+    assert dummy_file.exists()
+
+
+

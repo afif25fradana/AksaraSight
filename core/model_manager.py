@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import sys
 import threading
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -35,8 +36,78 @@ TOTAL_MODEL_BYTES = 1434837056
 REQUIRED_EXTRA_DISK_BYTES = 500_000_000
 
 
+def _migrate_legacy_models(
+    legacy_dir: Optional[Path] = None,
+    canonical_dir: Optional[Path] = None,
+) -> bool:
+    """Migrate model weights from legacy PascalCase directory to canonical XDG directory."""
+    if legacy_dir is None:
+        legacy_dir = Path.home() / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
+    if canonical_dir is None:
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
+        canonical_dir = base / "aksarasight" / "models" / "glm-ocr-q8_0"
+
+    try:
+        if not legacy_dir.is_dir():
+            parent_legacy = legacy_dir.parent
+            if parent_legacy.is_dir() and any(parent_legacy.iterdir()):
+                legacy_dir = parent_legacy
+
+        if not legacy_dir.is_dir():
+            return False
+
+        try:
+            if os.path.samefile(legacy_dir, canonical_dir):
+                return False
+        except (FileNotFoundError, ValueError, OSError):
+            pass
+
+        files = [f for f in legacy_dir.iterdir() if f.is_file()]
+        if not files:
+            return False
+
+        canonical_dir.mkdir(parents=True, exist_ok=True)
+        migrated = False
+        for f in files:
+            dest = canonical_dir / f.name
+            if not dest.exists():
+                shutil.move(str(f), str(dest))
+                migrated = True
+
+        try:
+            legacy_dir.rmdir()
+        except OSError:
+            pass
+        try:
+            legacy_dir.parent.rmdir()
+        except OSError:
+            pass
+        try:
+            legacy_dir.parent.parent.rmdir()
+        except OSError:
+            pass
+
+        return migrated
+    except Exception as exc:
+        logger.warning("Failed to migrate legacy models: %s", exc)
+        return False
+
+
 def get_models_dir() -> Path:
     """Return the target local directory for pinned model weights."""
+    if sys.platform != "win32":
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        base_dir = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
+        canonical_dir = base_dir / "aksarasight" / "models" / "glm-ocr-q8_0"
+
+        legacy_dir = Path.home() / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
+        legacy_parent = Path.home() / ".local" / "share" / "AksaraSight" / "models"
+        if (legacy_dir.is_dir() and any(legacy_dir.iterdir())) or (legacy_parent.is_dir() and any(legacy_parent.iterdir())):
+            _migrate_legacy_models(legacy_dir if legacy_dir.is_dir() else legacy_parent, canonical_dir)
+
+        return canonical_dir
+
     return (
         Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
         / "AksaraSight"

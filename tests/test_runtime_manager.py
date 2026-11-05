@@ -1023,3 +1023,32 @@ def test_download_and_verify_asset_ephemeral_session_closed(tmp_path: Path) -> N
             download_and_verify_asset(asset, tmp_path, session=None)
         assert mock_instance.trust_env is False
         mock_instance.close.assert_called_once()
+
+
+def test_get_runtime_base_dir_linux_xdg_parity(monkeypatch, tmp_path: Path) -> None:
+    """Linux runtime directory honors XDG_DATA_HOME with fallback to ~/.local/share."""
+    monkeypatch.setattr("sys.platform", "linux")
+    from core.runtime_manager import get_runtime_base_dir
+
+    # Case 1: Custom XDG_DATA_HOME
+    custom_xdg = tmp_path / "custom_xdg"
+    monkeypatch.setenv("XDG_DATA_HOME", str(custom_xdg))
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    resolved = get_runtime_base_dir()
+    expected_custom = custom_xdg / "aksarasight" / "runtimes" / "llama-cpp"
+    assert resolved == expected_custom
+    assert "AksaraSight" not in resolved.parts
+    assert "aksarasight" in resolved.parts
+
+    # Case 2: Default XDG location (~/.local/share/aksarasight/runtimes/llama-cpp)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    fake_home = tmp_path / "user_home"
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+    resolved_default = get_runtime_base_dir()
+    expected_default = fake_home / ".local" / "share" / "aksarasight" / "runtimes" / "llama-cpp"
+    assert resolved_default == expected_default
+    assert "AksaraSight" not in resolved_default.parts
+    assert "aksarasight" in resolved_default.parts
+

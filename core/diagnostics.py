@@ -14,9 +14,11 @@ from core.hardware import (
     MIN_RECOMMENDED_VRAM_MB,
     PINNED_LLAMA_BUILD,
     HardwareProfile,
+    _probe_wsl,
     detect_hardware as default_detect_hardware,
 )
 from core.runtime_manager import (
+    _get_exe_name,
     get_installed_runtime_path as default_get_installed_runtime_path,
     get_runtime_dir,
     is_runtime_installed as default_is_runtime_installed,
@@ -162,7 +164,26 @@ def run_diagnostics(
 
     # 2. Hardware Detection
     lines.append("\n2. Hardware Detection")
-    profile = detect_hw()
+    hw_exc = None
+    try:
+        profile = detect_hw()
+    except Exception as exc:
+        hw_exc = exc
+        profile = HardwareProfile(recommended_backend="cpu")
+
+    if hw_exc is not None:
+        lines.append(f"   [WARN] Hardware Detection:  Fallback to CPU ({hw_exc})")
+        checks.append(
+            DiagnosticCheck(
+                name="Hardware Detection",
+                status=DiagnosticStatus.WARN,
+                message=f"Hardware probe failed ({hw_exc}); fallback to CPU.",
+                details=str(hw_exc),
+                category="Hardware",
+                title="Hardware Detection",
+            )
+        )
+
     cpu_label = profile.cpu_name or "Unknown"
     gpu_label = profile.gpu_name or "None (CPU fallback)"
     if profile.vram_mb:
@@ -298,38 +319,134 @@ def run_diagnostics(
             target_backend = profile.recommended_backend
 
         tag = PINNED_LLAMA_BUILD
-        installed = check_runtime(tag=tag, backend=target_backend)
-        installed_path = get_runtime_path(tag=tag, backend=target_backend)
-
-        if installed and installed_path is not None:
-            lines.append(f"   [PASS] Managed Runtime:     {tag}-{target_backend} (INSTALLED)")
-            lines.append(f"          Executable:          {installed_path}")
-            checks.append(
-                DiagnosticCheck(
-                    name="Managed Runtime",
-                    status=DiagnosticStatus.PASS,
-                    message=f"{tag}-{target_backend} (INSTALLED)",
-                    details=str(installed_path),
-                )
-            )
-        else:
-            expected_dir = get_runtime_dir(tag, target_backend)
-            exe_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
-            expected_path = expected_dir / exe_name
-            lines.append(f"   [FAIL] Managed Runtime:     {tag}-{target_backend} (NOT INSTALLED)")
-            lines.append(f"          Executable:          {expected_path}")
+        if sys.platform.startswith("linux") and target_backend == "cuda":
+            lines.append(f"   [FAIL] Managed Runtime:     {tag}-cuda (NOT SUPPORTED)")
+            lines.append("          Details:             CUDA managed runtime is not supported on Linux")
             failed_checks += 1
             remediations.append(
-                f"Install the managed runtime '{tag}-{target_backend}' via Web UI Settings or download to '{expected_dir}'."
+                "CUDA managed runtime is not supported on Linux. Use 'vulkan', 'cpu', or switch to 'custom' runtime mode."
             )
             checks.append(
                 DiagnosticCheck(
                     name="Managed Runtime",
                     status=DiagnosticStatus.FAIL,
-                    message=f"{tag}-{target_backend} (NOT INSTALLED)",
-                    details=str(expected_path),
+                    message=f"{tag}-cuda (NOT SUPPORTED)",
+                    details="CUDA managed runtime is not supported on Linux",
                 )
             )
+        else:
+            installed = check_runtime(tag=tag, backend=target_backend)
+            installed_path = get_runtime_path(tag=tag, backend=target_backend)
+
+            if installed and installed_path is not None:
+                lines.append(f"   [PASS] Managed Runtime:     {tag}-{target_backend} (INSTALLED)")
+                lines.append(f"          Executable:          {installed_path}")
+                checks.append(
+                    DiagnosticCheck(
+                        name="Managed Runtime",
+                        status=DiagnosticStatus.PASS,
+                        message=f"{tag}-{target_backend} (INSTALLED)",
+                        details=str(installed_path),
+                    )
+                )
+            else:
+                expected_dir = get_runtime_dir(tag, target_backend)
+                expected_path = expected_dir / _get_exe_name()
+                lines.append(f"   [FAIL] Managed Runtime:     {tag}-{target_backend} (NOT INSTALLED)")
+                lines.append(f"          Executable:          {expected_path}")
+                failed_checks += 1
+                remediations.append(
+                    f"Install the managed runtime '{tag}-{target_backend}' via Web UI Settings or download to '{expected_dir}'."
+                )
+                checks.append(
+                    DiagnosticCheck(
+                        name="Managed Runtime",
+                        status=DiagnosticStatus.FAIL,
+                        message=f"{tag}-{target_backend} (NOT INSTALLED)",
+                        details=str(expected_path),
+                    )
+                )
+
+        if sys.platform.startswith("linux"):
+            import ctypes
+
+            libgomp_ok = False
+            try:
+                ctypes.CDLL("libgomp.so.1")
+                libgomp_ok = True
+            except OSError:
+                pass
+
+            if libgomp_ok:
+                lines.append("   [PASS] Host Library:        libgomp.so.1 (FOUND)")
+                checks.append(
+                    DiagnosticCheck(
+                        name="Host Library (libgomp)",
+                        status=DiagnosticStatus.PASS,
+                        message="libgomp.so.1 (FOUND)",
+                        details="OpenMP runtime library loaded successfully",
+                        category="Runtime",
+                    )
+                )
+            else:
+                lines.append("   [FAIL] Host Library:        libgomp.so.1 (MISSING)")
+                lines.append("          Details:             Install OpenMP runtime via package manager")
+                failed_checks += 1
+                remediations.append(
+                    "Install OpenMP runtime library: 'sudo apt install libgomp1' (Debian/Ubuntu) or 'sudo dnf install libgomp' (Fedora)."
+                )
+                checks.append(
+                    DiagnosticCheck(
+                        name="Host Library (libgomp)",
+                        status=DiagnosticStatus.FAIL,
+                        message="libgomp.so.1 (MISSING)",
+                        details="Missing OpenMP runtime library; install with 'sudo apt install libgomp1' or 'sudo dnf install libgomp'",
+                        remediation="sudo apt install libgomp1",
+                        category="Runtime",
+                    )
+                )
+
+            if target_backend == "vulkan":
+                libvulkan_ok = False
+                vulkan_candidates = ["libvulkan.so.1", "libvulkan.so"]
+                if _probe_wsl():
+                    vulkan_candidates.append("/usr/lib/wsl/lib/libvulkan.so.1")
+                for cand in vulkan_candidates:
+                    try:
+                        ctypes.CDLL(cand)
+                        libvulkan_ok = True
+                        break
+                    except OSError:
+                        pass
+
+                if libvulkan_ok:
+                    lines.append("   [PASS] Host Library:        libvulkan.so.1 (FOUND)")
+                    checks.append(
+                        DiagnosticCheck(
+                            name="Host Library (libvulkan)",
+                            status=DiagnosticStatus.PASS,
+                            message="libvulkan.so.1 (FOUND)",
+                            details="Vulkan loader library loaded successfully",
+                            category="Runtime",
+                        )
+                    )
+                else:
+                    lines.append("   [FAIL] Host Library:        libvulkan.so.1 (MISSING)")
+                    lines.append("          Details:             Install Vulkan loader via package manager")
+                    failed_checks += 1
+                    remediations.append(
+                        "Install Vulkan loader library: 'sudo apt install libvulkan1' (Debian/Ubuntu) or 'sudo dnf install vulkan-loader' (Fedora)."
+                    )
+                    checks.append(
+                        DiagnosticCheck(
+                            name="Host Library (libvulkan)",
+                            status=DiagnosticStatus.FAIL,
+                            message="libvulkan.so.1 (MISSING)",
+                            details="Missing Vulkan loader library; install with 'sudo apt install libvulkan1' or 'sudo dnf install vulkan-loader'",
+                            remediation="sudo apt install libvulkan1",
+                            category="Runtime",
+                        )
+                    )
 
     # 4. Server Reachability
     lines.append("\n4. Server Reachability")

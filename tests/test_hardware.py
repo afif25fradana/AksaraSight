@@ -1,5 +1,6 @@
 """Unit and functional tests for hardware capability detection engine."""
 
+import sys
 from unittest.mock import MagicMock, patch
 from core.hardware import (
     HardwareProfile,
@@ -42,8 +43,9 @@ def test_detect_hardware_cuda_compatible(monkeypatch) -> None:
         assert "555.85" in profile.details
 
 
-def test_detect_hardware_cuda_outdated_driver_falls_through_to_vulkan() -> None:
+def test_detect_hardware_cuda_outdated_driver_falls_through_to_vulkan(monkeypatch) -> None:
     """NVIDIA GPU with driver older than 550.54 falls through immediately to Vulkan."""
+    monkeypatch.setattr(sys, "platform", "win32")
     with (
         patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GeForce GTX 1080", 8192, "512.15")),
         patch("core.hardware._probe_nvcuda_ctypes", return_value=11060),
@@ -125,8 +127,9 @@ def test_detect_hardware_nvidia_smi_missing_fallback_to_nvcuda_dll(monkeypatch) 
         assert profile.recommended_backend == "cuda"
 
 
-def test_detect_hardware_cuda_unverified_driver_fails_closed() -> None:
+def test_detect_hardware_cuda_unverified_driver_fails_closed(monkeypatch) -> None:
     """When CUDA GPU is detected via nvidia-smi but driver version is unverified, CUDA fails closed."""
+    monkeypatch.setattr(sys, "platform", "win32")
     with (
         patch("core.hardware._probe_nvidia_smi", return_value=("NVIDIA GPU", 4096, "")),
         patch("core.hardware._probe_nvcuda_ctypes", return_value=None),
@@ -504,9 +507,28 @@ def test_probe_linux_wsl_detection(monkeypatch) -> None:
     import core.hardware
     from pathlib import Path
 
-    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(sys, "platform", "linux")
     probe_fn = core.hardware._probe_wsl
     assert callable(probe_fn), "_probe_wsl must be implemented in core.hardware"
+
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    monkeypatch.delenv("WSL_INTEROP", raising=False)
+
+    real_read_text = Path.read_text
+    def fake_read_text(self: Path, *args, **kwargs) -> str:
+        if self.as_posix() == "/proc/version":
+            return "Linux version 6.5.0-generic (buildd@canonical)"
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+    real_is_file = Path.is_file
+    def fake_is_file(self: Path, *args, **kwargs) -> bool:
+        if self.as_posix() == "/proc/version":
+            return True
+        return real_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", fake_is_file)
 
     def fake_exists_dxg(self: Path) -> bool:
         return self.as_posix() == "/dev/dxg"

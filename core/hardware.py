@@ -201,6 +201,14 @@ def _probe_wsl() -> bool:
     """Detect if running under Linux WSL (Windows Subsystem for Linux)."""
     if sys.platform == "win32":
         return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        content = Path("/proc/version").read_text(encoding="utf-8", errors="ignore").lower()
+        if "microsoft" in content or "wsl" in content:
+            return True
+    except (OSError, UnicodeDecodeError):
+        pass
     try:
         return Path("/dev/dxg").exists() or Path("/usr/lib/wsl/lib").is_dir()
     except OSError:

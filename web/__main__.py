@@ -6,7 +6,9 @@ from logging.handlers import RotatingFileHandler
 import multiprocessing
 import os
 from pathlib import Path
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 from typing import Any, Optional
@@ -15,6 +17,7 @@ import webbrowser
 import uvicorn
 
 from core.constants import __version__
+from core.hardware import _probe_wsl
 from web.app import create_app, enforce_loopback_host
 
 
@@ -63,8 +66,16 @@ def _setup_frozen_logging() -> Optional[Path]:
     log_file: Optional[Path] = None
     try:
         app_data = os.environ.get("LOCALAPPDATA")
-        base_dir = Path(app_data) if app_data else (Path.home() / "AppData" / "Local")
-        log_dir = base_dir / "AksaraSight" / "logs"
+        if app_data:
+            base_dir = Path(app_data)
+            log_dir = base_dir / "AksaraSight" / "logs"
+        elif sys.platform != "win32":
+            xdg_state = os.environ.get("XDG_STATE_HOME")
+            base_dir = Path(xdg_state) if xdg_state else (Path.home() / ".local" / "state")
+            log_dir = base_dir / "aksarasight" / "logs"
+        else:
+            base_dir = Path.home() / "AppData" / "Local"
+            log_dir = base_dir / "AksaraSight" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         candidate_log_file = log_dir / "app.log"
 
@@ -105,6 +116,26 @@ def _setup_frozen_logging() -> Optional[Path]:
     logging.getLogger("app").info("Frozen application started (v%s)", __version__)
 
     return log_file
+
+
+def _open_browser(url: str) -> None:
+    """Open URL in the user's default browser with WSL host bridging support."""
+    if (
+        sys.platform != "win32"
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+        and _probe_wsl()
+    ):
+        if shutil.which("wslview"):
+            subprocess.run(["wslview", url], check=False)
+            return
+        if shutil.which("powershell.exe"):
+            subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"Start-Process '{url}'"],
+                check=False,
+            )
+            return
+    webbrowser.open(url)
 
 
 def is_port_in_use(host: str, port: int) -> bool:
@@ -173,9 +204,15 @@ def main() -> None:
         os.environ["AKSARA_WEB_DEV_MODE"] = "1"
 
     if getattr(sys, "frozen", False) and not args.no_browser:
-        timer = threading.Timer(0.8, lambda: webbrowser.open(f"http://{args.host}:{args.port}"))
-        timer.daemon = True
-        timer.start()
+        should_open = True
+        if sys.platform != "win32":
+            if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY") and not _probe_wsl():
+                should_open = False
+                logging.getLogger("app").debug("Headless Linux detected; suppressing browser auto-open")
+        if should_open:
+            timer = threading.Timer(0.8, lambda: _open_browser(f"http://{args.host}:{args.port}"))
+            timer.daemon = True
+            timer.start()
 
     if args.reload:
         os.environ["AKSARA_WEB_PORT"] = str(args.port)

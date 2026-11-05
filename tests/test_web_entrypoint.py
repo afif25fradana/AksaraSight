@@ -341,6 +341,7 @@ def test_web_entrypoint_main_default_and_frozen(monkeypatch, tmp_path):
     monkeypatch.setattr(web_main.uvicorn, "run", lambda *a, **k: run_calls.append((a, k)))
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("DISPLAY", ":0")
 
     # Spy on threading.Timer to verify browser spawn was scheduled
     timer_created = []

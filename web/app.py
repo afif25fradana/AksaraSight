@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 from urllib.parse import quote
 import uuid
 
@@ -50,7 +50,7 @@ from core.model_manager import (
 from core.models import OutputFormat, PROMPT_PRESETS
 from core.pipeline import EncryptedDocumentError, FilePreflightError, OversizedImageError, get_page_count, rasterize_page
 from core.runtime_manager import (
-    _EXE_NAME,
+    _get_exe_name,
     ensure_runtime,
     get_installed_runtime_path,
     get_runtime_dir,
@@ -235,25 +235,74 @@ def _pick_executable_file() -> Optional[str]:
                 "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"
             ),
         ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode == 0:
+                out = result.stdout.strip()
+                return out or None
+            return None
+        except Exception as exc:
+            logger.warning("Native file dialog failed or cancelled: %s", exc)
+            return None
     elif sys.platform == "darwin":
         cmd = ["osascript", "-e", 'POSIX path of (choose file with prompt "Select llama-server Executable")']
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode == 0:
+                out = result.stdout.strip()
+                return out or None
+            return None
+        except Exception as exc:
+            logger.warning("Native file dialog failed or cancelled: %s", exc)
+            return None
     else:
-        cmd = ["zenity", "--file-selection", "--title=Select llama-server Executable"]
+        # Linux: try zenity, then fallback to kdialog
+        try:
+            result = subprocess.run(
+                ["zenity", "--file-selection", "--title=Select llama-server Executable"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                out = result.stdout.strip()
+                return out or None
+            return None
+        except FileNotFoundError:
+            try:
+                result = subprocess.run(
+                    ["kdialog", "--getopenfilename", ".", "--title", "Select llama-server Executable"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    out = result.stdout.strip()
+                    return out or None
+                return None
+            except Exception as exc:
+                logger.warning("Native file dialog (kdialog) failed or cancelled: %s", exc)
+                return None
+        except Exception as exc:
+            logger.warning("Native file dialog (zenity) failed or cancelled: %s", exc)
+            return None
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode == 0:
-            out = result.stdout.strip()
-            return out or None
-        return None
-    except Exception as exc:
-        logger.warning("Native file dialog failed or cancelled: %s", exc)
-        return None
+
+def _launch_os_shell(target: Path) -> Tuple[bool, Path]:
+    """Launch OS native file manager to reveal target file or open directory."""
+    if sys.platform == "win32":
+        if target.is_file():
+            subprocess.run(f'explorer.exe /select,"{target}"', check=False, timeout=10)
+            return True, target
+        os.startfile(target)
+        return True, target
+    if sys.platform == "darwin":
+        cmd = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
+        subprocess.run(cmd, check=False, timeout=10)
+        return True, target
+    open_target = target.parent if target.is_file() else target
+    subprocess.run(["xdg-open", str(open_target)], check=False, timeout=10)
+    return True, target
 
 
 class ExtractRequest(BaseModel):
@@ -1241,23 +1290,9 @@ def create_app(
                 raise HTTPException(status_code=400, detail="Output directory does not exist or is not a directory.")
             target = out_dir
 
-        def _launch_os_shell() -> bool:
-            if sys.platform == "win32":
-                if target.is_file():
-                    subprocess.run(f'explorer.exe /select,"{target}"', check=False, timeout=10)
-                    return True
-                os.startfile(target)
-                return True
-            if sys.platform == "darwin":
-                cmd = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
-                subprocess.run(cmd, check=False, timeout=10)
-                return True
-            subprocess.run(["xdg-open", str(target)], check=False, timeout=10)
-            return True
-
         opened = False
         try:
-            opened = await asyncio.to_thread(_launch_os_shell)
+            opened, _ = await asyncio.to_thread(_launch_os_shell, target)
         except Exception as exc:
             logger.warning("Failed to open path %s: %s", target, exc)
 
@@ -1450,7 +1485,7 @@ def create_app(
         target_backend = str(target_backend).lower()
 
         installed_path = get_installed_runtime_path(PINNED_LLAMA_BUILD, target_backend)
-        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _EXE_NAME
+        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _get_exe_name()
         is_dl = getattr(app.state, "is_runtime_downloading", False)
         last_status: Optional[Dict[str, Any]] = getattr(app.state, "last_runtime_download_status", None)
 
@@ -1518,7 +1553,7 @@ def create_app(
             target_backend = profile.recommended_backend if profile else "cpu"
         target_backend = str(target_backend).lower()
 
-        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _EXE_NAME
+        expected_path = get_runtime_dir(PINNED_LLAMA_BUILD, target_backend) / _get_exe_name()
 
         app.state.is_runtime_downloading = True
 

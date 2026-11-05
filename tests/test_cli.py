@@ -632,8 +632,10 @@ def test_cli_doctor_all_pass(
     mock_probe: MagicMock,
     mock_engine_cls: MagicMock,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify --doctor reports healthy status and returns exit code 0 when all checks pass."""
+    monkeypatch.setattr(sys, "platform", "win32")
     from core.hardware import HardwareProfile
     from core.server_manager import ServerStatus
 
@@ -857,8 +859,10 @@ def test_cli_doctor_golden_output_match(
     mock_probe: MagicMock,
     mock_engine_cls: MagicMock,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify --doctor matches exact line-by-line golden output when all checks pass."""
+    monkeypatch.setattr(sys, "platform", "win32")
     from core.hardware import HardwareProfile
     from core.server_manager import ServerStatus
 
@@ -929,8 +933,10 @@ def test_cli_doctor_golden_output_server_offline(
     mock_probe: MagicMock,
     mock_engine_cls: MagicMock,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify --doctor matches exact line-by-line golden output when server is offline."""
+    monkeypatch.setattr(sys, "platform", "win32")
     from core.hardware import HardwareProfile
     from core.server_manager import ServerStatus
 

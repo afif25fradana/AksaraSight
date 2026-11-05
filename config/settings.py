@@ -21,7 +21,8 @@ def _resolve_default_env_path() -> Path:
     """Resolve the default .env path based on whether running frozen or from source.
 
     If AKSARA_ENV_FILE is set and non-empty, returns Path(AKSARA_ENV_FILE).
-    If frozen (PyInstaller executable), defaults to '.env' adjacent to the executable.
+    If frozen (PyInstaller executable), defaults to '.env' adjacent to the executable,
+    or falls back to XDG config path on POSIX if the executable directory is read-only.
     If running from source, defaults to '.env' in the current working directory.
     """
     env_override = os.environ.get("AKSARA_ENV_FILE")
@@ -29,6 +30,9 @@ def _resolve_default_env_path() -> Path:
         return Path(env_override)
     if getattr(sys, "frozen", False):
         exe_env = Path(sys.executable).parent / ".env"
+        if sys.platform != "win32" and exe_env.parent.exists() and not os.access(exe_env.parent, os.W_OK) and not exe_env.is_file():
+            config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+            return config_home / "aksarasight" / "settings.env"
         return exe_env
     return Path(".env")
 
@@ -384,9 +388,12 @@ class Settings:
                 new_lines.append(f"{k}={_quote_val(managed[k])}")
 
         # Atomic write
+        target.parent.mkdir(parents=True, exist_ok=True)
         temp_file = target.with_name(f"{target.name}.tmp")
         try:
             temp_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            if os.name == "posix":
+                os.chmod(temp_file, 0o600)
             temp_file.replace(target)
         except Exception:
             temp_file.unlink(missing_ok=True)

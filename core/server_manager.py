@@ -444,6 +444,8 @@ class ServerManager:
             or "could not bind" in recent_text
         ):
             return "Port already in use by another process"
+        if "error while loading shared libraries" in recent_text or "cannot open shared object file" in recent_text:
+            return "Missing host shared library (e.g., libgomp.so.1 or libvulkan.so.1)"
         if "failed to initialize cuda" in recent_text or "cuda driver version" in recent_text:
             return "CUDA/GPU acceleration initialization failed"
         if "failed to download" in recent_text or "404" in recent_text:

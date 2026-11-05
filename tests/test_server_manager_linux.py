@@ -361,3 +361,22 @@ def test_server_manager_stop_linux_getpgid_error_fallback(
     mgr.stop()
 
     mock_killpg.assert_called_once_with(12345, signal.SIGTERM)
+
+
+def test_server_manager_diagnose_failure_dynamic_linker_error() -> None:
+    """_diagnose_failure() identifies missing host shared libraries from linker output."""
+    mgr = ServerManager()
+
+    # Case 1: error while loading shared libraries
+    mgr._log_buffer.append(
+        "llama-server: error while loading shared libraries: libgomp.so.1: cannot open shared object file"
+    )
+    diag = mgr._diagnose_failure()
+    assert "Missing host shared library" in diag
+    assert "libgomp.so.1" in diag
+
+    # Case 2: cannot open shared object file
+    mgr._log_buffer.clear()
+    mgr._log_buffer.append("libvulkan.so.1: cannot open shared object file: No such file or directory")
+    diag = mgr._diagnose_failure()
+    assert "Missing host shared library" in diag

@@ -1,4 +1,4 @@
-"""Tests for Linux packaging, platform executable resolution, and frozen verification (WP5)."""
+"""Tests for Linux packaging, platform executable resolution, and frozen verification."""
 
 import os
 from pathlib import Path

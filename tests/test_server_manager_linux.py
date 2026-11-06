@@ -514,3 +514,93 @@ def test_linux_job_object_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
         importlib.reload(core.job_object)
 
 
+def test_server_manager_stop_linux_never_signals_pgid_one_or_less(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ServerManager.stop() on Linux must never signal pgid <= 1 (e.g. init) and checks poll() is None."""
+    monkeypatch.setattr("sys.platform", "linux")
+    mock_killpg = MagicMock()
+    monkeypatch.setattr(os, "killpg", mock_killpg, raising=False)
+    monkeypatch.setattr(os, "getpgid", lambda pid: 1, raising=False)
+
+    mgr = ServerManager()
+    mock_proc = MagicMock()
+    mock_proc.pid = 12345
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = None
+
+    mgr._process = mock_proc
+    mgr._ownership = ServerOwnership.MANAGED
+    mgr._status = ServerStatus.READY
+
+    mgr.stop()
+
+    mock_killpg.assert_not_called()
+    mock_proc.terminate.assert_called_once()
+
+    # Case 2: Process already terminated (poll is not None)
+    mock_proc.reset_mock()
+    mock_killpg.reset_mock()
+    mock_proc.poll.return_value = 0
+    mgr._process = mock_proc
+    mgr._ownership = ServerOwnership.MANAGED
+    mgr._status = ServerStatus.READY
+
+    mgr.stop()
+    mock_killpg.assert_not_called()
+    mock_proc.terminate.assert_not_called()
+    mock_proc.kill.assert_not_called()
+
+
+def test_server_manager_start_linux_ld_library_path_sanitized_and_no_creationflags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Linux ServerManager.start() sanitizes LD_LIBRARY_PATH against empty/relative entries and omits creationflags."""
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setenv("LD_LIBRARY_PATH", ":/valid/lib64::relative/path:   :/another/valid/lib:")
+
+    fake_bin = tmp_path / "llama-server"
+    fake_bin.write_text("binary", encoding="utf-8")
+
+    settings = Settings(
+        llama_server_path=str(fake_bin),
+        runtime_mode="custom",
+        model_repo="test-org/model-gguf",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter(["[server] listening on 127.0.0.1:8080\n"])
+    mock_proc.communicate.return_value = ("", "")
+
+    try:
+        with (
+            patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")),
+            patch("core.server_manager.get_cached_hardware_profile", return_value=HardwareProfile(recommended_backend="cpu")),
+            patch("core.server_manager.subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mgr.start()
+            assert mock_popen.called
+            _, popen_kwargs = mock_popen.call_args
+
+            # Linux must NOT have creationflags passed in popen_kwargs
+            assert "creationflags" not in popen_kwargs
+
+            # LD_LIBRARY_PATH must be clean: only valid absolute directories, no empty :: or relative entries
+            env = popen_kwargs.get("env", {})
+            ld_path = env.get("LD_LIBRARY_PATH", "")
+            assert "::" not in ld_path
+            assert not ld_path.startswith(":")
+            assert not ld_path.endswith(":")
+            assert str(fake_bin.parent) in ld_path
+            assert "/valid/lib64" in ld_path
+            assert "/another/valid/lib" in ld_path
+            assert "relative/path" not in ld_path
+
+    finally:
+        mgr.shutdown()
+
+
+

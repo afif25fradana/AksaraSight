@@ -12,6 +12,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import posixpath
 import shutil
 import subprocess
 import sys
@@ -43,9 +44,6 @@ KNOWN_PINNED_HASHES: Dict[str, str] = {
 
 def _get_exe_name() -> str:
     return "llama-server.exe" if sys.platform == "win32" else "llama-server"
-
-
-_EXE_NAME: str = _get_exe_name()
 
 
 class RuntimeManagerError(Exception):
@@ -149,9 +147,6 @@ def resolve_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) -> List[str
         return [f"llama-{clean_tag}-bin-win-cpu-x64.zip"]
     else:
         raise ValueError(f"Unsupported runtime backend: '{backend}'. Supported: 'cuda', 'vulkan', 'cpu'")
-
-
-resolve_required_asset_names = resolve_asset_names
 
 
 def fetch_release_assets_metadata(
@@ -424,7 +419,13 @@ def safe_extract_tar(tar_path: Path, target_dir: Path) -> None:
             if m.isdev() or m.ischr() or m.isblk() or m.isfifo() or m.islnk():
                 raise ZipSlipSecurityError(f"Security violation: Invalid or hardlink member '{m.name}'.")
 
-            dest = (target_dir_resolved / rel).resolve()
+            raw_dest = Path(os.path.normpath(str(target_dir_resolved / rel)))
+            try:
+                raw_dest.relative_to(target_dir_resolved)
+            except ValueError as exc:
+                raise ZipSlipSecurityError(f"Tar-slip path traversal attempt in '{tar_path.name}': '{m.name}'") from exc
+
+            dest = raw_dest.parent.resolve() / raw_dest.name
             try:
                 dest.relative_to(target_dir_resolved)
             except ValueError as exc:
@@ -444,19 +445,36 @@ def safe_extract_tar(tar_path: Path, target_dir: Path) -> None:
         # 3. Pass 1: Extract directories and regular files
         for m, dest, _ in validated:
             if m.isdir():
+                if dest.is_symlink():
+                    try:
+                        dest.unlink()
+                    except OSError:
+                        pass
                 dest.mkdir(parents=True, exist_ok=True)
             elif m.isreg():
                 dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_symlink():
+                    try:
+                        dest.unlink()
+                    except OSError:
+                        pass
                 f_in = tf.extractfile(m)
                 if f_in is not None:
-                    with open(dest, "wb") as f_out:
+                    with f_in, open(dest, "wb") as f_out:
                         shutil.copyfileobj(f_in, f_out)
-                    f_in.close()
-                mode = 0o755 if (dest.name == "llama-server" or dest.name.startswith("llama-") or bool(m.mode & 0o111)) else 0o644
+                is_executable = (
+                    dest.name == "llama-server"
+                    or dest.name.startswith("llama-")
+                    or dest.name.endswith(".so")
+                    or ".so." in dest.name
+                    or bool(m.mode & 0o111)
+                )
+                mode = 0o755 if is_executable else 0o644
                 try:
                     os.chmod(dest, mode)
                 except OSError:
                     pass
+
 
         # 4. Pass 2: Extract symlinks last
         for m, dest, _ in validated:
@@ -514,8 +532,6 @@ def validate_runtime_binary(exe_path: Path) -> bool:
     if not exe_path.is_file():
         return False
 
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-
     # Suppress Windows crash-report dialogs (SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
     prev_mode = None
     if sys.platform == "win32":
@@ -536,17 +552,23 @@ def validate_runtime_binary(exe_path: Path) -> bool:
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "timeout": 5.0,
-        "creationflags": creationflags,
         "cwd": str(exe_path.parent),
     }
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        run_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    else:
         sub_env = os.environ.copy()
         runtime_dir_str = str(exe_path.parent)
-        if "LD_LIBRARY_PATH" in sub_env and sub_env["LD_LIBRARY_PATH"]:
-            sub_env["LD_LIBRARY_PATH"] = f"{runtime_dir_str}:{sub_env['LD_LIBRARY_PATH']}"
-        else:
-            sub_env["LD_LIBRARY_PATH"] = runtime_dir_str
+        valid_paths = [runtime_dir_str] if (os.path.isabs(runtime_dir_str) or posixpath.isabs(runtime_dir_str)) else []
+        existing_ld = sub_env.get("LD_LIBRARY_PATH", "")
+        if existing_ld:
+            for p in existing_ld.split(":"):
+                p_clean = p.strip()
+                if p_clean and (os.path.isabs(p_clean) or posixpath.isabs(p_clean)):
+                    valid_paths.append(p_clean)
+        sub_env["LD_LIBRARY_PATH"] = ":".join(valid_paths)
         run_kwargs["env"] = sub_env
+
 
     try:
         # Try --version first, then -h

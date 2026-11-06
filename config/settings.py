@@ -30,10 +30,12 @@ def _resolve_default_env_path() -> Path:
         return Path(env_override)
     if getattr(sys, "frozen", False):
         exe_env = Path(sys.executable).parent / ".env"
-        if sys.platform != "win32" and exe_env.parent.exists() and not os.access(exe_env.parent, os.W_OK) and not exe_env.is_file():
-            config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+        if sys.platform != "win32" and (not exe_env.parent.exists() or not os.access(exe_env.parent, os.W_OK)):
+            xdg_cfg = os.environ.get("XDG_CONFIG_HOME")
+            config_home = Path(xdg_cfg) if xdg_cfg and xdg_cfg.strip() else (Path.home() / ".config")
             return config_home / "aksarasight" / "settings.env"
         return exe_env
+
     return Path(".env")
 
 

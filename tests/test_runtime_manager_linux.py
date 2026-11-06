@@ -24,7 +24,6 @@ from core.runtime_manager import (
     is_runtime_installed,
     resolve_asset_names,
     resolve_effective_server_path,
-    resolve_required_asset_names,
     safe_extract_archive,
     safe_extract_tar,
     validate_runtime_binary,
@@ -57,25 +56,26 @@ def _create_test_tar(
     return buf.getvalue()
 
 
-def test_resolve_required_asset_names_linux_vulkan(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_asset_names_linux_vulkan(monkeypatch: pytest.MonkeyPatch) -> None:
     """Linux vulkan backend resolves to Ubuntu Vulkan tar.gz archive."""
     monkeypatch.setattr("sys.platform", "linux")
-    assets = resolve_required_asset_names("vulkan", "b11361")
+    assets = resolve_asset_names("vulkan", "b11361")
     assert assets == ["llama-b11361-bin-ubuntu-vulkan-x64.tar.gz"]
 
 
-def test_resolve_required_asset_names_linux_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_asset_names_linux_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
     """Linux cpu backend resolves to Ubuntu CPU tar.gz archive."""
     monkeypatch.setattr("sys.platform", "linux")
-    assets = resolve_required_asset_names("cpu", "b11361")
+    assets = resolve_asset_names("cpu", "b11361")
     assert assets == ["llama-b11361-bin-ubuntu-x64.tar.gz"]
 
 
-def test_resolve_required_asset_names_linux_cuda_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_asset_names_linux_cuda_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """Managed CUDA runtime is not supported on Linux and must raise ValueError."""
     monkeypatch.setattr("sys.platform", "linux")
     with pytest.raises(ValueError, match=r"(?i)cuda.*not supported on linux"):
-        resolve_required_asset_names("cuda", "b11361")
+        resolve_asset_names("cuda", "b11361")
+
 
 
 def test_known_pinned_hashes_contains_linux_assets() -> None:
@@ -250,12 +250,12 @@ def test_get_runtime_base_dir_linux_xdg_parity(monkeypatch: pytest.MonkeyPatch, 
     assert "aksarasight" in resolved_default.parts
 
 
-def test_resolve_asset_names_linux_parity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Linux asset resolution works for both resolve_asset_names and resolve_required_asset_names."""
+def test_resolve_asset_names_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Linux asset resolution returns valid release archives."""
     monkeypatch.setattr("sys.platform", "linux")
     assert resolve_asset_names("vulkan", "b11361") == ["llama-b11361-bin-ubuntu-vulkan-x64.tar.gz"]
     assert resolve_asset_names("cpu", "b11361") == ["llama-b11361-bin-ubuntu-x64.tar.gz"]
-    assert resolve_asset_names("vulkan", "b11361") == resolve_required_asset_names("vulkan", "b11361")
+
 
 
 def test_ensure_runtime_linux_tar_gz_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -470,4 +470,81 @@ def test_get_installed_runtime_path_argument_reversal(tmp_path: Path) -> None:
 def test_resolve_effective_server_path_none_settings() -> None:
     """resolve_effective_server_path returns None when settings is None."""
     assert resolve_effective_server_path(None) is None
+
+
+def test_safe_extract_tar_unlinks_preexisting_symlink_in_pass1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pass 1 of safe_extract_tar must unlink pre-existing symlinks to prevent overwriting target files."""
+    dest_dir = tmp_path / "extract_dest"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    victim_file = tmp_path / "victim.txt"
+    victim_file.write_bytes(b"victim content that must not be overwritten")
+
+    symlink_dest = dest_dir / "target.txt"
+    can_symlink = True
+    try:
+        os.symlink(victim_file, symlink_dest)
+    except OSError:
+        can_symlink = False
+        symlink_dest.write_bytes(b"symlink-placeholder")
+
+    tar_bytes = _create_test_tar(
+        files={"target.txt": b"new extracted content"}
+    )
+    tar_path = tmp_path / "test.tar.gz"
+    tar_path.write_bytes(tar_bytes)
+
+    if can_symlink:
+        safe_extract_tar(tar_path, dest_dir)
+        assert victim_file.read_bytes() == b"victim content that must not be overwritten"
+        assert symlink_dest.is_file()
+        assert not symlink_dest.is_symlink()
+        assert symlink_dest.read_bytes() == b"new extracted content"
+    else:
+        unlinked = []
+        orig_unlink = Path.unlink
+
+        def mock_unlink(self, *a, **k):
+            unlinked.append(self.name)
+            return orig_unlink(self, *a, **k)
+
+        monkeypatch.setattr(Path, "is_symlink", lambda self: self.name == "target.txt")
+        monkeypatch.setattr(Path, "unlink", mock_unlink)
+
+        safe_extract_tar(tar_path, dest_dir)
+        assert "target.txt" in unlinked, "safe_extract_tar Pass 1 must unlink pre-existing symlink"
+
+
+
+def test_validate_runtime_binary_linux_ld_library_path_sanitized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """validate_runtime_binary() on Linux sanitizes LD_LIBRARY_PATH against empty and relative elements."""
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "::/opt/lib64:relative/path:  :/usr/local/lib:")
+
+    exe = tmp_path / "fake-server"
+    exe.write_bytes(b"\x7fELF mock binary")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert validate_runtime_binary(exe) is True
+
+        mock_run.assert_called_once()
+        _, kwargs = mock_run.call_args
+        assert "creationflags" not in kwargs, "Linux must NOT receive creationflags in run_kwargs"
+        assert "env" in kwargs
+        run_env = kwargs["env"]
+        ld_path = run_env.get("LD_LIBRARY_PATH", "")
+        assert "::" not in ld_path
+        assert not ld_path.startswith(":")
+        assert not ld_path.endswith(":")
+        assert str(exe.parent) in ld_path
+        assert "/opt/lib64" in ld_path
+        assert "/usr/local/lib" in ld_path
+        assert "relative/path" not in ld_path
+
+
 

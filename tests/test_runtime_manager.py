@@ -26,7 +26,6 @@ from core.runtime_manager import (
     get_runtime_dir,
     is_runtime_installed,
     resolve_asset_names,
-    resolve_required_asset_names,
     safe_extract_zip,
     validate_runtime_binary,
 )
@@ -42,30 +41,26 @@ def _create_test_zip(files: dict[str, bytes]) -> bytes:
 
 # Asset Resolution Tests
 
-def test_resolve_required_asset_names(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_asset_names_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify correct archive mapping per backend on Windows."""
     monkeypatch.setattr(sys, "platform", "win32")
     # CUDA requires companion cudart
-    cuda_assets = resolve_required_asset_names("cuda", "b11361")
+    cuda_assets = resolve_asset_names("cuda", "b11361")
     assert len(cuda_assets) == 2
     assert "llama-b11361-bin-win-cuda-12.4-x64.zip" in cuda_assets
     assert "cudart-llama-bin-win-cuda-12.4-x64.zip" in cuda_assets
-    assert resolve_asset_names("cuda", "b11361") == cuda_assets
 
     # Vulkan is self-contained
-    vulkan_assets = resolve_required_asset_names("vulkan", "b11361")
+    vulkan_assets = resolve_asset_names("vulkan", "b11361")
     assert vulkan_assets == ["llama-b11361-bin-win-vulkan-x64.zip"]
-    assert resolve_asset_names("vulkan", "b11361") == vulkan_assets
 
     # CPU is self-contained
-    cpu_assets = resolve_required_asset_names("cpu", "b11361")
+    cpu_assets = resolve_asset_names("cpu", "b11361")
     assert cpu_assets == ["llama-b11361-bin-win-cpu-x64.zip"]
-    assert resolve_asset_names("cpu", "b11361") == cpu_assets
 
     with pytest.raises(ValueError, match="Unsupported runtime backend"):
-        resolve_required_asset_names("metal", "b11361")
-    with pytest.raises(ValueError, match="Unsupported runtime backend"):
         resolve_asset_names("metal", "b11361")
+
 
 
 

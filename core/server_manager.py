@@ -11,6 +11,7 @@ from enum import Enum
 import logging
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import signal
@@ -692,8 +693,6 @@ class ServerManager:
                         f"Port {port} is already in use on 127.0.0.1 by another process: {bind_err}"
                     ) from bind_err
 
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-
                 # Sanitize subprocess environment against proxy interception
                 sub_env = os.environ.copy()
                 for proxy_var in (
@@ -712,16 +711,22 @@ class ServerManager:
                     "bufsize": 1,
                     "encoding": "utf-8",
                     "errors": "replace",
-                    "creationflags": creationflags,
                     "env": sub_env,
                     "cwd": runtime_dir_str,
                 }
-                if sys.platform != "win32":
+                if sys.platform == "win32":
+                    popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                else:
                     popen_kwargs["start_new_session"] = True
                     existing_ld = sub_env.get("LD_LIBRARY_PATH", "")
-                    sub_env["LD_LIBRARY_PATH"] = (
-                        f"{runtime_dir_str}:{existing_ld}" if existing_ld else runtime_dir_str
-                    )
+                    valid_paths = [runtime_dir_str] if (os.path.isabs(runtime_dir_str) or posixpath.isabs(runtime_dir_str)) else []
+                    if existing_ld:
+                        for p in existing_ld.split(":"):
+                            p_clean = p.strip()
+                            if p_clean and (os.path.isabs(p_clean) or posixpath.isabs(p_clean)):
+                                valid_paths.append(p_clean)
+                    sub_env["LD_LIBRARY_PATH"] = ":".join(valid_paths)
+
 
                 proc: Optional[subprocess.Popen] = None
                 job_handle: Optional[int] = None
@@ -784,25 +789,28 @@ class ServerManager:
                 except Exception as spawn_exc:
                     if proc is not None:
                         if sys.platform != "win32":
-                            try:
-                                sigkill = getattr(signal, "SIGKILL", 9)
-                                pgid = proc.pid
-                                if hasattr(os, "getpgid"):
-                                    try:
-                                        pgid = os.getpgid(proc.pid)
-                                    except (ProcessLookupError, PermissionError, OSError):
-                                        pgid = proc.pid
-                                if hasattr(os, "killpg"):
-                                    os.killpg(pgid, sigkill)
-                                else:
-                                    proc.kill()
-                            except (ProcessLookupError, PermissionError, OSError):
-                                pass
+                            if proc.poll() is None:
+                                try:
+                                    sigkill = getattr(signal, "SIGKILL", 9)
+                                    pgid = proc.pid
+                                    if hasattr(os, "getpgid"):
+                                        try:
+                                            pgid = os.getpgid(proc.pid)
+                                        except (ProcessLookupError, PermissionError, OSError):
+                                            pgid = proc.pid
+                                    if hasattr(os, "killpg") and pgid > 1:
+                                        os.killpg(pgid, sigkill)
+                                    else:
+                                        proc.kill()
+                                except (ProcessLookupError, PermissionError, OSError):
+                                    pass
                         else:
-                            try:
-                                proc.kill()
-                            except Exception:
-                                pass
+                            if proc.poll() is None:
+                                try:
+                                    proc.kill()
+                                except Exception:
+                                    pass
+
                         try:
                             proc.wait(timeout=2.0)
                         except Exception:
@@ -858,45 +866,51 @@ class ServerManager:
             # can exit cleanly instead of filling its stdout pipe and being killed.
             try:
                 if sys.platform != "win32":
-                    try:
-                        pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pgid = proc.pid
+                    pgid = proc.pid
+                    if proc.poll() is None:
+                        try:
+                            pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
+                        except (ProcessLookupError, PermissionError, OSError):
+                            pgid = proc.pid
 
-                    try:
-                        if hasattr(os, "killpg"):
-                            os.killpg(pgid, signal.SIGTERM)
-                        else:
-                            proc.terminate()
-                    except (ProcessLookupError, PermissionError, OSError) as term_exc:
-                        logger.debug("Process group already terminated on SIGTERM: %s", term_exc)
+                        try:
+                            if hasattr(os, "killpg") and pgid > 1:
+                                os.killpg(pgid, signal.SIGTERM)
+                            else:
+                                proc.terminate()
+                        except (ProcessLookupError, PermissionError, OSError) as term_exc:
+                            logger.debug("Process group already terminated on SIGTERM: %s", term_exc)
 
                     try:
                         proc.wait(timeout=3.0)
                     except subprocess.TimeoutExpired:
-                        logger.warning("Server process did not exit within 3s, killing...")
-                        sigkill = getattr(signal, "SIGKILL", 9)
-                        try:
-                            if hasattr(os, "killpg"):
-                                os.killpg(pgid, sigkill)
-                            else:
-                                proc.kill()
-                        except (ProcessLookupError, PermissionError, OSError) as kill_exc:
-                            logger.debug("Process group already terminated on SIGKILL: %s", kill_exc)
-                        try:
-                            proc.wait(timeout=2.0)
-                        except Exception:
-                            pass
+                        if proc.poll() is None:
+                            logger.warning("Server process did not exit within 3s, killing...")
+                            sigkill = getattr(signal, "SIGKILL", 9)
+                            try:
+                                if hasattr(os, "killpg") and pgid > 1:
+                                    os.killpg(pgid, sigkill)
+                                else:
+                                    proc.kill()
+                            except (ProcessLookupError, PermissionError, OSError) as kill_exc:
+                                logger.debug("Process group already terminated on SIGKILL: %s", kill_exc)
+                            try:
+                                proc.wait(timeout=2.0)
+                            except Exception:
+                                pass
                     except Exception as wait_exc:
                         logger.warning("Error waiting for server process: %s", wait_exc)
                 else:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=3.0)
-                    except subprocess.TimeoutExpired:
-                        logger.warning("Server process did not exit within 3s, killing...")
-                        proc.kill()
-                        proc.wait(timeout=2.0)
+                    if proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3.0)
+                        except subprocess.TimeoutExpired:
+                            if proc.poll() is None:
+                                logger.warning("Server process did not exit within 3s, killing...")
+                                proc.kill()
+                                proc.wait(timeout=2.0)
+
             except Exception as stop_exc:
                 logger.warning("Error stopping server process: %s", stop_exc)
             finally:

@@ -65,7 +65,16 @@ def _migrate_legacy_models(
 
         files = [f for f in legacy_dir.iterdir() if f.is_file()]
         if not files:
+            try:
+                legacy_dir.rmdir()
+            except OSError:
+                pass
+            try:
+                legacy_dir.parent.rmdir()
+            except OSError:
+                pass
             return False
+
 
         canonical_dir.mkdir(parents=True, exist_ok=True)
         migrated = False

@@ -1,4 +1,4 @@
-"""Tests for Linux diagnostics, settings resolution, and desktop integration (WP4)."""
+"""Tests for Linux diagnostics, settings resolution, and desktop integration."""
 
 import json
 import os
@@ -729,11 +729,11 @@ def test_linux_open_browser_wsl_wslview(monkeypatch: pytest.MonkeyPatch) -> None
 
     web_main._open_browser("http://127.0.0.1:8000")
     assert len(runs) == 1
-    assert runs[0] == ["wslview", "http://127.0.0.1:8000"]
+    assert runs[0] == ["wslview", "--", "http://127.0.0.1:8000"]
 
 
 def test_linux_open_browser_wsl_powershell_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_open_browser() on headless WSL falls back to powershell.exe when wslview is missing."""
+    """_open_browser() on headless WSL falls back to powershell.exe when wslview is missing and escapes single quotes."""
     import shutil
     import web.__main__ as web_main
 
@@ -754,15 +754,16 @@ def test_linux_open_browser_wsl_powershell_fallback(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    web_main._open_browser("http://127.0.0.1:8000")
+    web_main._open_browser("http://127.0.0.1:8000/?foo='bar'")
     assert len(runs) == 1
     assert runs[0] == [
         "powershell.exe",
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Start-Process 'http://127.0.0.1:8000'",
+        "Start-Process 'http://127.0.0.1:8000/?foo=''bar'''",
     ]
+
 
 
 def test_linux_open_browser_standard_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -849,3 +850,116 @@ def test_linux_diagnostics_host_shared_libraries_pass_and_fail(monkeypatch: pyte
     remediation_str = " ".join(report_fail.remediations)
     assert "sudo apt install libgomp1" in remediation_str
     assert "sudo apt install libvulkan1" in remediation_str
+
+
+def test_open_browser_validates_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_open_browser() validates URL scheme and characters, rejecting dangerous or malformed URLs."""
+    import web.__main__ as web_main
+    import webbrowser
+
+    runs: List[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: runs.append(a))
+    monkeypatch.setattr(webbrowser, "open", lambda *a, **k: runs.append(a))
+
+    # Reject non-http(s) schemes
+    web_main._open_browser("javascript:alert(1)")
+    web_main._open_browser("file:///etc/passwd")
+    # Reject missing netloc
+    web_main._open_browser("http://")
+    # Reject newline or control chars
+    web_main._open_browser("http://127.0.0.1:8000/\r\nevil")
+    web_main._open_browser("http://127.0.0.1:8000/\0bad")
+    # Reject whitespace
+    web_main._open_browser("http://127.0.0.1:8000/ hello")
+
+    assert len(runs) == 0, "No browser launch should be attempted for invalid URLs"
+
+
+def test_linux_launch_os_shell_nonzero_exit_returns_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_launch_os_shell() on Linux returns False when xdg-open exits with non-zero code."""
+    import web.app as web_app
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    sample_file = tmp_path / "test.txt"
+    sample_file.write_text("sample", encoding="utf-8")
+
+    def mock_fail(*a, **k):
+        return subprocess.CompletedProcess(args=[], returncode=1)
+
+    monkeypatch.setattr(subprocess, "run", mock_fail)
+    opened, target = web_app._launch_os_shell(sample_file)
+    assert opened is False
+    assert target == sample_file
+
+
+def test_migrate_legacy_models_empty_dir_cleans_up(tmp_path: Path) -> None:
+    """_migrate_legacy_models removes empty legacy directory and returns False."""
+    from core.model_manager import _migrate_legacy_models
+
+    legacy_dir = tmp_path / "legacy_parent" / "legacy_models"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    canonical_dir = tmp_path / "canonical"
+
+    migrated = _migrate_legacy_models(legacy_dir, canonical_dir)
+    assert migrated is False
+    assert not legacy_dir.exists(), "Empty legacy_dir must be removed"
+
+
+def test_linux_frozen_env_path_read_only_fallback_whitespace_xdg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When XDG_CONFIG_HOME is empty or whitespace, _resolve_default_env_path falls back to ~/.config."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("AKSARA_ENV_FILE", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "   ")
+
+    fake_home = tmp_path / "mock_home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    fake_dir = tmp_path / "read_only_bin"
+    fake_dir.mkdir(parents=True, exist_ok=True)
+    fake_exe = fake_dir / "aksarasight"
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+
+    real_access = os.access
+    def fake_access(path: Any, mode: int, *args: Any, **kwargs: Any) -> bool:
+        if mode == os.W_OK and Path(path).resolve() == fake_dir.resolve():
+            return False
+        return real_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", fake_access)
+
+    resolved = _resolve_default_env_path()
+    assert resolved == fake_home / ".config" / "aksarasight" / "settings.env"
+
+
+def test_linux_frozen_env_path_read_only_with_existing_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When frozen executable dir is read-only even with existing .env, _resolve_default_env_path falls back to XDG."""
+    custom_xdg = tmp_path / "custom_xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_xdg))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("AKSARA_ENV_FILE", raising=False)
+
+    fake_dir = tmp_path / "read_only_bin"
+    fake_dir.mkdir(parents=True, exist_ok=True)
+    fake_exe = fake_dir / "aksarasight"
+    (fake_dir / ".env").write_text("READONLY_ENV=1", encoding="utf-8")
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+
+    real_access = os.access
+    def fake_access(path: Any, mode: int, *args: Any, **kwargs: Any) -> bool:
+        if mode == os.W_OK and Path(path).resolve() == fake_dir.resolve():
+            return False
+        return real_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", fake_access)
+
+    resolved = _resolve_default_env_path()
+    assert resolved == custom_xdg / "aksarasight" / "settings.env"
+

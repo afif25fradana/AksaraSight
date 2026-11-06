@@ -12,7 +12,9 @@ import subprocess
 import sys
 import threading
 from typing import Any, Optional
+from urllib.parse import urlsplit
 import webbrowser
+
 
 import uvicorn
 
@@ -120,6 +122,15 @@ def _setup_frozen_logging() -> Optional[Path]:
 
 def _open_browser(url: str) -> None:
     """Open URL in the user's default browser with WSL host bridging support."""
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            return
+        if any(ord(c) < 32 or c in "\r\n\0 " for c in url):
+            return
+    except Exception:
+        return
+
     if (
         sys.platform != "win32"
         and not os.environ.get("DISPLAY")
@@ -127,15 +138,17 @@ def _open_browser(url: str) -> None:
         and _probe_wsl()
     ):
         if shutil.which("wslview"):
-            subprocess.run(["wslview", url], check=False)
+            subprocess.run(["wslview", "--", url], check=False)
             return
         if shutil.which("powershell.exe"):
+            safe_url = url.replace("'", "''")
             subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"Start-Process '{url}'"],
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"Start-Process '{safe_url}'"],
                 check=False,
             )
             return
     webbrowser.open(url)
+
 
 
 def is_port_in_use(host: str, port: int) -> bool:

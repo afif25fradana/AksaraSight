@@ -301,8 +301,9 @@ def _launch_os_shell(target: Path) -> Tuple[bool, Path]:
         subprocess.run(cmd, check=False, timeout=10)
         return True, target
     open_target = target.parent if target.is_file() else target
-    subprocess.run(["xdg-open", str(open_target)], check=False, timeout=10)
-    return True, target
+    res = subprocess.run(["xdg-open", str(open_target)], check=False, timeout=10)
+    return res.returncode == 0, target
+
 
 
 class ExtractRequest(BaseModel):
@@ -380,15 +381,18 @@ def create_app(
 
     if upload_dir is not None:
         target_upload_dir = Path(upload_dir).resolve()
-    elif os.environ.get("LOCALAPPDATA"):
-        target_upload_dir = (Path(os.environ["LOCALAPPDATA"]) / "AksaraSight" / "web_uploads").resolve()
-    else:
-        if sys.platform.startswith("win32"):
-            target_upload_dir = (Path(tempfile.gettempdir()) / "aksarasight_web_uploads").resolve()
+    elif sys.platform == "win32":
+        if os.environ.get("LOCALAPPDATA"):
+            target_upload_dir = (Path(os.environ["LOCALAPPDATA"]) / "AksaraSight" / "web_uploads").resolve()
         else:
-            target_upload_dir = (Path.home() / ".local" / "share" / "aksarasight" / "web_uploads").resolve()
+            target_upload_dir = (Path(tempfile.gettempdir()) / "aksarasight_web_uploads").resolve()
+    else:
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        base_dir = Path(xdg_data) if xdg_data and xdg_data.strip() else (Path.home() / ".local" / "share")
+        target_upload_dir = (base_dir / "aksarasight" / "web_uploads").resolve()
 
     target_upload_dir.mkdir(parents=True, exist_ok=True)
+
     if not sys.platform.startswith("win32"):
         try:
             os.chmod(target_upload_dir, 0o700)

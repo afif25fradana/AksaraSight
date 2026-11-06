@@ -205,6 +205,10 @@ def package_distribution_archive(dist_dir: Path, output_dir: Optional[Path] = No
 
         def _tar_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo:
             tarinfo.name = tarinfo.name.replace("\\", "/")
+            tarinfo.uid = 0
+            tarinfo.gid = 0
+            tarinfo.uname = "root"
+            tarinfo.gname = "root"
             if tarinfo.isdir():
                 tarinfo.mode = 0o755
             elif (
@@ -225,11 +229,8 @@ def package_distribution_archive(dist_dir: Path, output_dir: Optional[Path] = No
         return tar_path
 
 
-package_archive = package_distribution_archive
-package_zip_archive = package_distribution_archive
-
-
 def main() -> None:
+
     """Execute the full build workflow."""
     check_environment()
     clean_build_directories()

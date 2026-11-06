@@ -6,6 +6,32 @@ A chronological overview of the development, architecture, security hardening, a
 
 ## [Unreleased]
 
+### Added
+- **First-Class Linux x86_64 Platform Support**: Native support for Linux x86_64 distributions and WSL2, enabling zero-dependency hardware probing, runtime downloading, process lifecycle management, desktop integration, and portable packaging.
+- **ADR-0013 (Linux x86_64 Platform Support and Architecture Parity)**: Documented architectural decisions governing Linux hardware probing, XDG Base Directory specification compliance, safe tarball extraction, POSIX process group containment, Vulkan-first acceleration, dynamic linker prepending, and dual-OS CI matrix governance.
+- **Zero-Subprocess DRM sysfs & sysfs Hardware Probes**: Added native Linux GPU vendor and VRAM probing via `/sys/class/drm/card*/device/vendor` (`0x10de` NVIDIA, `0x1002` AMD, `0x8086` Intel) and Python standard library `platform.processor()` / `platform.machine()` for CPU detection, with opportunistic `nvidia-smi` telemetry when installed on PATH.
+- **Safe Tarball Extraction with Symlink Quarantine (`safe_extract_tar`)**: Implemented secure `.tar.gz` runtime extraction in `core/runtime_manager.py` with Tar-Slip path traversal defense, pre-existing symlink unlinking in Pass 1, relative symlink boundary enforcement, top-level wrapper unnesting (`llama-b<build>/`), and `0o755` executable permissions for binaries and shared libraries (`.so`, `.so.*`).
+- **POSIX Process Group Containment (`ServerManager`)**: Implemented process group isolation using `start_new_session=True` without `preexec_fn` fork hazards, ensuring child and grandchild process trees are cleanly terminated via `os.killpg(pgid, SIGTERM)` with escalation to `SIGKILL` on timeout, strictly guarded by `pgid > 1` and `proc.poll() is None`.
+- **Dynamic Linker (`LD_LIBRARY_PATH`) Isolation & Prepending**: Prepended managed runtime binary directories to `LD_LIBRARY_PATH` during server spawn and binary validation with strict sanitization against empty elements (`::`), trailing colons, and relative paths.
+- **Linux Desktop & WSL2 Host Integration**: Added native file picker integration via `zenity` (with fallback to `kdialog`), folder reveal via `xdg-open` with return code validation, and headless WSL2 browser host bridging (`wslview -- <url>` and `powershell.exe Start-Process '{safe_url}'` with single-quote escaping and URL scheme validation).
+- **Portable Linux `.tar.gz` Packaging (`scripts/build_portable.py`)**: Added automated packaging of Linux ELF portable binaries (`AksaraSight` and `AksaraSight-CLI`) into `AksaraSight-v<version>-linux-x64.tar.gz` rooted at `AksaraSight/` with normalized root ownership (`uid=0, gid=0`) and `0o755` executable modes.
+- **Dual-OS CI Matrix in GitHub Actions (`.github/workflows/tests.yml` & `release.yml`)**: Added automated `test-linux` CI jobs across Python 3.12 and 3.14 on `ubuntu-latest` with `--cov-fail-under=89` gate parity, and automated `release-linux` artifact build and SHA-256 generation.
+
+### Changed
+- **Strict XDG Base Directory Compliance**: Mapped models and runtime weights to `$XDG_DATA_HOME/aksarasight/` (`~/.local/share/aksarasight/`), application logs to `$XDG_STATE_HOME/aksarasight/logs/app.log` (`~/.local/state/aksarasight/logs/app.log`), web upload scratch space to `$XDG_DATA_HOME/aksarasight/web_uploads/` (`0o700`), and frozen settings fallback to `$XDG_CONFIG_HOME/aksarasight/settings.env` (`~/.config/aksarasight/settings.env`, `0o600`) when executable directories are read-only.
+- **Platform-Specific Subprocess Kwargs Isolation**: Forwarded `creationflags=CREATE_NO_WINDOW` strictly on Windows (`sys.platform == "win32"`), omitting the keyword on POSIX.
+- **Consolidated Asset Resolution & Pruned Redundancy**: Removed redundant function aliases `resolve_required_asset_names`, `package_archive`, and `package_zip_archive`, removed dead module constant `_EXE_NAME`, and atomically updated all test callers across test suites.
+- **Host Acceleration Diagnostics**: Added dynamic runtime diagnostics probing `libgomp.so.1` and `libvulkan.so.1` via `ctypes.CDLL` with distro remediation guidance in `core/diagnostics.py`.
+
+### Fixed
+- **PID Recycling & Self-DoS Hazard in POSIX Termination**: Guarded `os.killpg()` against recycled PIDs and invalid groups by enforcing `proc.poll() is None` and `target_pgid > 1`.
+- **WSL PowerShell Browser Opening Command Injection**: Replaced raw string interpolation with URL scheme validation (`urllib.parse.urlsplit`), control character rejection, and single-quote doubling (`safe_url = url.replace("'", "''")`).
+- **Archive Symlink Following & File Overwrite in `safe_extract_tar`**: Prevented pre-existing symlinks in the target directory from being followed during regular file and directory extraction.
+- **Unmanaged Stream Resource Leak in Archive Extraction**: Wrapped `f_in` member extraction in a context manager (`with f_in, open(...)`), preventing dangling file descriptors on I/O write failures.
+- **Redundant Legacy Model Migration Loop**: Ensured `_migrate_legacy_models` removes empty legacy directories on zero files, preventing redundant filesystem scans on repeated application startup.
+- **Read-Only Executable Parent `.env` Detection**: Fixed frozen Linux settings resolution by checking `exe_env.parent.exists() and not os.access(exe_env.parent, os.W_OK)`, preventing XDG fallback when executable directory is not present on disk in mock test environments.
+- **Mock-Safe Desktop Shell Return Code Evaluation**: Evaluated `xdg-open` return code safely without breaking under bare `unittest.mock.patch` objects lacking integer return codes.
+
 ---
 
 ## Milestones

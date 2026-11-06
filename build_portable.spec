@@ -84,7 +84,7 @@ exe_web = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icon.ico',
+    icon='assets/icon.ico' if sys.platform == 'win32' else None,
 )
 
 # ------------------------------------------------------------------------------
@@ -124,7 +124,7 @@ exe_cli = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icon.ico',
+    icon='assets/icon.ico' if sys.platform == 'win32' else None,
 )
 
 # ------------------------------------------------------------------------------

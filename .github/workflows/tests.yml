@@ -181,4 +181,13 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run test suite
-        run: python -m pytest --cov --cov-report=term-missing
+        run: python -m pytest --cov --cov-report=term-missing --cov-report=markdown:coverage-linux-${{ matrix.python-version }}.md --cov-fail-under=89
+
+      - name: Publish Coverage Table to Step Summary
+        if: always()
+        run: |
+          cov_file="coverage-linux-${{ matrix.python-version }}.md"
+          if [ -f "$cov_file" ]; then
+            echo "### Linux Python ${{ matrix.python-version }} Coverage Breakdown 📊" >> $GITHUB_STEP_SUMMARY
+            cat "$cov_file" >> $GITHUB_STEP_SUMMARY
+          fi

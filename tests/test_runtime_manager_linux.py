@@ -18,9 +18,12 @@ from core.runtime_manager import (
     ReleaseAssetInfo,
     ZipSlipSecurityError,
     ensure_runtime,
+    get_installed_runtime_path,
     get_runtime_base_dir,
     get_runtime_dir,
     is_runtime_installed,
+    resolve_asset_names,
+    resolve_effective_server_path,
     resolve_required_asset_names,
     safe_extract_archive,
     safe_extract_tar,
@@ -247,8 +250,16 @@ def test_get_runtime_base_dir_linux_xdg_parity(monkeypatch: pytest.MonkeyPatch, 
     assert "aksarasight" in resolved_default.parts
 
 
+def test_resolve_asset_names_linux_parity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Linux asset resolution works for both resolve_asset_names and resolve_required_asset_names."""
+    monkeypatch.setattr("sys.platform", "linux")
+    assert resolve_asset_names("vulkan", "b11361") == ["llama-b11361-bin-ubuntu-vulkan-x64.tar.gz"]
+    assert resolve_asset_names("cpu", "b11361") == ["llama-b11361-bin-ubuntu-x64.tar.gz"]
+    assert resolve_asset_names("vulkan", "b11361") == resolve_required_asset_names("vulkan", "b11361")
+
+
 def test_ensure_runtime_linux_tar_gz_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Linux tar.gz complete download, extraction, validation, and manifest creation flow."""
+    """Linux tar.gz complete download, extraction, validation, and manifest creation flow with unmocked resolver."""
     monkeypatch.setattr("sys.platform", "linux")
     with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
         tar_bytes = _create_test_tar(
@@ -256,12 +267,12 @@ def test_ensure_runtime_linux_tar_gz_end_to_end(tmp_path: Path, monkeypatch: pyt
             executable_files={"llama-b11361/llama-server"},
         )
         tar_digest = hashlib.sha256(tar_bytes).hexdigest()
-        asset_name = "llama-b11361-bin-ubuntu-x64.tar.gz"
+        asset_name = "llama-b11361-bin-ubuntu-vulkan-x64.tar.gz"
 
         mock_meta = {
             asset_name: ReleaseAssetInfo(
                 name=asset_name,
-                download_url="https://mock/cpu.tar.gz",
+                download_url="https://mock/vulkan.tar.gz",
                 size=len(tar_bytes),
                 digest=f"sha256:{tar_digest}",
             )
@@ -281,12 +292,182 @@ def test_ensure_runtime_linux_tar_gz_end_to_end(tmp_path: Path, monkeypatch: pyt
             patch("core.runtime_manager.validate_runtime_binary", return_value=True),
             patch.dict("core.runtime_manager.KNOWN_PINNED_HASHES", {asset_name: tar_digest}),
         ):
-            final_exe = ensure_runtime(backend="cpu", tag="b11361", session=mock_session)
+            # Unmocked resolve_asset_names(backend, tag) resolves "llama-b11361-bin-ubuntu-vulkan-x64.tar.gz"
+            final_exe = ensure_runtime(backend="vulkan", tag="b11361", session=mock_session)
 
             assert final_exe.is_file()
             assert final_exe.name == "llama-server"
-            runtime_dir = get_runtime_dir("b11361", "cpu")
+            runtime_dir = get_runtime_dir("b11361", "vulkan")
             assert (runtime_dir / "llama-server").is_file()
             assert (runtime_dir / "manifest.json").is_file()
-            assert is_runtime_installed("cpu", "b11361") is True
+            assert is_runtime_installed("vulkan", "b11361") is True
             assert not (tmp_path / "downloads" / asset_name).exists()
+
+
+def test_safe_extract_tar_existing_dest_unlink_and_oserror_handling(tmp_path: Path) -> None:
+    """safe_extract_tar unlinks pre-existing file or symlink at symlink dest, handling OSError gracefully."""
+    tar_bytes = _create_test_tar(
+        files={"llama-b11361/libllama.so": b"binary-data"},
+        symlinks={"llama-b11361/libllama.so.0": "libllama.so"},
+    )
+    tar_path = tmp_path / "runtime.tar.gz"
+    tar_path.write_bytes(tar_bytes)
+
+    dest_dir = tmp_path / "extracted"
+    dest_dir.mkdir()
+
+    # Pre-create the destination file so dest.exists() is True
+    existing_dest = dest_dir / "libllama.so.0"
+    existing_dest.write_text("old version", encoding="utf-8")
+
+    # 1. Normal unlink: pre-existing file is unlinked and replaced
+    safe_extract_tar(tar_path, dest_dir)
+    assert existing_dest.exists()
+
+    # 2. dest.unlink() raises OSError
+    tar_path2 = tmp_path / "runtime2.tar.gz"
+    tar_path2.write_bytes(tar_bytes)
+    dest_dir2 = tmp_path / "extracted2"
+    dest_dir2.mkdir()
+    existing_dest2 = dest_dir2 / "libllama.so.0"
+    existing_dest2.write_text("old", encoding="utf-8")
+
+    real_unlink = Path.unlink
+
+    def failing_unlink(self, *args, **kwargs):
+        if self == existing_dest2:
+            raise OSError("Access denied unlinking")
+        return real_unlink(self, *args, **kwargs)
+
+    with patch.object(Path, "unlink", failing_unlink):
+        safe_extract_tar(tar_path2, dest_dir2)
+
+
+def test_safe_extract_tar_symlink_oserror_fallback_to_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When os.symlink raises OSError, safe_extract_tar copies the target file as fallback."""
+    tar_bytes = _create_test_tar(
+        files={"llama-b11361/libllama.so": b"shared-lib-bytes"},
+        symlinks={"llama-b11361/libllama.so.0": "libllama.so"},
+    )
+    tar_path = tmp_path / "runtime.tar.gz"
+    tar_path.write_bytes(tar_bytes)
+
+    dest_dir = tmp_path / "extracted"
+
+    # Make os.symlink fail with OSError (e.g. unprivileged non-elevated symlink)
+    def failing_symlink(src, dst):
+        raise OSError("Privilege not held for symlink creation")
+
+    monkeypatch.setattr(os, "symlink", failing_symlink)
+
+    safe_extract_tar(tar_path, dest_dir)
+
+    target_symlink = dest_dir / "libllama.so.0"
+    assert target_symlink.is_file()
+    assert not target_symlink.is_symlink()
+    assert target_symlink.read_bytes() == b"shared-lib-bytes"
+
+
+def test_validate_runtime_binary_win32_error_mode_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """validate_runtime_binary on Win32 sets SEM_FAILCRITICALERRORS and restores prev_mode in finally."""
+    import ctypes
+    import types
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    exe = tmp_path / "llama-server.exe"
+    exe.write_bytes(b"MZ\x90mock-exe")
+
+    mock_k32 = MagicMock()
+    mock_k32.GetErrorMode.return_value = 0x0004
+    mock_windll = types.SimpleNamespace(kernel32=mock_k32)
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        assert validate_runtime_binary(exe) is True
+
+    mock_k32.GetErrorMode.assert_called_once()
+    # 0x0004 | 0x0001 | 0x0002 = 0x0007
+    mock_k32.SetErrorMode.assert_any_call(0x0007)
+    # finally restores original
+    assert mock_k32.SetErrorMode.call_args[0][0] == 0x0004
+
+
+def test_validate_runtime_binary_win32_get_error_mode_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When GetErrorMode raises, fallback calls SetErrorMode with flags and restores in finally."""
+    import ctypes
+    import types
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    exe = tmp_path / "llama-server.exe"
+    exe.write_bytes(b"MZ\x90mock-exe")
+
+    mock_k32 = MagicMock()
+    mock_k32.GetErrorMode.side_effect = RuntimeError("No GetErrorMode")
+    mock_k32.SetErrorMode.return_value = 0x0000
+    mock_windll = types.SimpleNamespace(kernel32=mock_k32)
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        assert validate_runtime_binary(exe) is True
+
+    mock_k32.SetErrorMode.assert_any_call(0x0001 | 0x0002)
+
+
+def test_validate_runtime_binary_win32_set_error_mode_finally_exception_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exceptions raised by SetErrorMode in finally are swallowed without crashing."""
+    import ctypes
+    import types
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    exe = tmp_path / "llama-server.exe"
+    exe.write_bytes(b"MZ\x90mock-exe")
+
+    mock_k32 = MagicMock()
+    mock_k32.GetErrorMode.return_value = 0x0001
+    mock_k32.SetErrorMode.side_effect = [0x0001, RuntimeError("Restoration crash")]
+    mock_windll = types.SimpleNamespace(kernel32=mock_k32)
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        assert validate_runtime_binary(exe) is True
+
+
+def test_is_runtime_installed_corrupted_manifest(tmp_path: Path) -> None:
+    """is_runtime_installed returns False when manifest.json is invalid JSON."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        runtime_dir = get_runtime_dir("b11361", "vulkan")
+        runtime_dir.mkdir(parents=True)
+        exe_name = "llama-server" if sys.platform != "win32" else "llama-server.exe"
+        (runtime_dir / exe_name).write_bytes(b"bin")
+        (runtime_dir / "manifest.json").write_text("{corrupt json", encoding="utf-8")
+
+        assert is_runtime_installed("vulkan", "b11361") is False
+
+
+def test_get_installed_runtime_path_argument_reversal(tmp_path: Path) -> None:
+    """get_installed_runtime_path swaps backend and tag when passed in reversed order."""
+    with patch("core.runtime_manager.get_runtime_base_dir", return_value=tmp_path):
+        runtime_dir = get_runtime_dir("b11361", "vulkan")
+        runtime_dir.mkdir(parents=True)
+        exe_name = "llama-server" if sys.platform != "win32" else "llama-server.exe"
+        exe_file = runtime_dir / exe_name
+        exe_file.write_bytes(b"bin")
+        manifest = '{"tag": "b11361", "backend": "vulkan"}'
+        (runtime_dir / "manifest.json").write_text(manifest, encoding="utf-8")
+
+        resolved = get_installed_runtime_path("vulkan", "b11361")
+        assert resolved == exe_file
+
+
+def test_resolve_effective_server_path_none_settings() -> None:
+    """resolve_effective_server_path returns None when settings is None."""
+    assert resolve_effective_server_path(None) is None
+

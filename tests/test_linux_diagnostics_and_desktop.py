@@ -106,6 +106,46 @@ def test_linux_diagnostics_expected_path_uses_platform_executable_name(
         assert details.endswith("llama-server") or "llama-server" in details
 
 
+def test_linux_diagnostics_custom_binary_not_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When custom binary on Linux exists but lacks execute permissions, diagnostics must emit FAIL with chmod +x remediation."""
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    fake_bin = tmp_path / "custom-llama-server"
+    fake_bin.write_text("#!/bin/sh\necho hi", encoding="utf-8")
+
+    settings = Settings(
+        runtime_mode="custom",
+        llama_server_path=str(fake_bin),
+    )
+
+    real_access = os.access
+
+    def fake_access(path: Any, mode: int, *args: Any, **kwargs: Any) -> bool:
+        if mode == os.X_OK and Path(path).resolve() == fake_bin.resolve():
+            return False
+        return real_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", fake_access)
+
+    report = run_diagnostics(
+        settings=settings,
+        runtime_checker=lambda **kw: False,
+        server_prober=lambda *a, **k: (ServerStatus.OFFLINE, "Server offline"),
+    )
+
+    custom_checks = [c for c in report.checks if c.name == "Custom Binary"]
+    assert len(custom_checks) == 1
+    check = custom_checks[0]
+    assert check.status == DiagnosticStatus.FAIL
+    assert "NOT EXECUTABLE" in check.message.upper()
+
+    remediations_str = " ".join(report.remediations)
+    assert "chmod +x" in remediations_str
+    assert f"[FAIL] Custom Binary:       {fake_bin} (NOT EXECUTABLE)" in report.format_text()
+
+
 # ---------------------------------------------------------------------------
 # Section 2: Desktop Integration (web/app.py)
 # ---------------------------------------------------------------------------
@@ -198,7 +238,169 @@ def test_linux_pick_executable_returns_none_when_both_zenity_and_kdialog_missing
     assert chosen is None
 
 
+def test_windows_pick_executable_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_pick_executable_file() on Windows invokes PowerShell OpenFileDialog."""
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    # Success with path
+    def mock_pwsh_success(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=0, stdout="C:\\bin\\llama-server.exe\n")
+
+    monkeypatch.setattr(subprocess, "run", mock_pwsh_success)
+    assert _pick_executable_file() == "C:\\bin\\llama-server.exe"
+
+    # User cancelled (empty stdout)
+    def mock_pwsh_cancel(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=0, stdout="   \n")
+
+    monkeypatch.setattr(subprocess, "run", mock_pwsh_cancel)
+    assert _pick_executable_file() is None
+
+    # Non-zero returncode
+    def mock_pwsh_fail(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=1, stdout="")
+
+    monkeypatch.setattr(subprocess, "run", mock_pwsh_fail)
+    assert _pick_executable_file() is None
+
+    # Exception / timeout
+    def mock_pwsh_err(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        raise subprocess.TimeoutExpired(cmd="powershell", timeout=120)
+
+    monkeypatch.setattr(subprocess, "run", mock_pwsh_err)
+    assert _pick_executable_file() is None
+
+
+def test_darwin_pick_executable_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_pick_executable_file() on Darwin invokes osascript."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    # Success with path
+    def mock_osa_success(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=0, stdout="/usr/local/bin/llama-server\n")
+
+    monkeypatch.setattr(subprocess, "run", mock_osa_success)
+    assert _pick_executable_file() == "/usr/local/bin/llama-server"
+
+    # User cancelled (empty stdout)
+    def mock_osa_cancel(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=0, stdout="")
+
+    monkeypatch.setattr(subprocess, "run", mock_osa_cancel)
+    assert _pick_executable_file() is None
+
+    # Non-zero returncode
+    def mock_osa_fail(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args[0] if args else [], returncode=1, stdout="")
+
+    monkeypatch.setattr(subprocess, "run", mock_osa_fail)
+    assert _pick_executable_file() is None
+
+    # Exception / timeout
+    def mock_osa_err(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        raise subprocess.TimeoutExpired(cmd="osascript", timeout=120)
+
+    monkeypatch.setattr(subprocess, "run", mock_osa_err)
+    assert _pick_executable_file() is None
+
+
+def test_linux_pick_executable_dialog_edge_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_pick_executable_file() on Linux handles empty outputs, non-zero exits, and unexpected exceptions."""
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    # 1. Zenity returns code 0 but empty string (cancelled)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0, stdout="  \n"))
+    assert _pick_executable_file() is None
+
+    # 2. Zenity returns non-zero returncode
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=1, stdout=""))
+    assert _pick_executable_file() is None
+
+    # 3. Zenity raises unexpected Exception (not FileNotFoundError)
+    def _zenity_err(*a, **k):
+        raise RuntimeError("Zenity D-Bus protocol error")
+    monkeypatch.setattr(subprocess, "run", _zenity_err)
+    assert _pick_executable_file() is None
+
+    # 4. Zenity missing, kdialog returns code 0 but empty string (cancelled)
+    def _kdialog_cancel(cmd, *a, **k):
+        if cmd[0] == "zenity":
+            raise FileNotFoundError("no zenity")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=" \n")
+    monkeypatch.setattr(subprocess, "run", _kdialog_cancel)
+    assert _pick_executable_file() is None
+
+    # 5. Zenity missing, kdialog returns non-zero returncode
+    def _kdialog_fail(cmd, *a, **k):
+        if cmd[0] == "zenity":
+            raise FileNotFoundError("no zenity")
+        return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="")
+    monkeypatch.setattr(subprocess, "run", _kdialog_fail)
+    assert _pick_executable_file() is None
+
+    # 6. Zenity missing, kdialog raises unexpected Exception
+    def _kdialog_err(cmd, *a, **k):
+        if cmd[0] == "zenity":
+            raise FileNotFoundError("no zenity")
+        raise RuntimeError("KDE D-Bus error")
+    monkeypatch.setattr(subprocess, "run", _kdialog_err)
+    assert _pick_executable_file() is None
+
+
+def test_launch_os_shell_cross_platform_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_launch_os_shell launches appropriate native file manager across Windows, macOS, and Linux."""
+    import web.app as web_app
+    launch_fn = getattr(web_app, "_launch_os_shell")
+
+    test_file = tmp_path / "doc.pdf"
+    test_file.write_bytes(b"%PDF")
+    test_dir = tmp_path / "folder"
+    test_dir.mkdir()
+
+    calls: List[Any] = []
+    def fake_run(cmd: Any, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    # 1. Windows: file reveals in explorer
+    calls.clear()
+    monkeypatch.setattr(sys, "platform", "win32")
+    ok, ret = launch_fn(test_file)
+    assert ok is True and ret == test_file
+    assert any("explorer.exe /select," in str(c) for c in calls)
+
+    # 2. Windows: directory opens via os.startfile
+    startfile_calls: List[Path] = []
+    monkeypatch.setattr(os, "startfile", lambda p: startfile_calls.append(p), raising=False)
+    ok, ret = launch_fn(test_dir)
+    assert ok is True and ret == test_dir
+    assert startfile_calls == [test_dir]
+
+    # 3. Darwin: file reveals via open -R
+    calls.clear()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    ok, ret = launch_fn(test_file)
+    assert ok is True and ret == test_file
+    assert calls[-1] == ["open", "-R", str(test_file)]
+
+    # 4. Darwin: directory opens via open
+    calls.clear()
+    ok, ret = launch_fn(test_dir)
+    assert ok is True and ret == test_dir
+    assert calls[-1] == ["open", str(test_dir)]
+
+    # 5. Linux: directory opens target itself via xdg-open
+    calls.clear()
+    monkeypatch.setattr(sys, "platform", "linux")
+    ok, ret = launch_fn(test_dir)
+    assert ok is True and ret == test_dir
+    assert calls[-1] == ["xdg-open", str(test_dir)]
+
+
 def test_linux_runtime_download_endpoints_use_get_exe_name(
+
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

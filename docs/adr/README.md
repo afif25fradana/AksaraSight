@@ -20,3 +20,5 @@ Each record follows the [Michael Nygard ADR format](https://cognitect.com/blog/2
 | [ADR-0010](0010-core-engine-encapsulation-runtime-path-decoupling-and-concurrency-hardening.md) | Core Engine Encapsulation, Runtime Path Decoupling, and Concurrency Hardening | 2026-10-23 | Accepted |
 | [ADR-0011](0011-automated-maintenance-pipeline-cross-os-coverage-governance-and-ci-bundle-synchronization.md) | Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization | 2026-10-29 | Accepted |
 | [ADR-0012](0012-concurrency-governance-run-token-queue-isolation-and-wire-contract-synchronization.md) | Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization | 2026-11-03 | Accepted |
+| [ADR-0013](0013-linux-x86_64-platform-support.md) | Linux x86_64 Platform Support and Architecture Parity | 2026-11-05 | Accepted |
+

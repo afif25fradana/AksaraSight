@@ -3,6 +3,7 @@
 import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
+import os
 from pathlib import Path
 import sys
 from typing import Callable, List, Optional, Tuple
@@ -274,16 +275,31 @@ def run_diagnostics(
         if custom_path_str:
             custom_path = Path(custom_path_str)
             if custom_path.is_file():
-                lines.append("   [PASS] Custom Binary:       FOUND")
-                lines.append(f"          Path:                {custom_path.resolve()}")
-                checks.append(
-                    DiagnosticCheck(
-                        name="Custom Binary",
-                        status=DiagnosticStatus.PASS,
-                        message="FOUND",
-                        details=str(custom_path.resolve()),
+                if (os.name == "posix" or sys.platform != "win32") and not os.access(custom_path, os.X_OK):
+                    lines.append(f"   [FAIL] Custom Binary:       {custom_path} (NOT EXECUTABLE)")
+                    lines.append("          Details:              Custom binary lacks execute permission (run 'chmod +x')")
+                    failed_checks += 1
+                    remediations.append(f"Grant execute permissions to custom binary: chmod +x '{custom_path}'")
+                    checks.append(
+                        DiagnosticCheck(
+                            name="Custom Binary",
+                            status=DiagnosticStatus.FAIL,
+                            message=f"{custom_path} (NOT EXECUTABLE)",
+                            details="Custom binary lacks execute permission",
+                            remediation=f"chmod +x '{custom_path}'",
+                        )
                     )
-                )
+                else:
+                    lines.append("   [PASS] Custom Binary:       FOUND")
+                    lines.append(f"          Path:                {custom_path.resolve()}")
+                    checks.append(
+                        DiagnosticCheck(
+                            name="Custom Binary",
+                            status=DiagnosticStatus.PASS,
+                            message="FOUND",
+                            details=str(custom_path.resolve()),
+                        )
+                    )
             else:
                 lines.append("   [FAIL] Custom Binary:       NOT FOUND")
                 lines.append(f"          Path:                {custom_path_str}")

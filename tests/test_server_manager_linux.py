@@ -380,3 +380,137 @@ def test_server_manager_diagnose_failure_dynamic_linker_error() -> None:
     mgr._log_buffer.append("libvulkan.so.1: cannot open shared object file: No such file or directory")
     diag = mgr._diagnose_failure()
     assert "Missing host shared library" in diag
+
+
+# ---------------------------------------------------------------------------
+# Section: Win32 Job Object Mock Tests (Cross-Platform Lifecycle Coverage)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def win32_job_object_env(monkeypatch: pytest.MonkeyPatch):
+    """Fixture that reloads core.job_object under sys.platform == 'win32' with mocked kernel32."""
+    import ctypes
+    import importlib
+    import types
+
+    mock_k32 = MagicMock()
+    mock_windll = types.SimpleNamespace(kernel32=mock_k32)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    import core.job_object
+    importlib.reload(core.job_object)
+    try:
+        yield core.job_object, mock_k32
+    finally:
+        monkeypatch.undo()
+        importlib.reload(core.job_object)
+
+
+def test_win32_job_object_create_success_and_close(win32_job_object_env) -> None:
+    """_create_kill_on_close_job creates handle and sets extended limit information."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.CreateJobObjectW.return_value = 101
+    mock_k32.SetInformationJobObject.return_value = 1
+
+    handle = job_obj._create_kill_on_close_job()
+    assert handle == 101
+    mock_k32.CreateJobObjectW.assert_called_once_with(None, None)
+    assert mock_k32.SetInformationJobObject.called
+    call_args = mock_k32.SetInformationJobObject.call_args[0]
+    assert call_args[0] == 101
+    assert call_args[1] == job_obj._JobObjectExtendedLimitInformation
+
+    job_obj._close_job_handle(handle)
+    mock_k32.CloseHandle.assert_called_once_with(101)
+
+
+def test_win32_job_object_create_fails_null_handle(win32_job_object_env) -> None:
+    """_create_kill_on_close_job returns None when CreateJobObjectW returns 0/NULL."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.CreateJobObjectW.return_value = 0
+
+    handle = job_obj._create_kill_on_close_job()
+    assert handle is None
+    mock_k32.SetInformationJobObject.assert_not_called()
+    mock_k32.CloseHandle.assert_not_called()
+
+
+def test_win32_job_object_set_information_failure_cleans_up(win32_job_object_env) -> None:
+    """_create_kill_on_close_job closes created handle and returns None if SetInformation fails."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.CreateJobObjectW.return_value = 102
+    mock_k32.SetInformationJobObject.return_value = 0
+
+    handle = job_obj._create_kill_on_close_job()
+    assert handle is None
+    mock_k32.CloseHandle.assert_called_once_with(102)
+
+
+def test_win32_job_object_create_exception_returns_none(win32_job_object_env) -> None:
+    """_create_kill_on_close_job catches and logs exceptions without crashing."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.CreateJobObjectW.side_effect = RuntimeError("Kernel32 fault")
+
+    handle = job_obj._create_kill_on_close_job()
+    assert handle is None
+
+
+def test_win32_job_object_assign_process_success(win32_job_object_env) -> None:
+    """_assign_process_to_job assigns handle to Job Object."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.AssignProcessToJobObject.return_value = 1
+
+    assigned = job_obj._assign_process_to_job(101, 202)
+    assert assigned is True
+    mock_k32.AssignProcessToJobObject.assert_called_once_with(101, 202)
+
+
+def test_win32_job_object_assign_process_failure_logs_warning(
+    win32_job_object_env, caplog: pytest.LogCaptureFixture
+) -> None:
+    """_assign_process_to_job logs warning with Win32 error code when assignment fails."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.AssignProcessToJobObject.return_value = 0
+    mock_k32.GetLastError.return_value = 5
+
+    assigned = job_obj._assign_process_to_job(101, 202)
+    assert assigned is False
+    assert any("Win32 error 5" in record.message for record in caplog.records)
+
+
+def test_win32_job_object_assign_process_exception_returns_false(win32_job_object_env) -> None:
+    """_assign_process_to_job catches unexpected exceptions and returns False."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.AssignProcessToJobObject.side_effect = OSError("Access violation")
+
+    assigned = job_obj._assign_process_to_job(101, 202)
+    assert assigned is False
+
+
+def test_win32_job_object_close_handle_exception_silent(win32_job_object_env) -> None:
+    """_close_job_handle swallows exceptions without raising."""
+    job_obj, mock_k32 = win32_job_object_env
+    mock_k32.CloseHandle.side_effect = OSError("Invalid handle")
+
+    job_obj._close_job_handle(999)
+
+
+def test_linux_job_object_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-win32 platforms use safe stub implementations returning None/False."""
+    import importlib
+    orig_platform = sys.platform
+    try:
+        monkeypatch.setattr("sys.platform", "linux")
+        import core.job_object
+        importlib.reload(core.job_object)
+
+        assert core.job_object._create_kill_on_close_job() is None
+        assert core.job_object._assign_process_to_job(1, 2) is False
+        assert core.job_object._close_job_handle(1) is None
+    finally:
+        monkeypatch.setattr("sys.platform", orig_platform)
+        import core.job_object
+        importlib.reload(core.job_object)
+
+

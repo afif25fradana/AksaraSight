@@ -108,7 +108,7 @@ def get_runtime_dir(tag: str = PINNED_LLAMA_BUILD, backend: str = "cuda") -> Pat
     return get_runtime_base_dir() / f"{clean_tag}-{clean_backend}"
 
 
-def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) -> List[str]:
+def resolve_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) -> List[str]:
     """Resolve the required archive filenames for a given backend and build tag.
 
     Args:
@@ -149,6 +149,9 @@ def resolve_required_asset_names(backend: str, tag: str = PINNED_LLAMA_BUILD) ->
         return [f"llama-{clean_tag}-bin-win-cpu-x64.zip"]
     else:
         raise ValueError(f"Unsupported runtime backend: '{backend}'. Supported: 'cuda', 'vulkan', 'cpu'")
+
+
+resolve_required_asset_names = resolve_asset_names
 
 
 def fetch_release_assets_metadata(
@@ -702,7 +705,7 @@ def ensure_runtime(
     exe_name = _get_exe_name()
 
     try:
-        required_names = resolve_required_asset_names(clean_backend, clean_tag)
+        required_names = resolve_asset_names(clean_backend, clean_tag)
 
         if progress_callback:
             progress_callback("Resolving release assets...", 0, 0)

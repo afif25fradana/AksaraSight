@@ -703,6 +703,7 @@ def test_cli_doctor_custom_runtime_mode(
     # Case A: Valid custom binary exists
     custom_exe = tmp_path / "custom-llama-server.exe"
     custom_exe.write_bytes(b"MZ_DUMMY_EXE")
+    custom_exe.chmod(0o755)
 
     monkeypatch.setenv("OCR_RUNTIME_MODE", "custom")
     monkeypatch.setenv("OCR_LLAMA_SERVER_PATH", str(custom_exe))

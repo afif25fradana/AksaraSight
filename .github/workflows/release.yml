@@ -119,3 +119,99 @@ jobs:
               --notes-file "$notesFile" `
               --generate-notes
           }
+
+  release-linux:
+    name: Build & Publish Linux Portable Release
+    runs-on: ubuntu-24.04
+    needs: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend static bundle
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Verify Tag matches __version__
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          pyVersion=$(python -c "import core.constants; print(core.constants.__version__)" | tr -d '[:space:]')
+          if [ "$RELEASE_TAG" != "v$pyVersion" ]; then
+            echo "::error::Release tag mismatch: tag is '$RELEASE_TAG', but core.constants.__version__ is '$pyVersion' (expected 'v$pyVersion')"
+            exit 1
+          fi
+          echo "Tag $RELEASE_TAG matches application version $pyVersion"
+
+      - name: Build portable Linux distribution
+        run: python scripts/build_portable.py
+
+      - name: Verify frozen CLI and headless Web UI server
+        run: python scripts/verify_frozen_build.py
+
+      - name: Verify frozen DOCX export parity
+        run: python scripts/verify_frozen_docx.py
+
+      - name: Compute Checksum & Upload Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          tag="$RELEASE_TAG"
+          tarPath="dist/AksaraSight-$tag-linux-x64.tar.gz"
+          if [ ! -f "$tarPath" ]; then
+            echo "::error::Portable binary archive not found at $tarPath"
+            exit 1
+          fi
+          tarName=$(basename "$tarPath")
+          hash=$(sha256sum "$tarPath" | awk '{print $1}')
+          shaFile="dist/$tarName.sha256"
+          echo "$hash  $tarName" > "$shaFile"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; uploading Linux assets with --clobber..."
+            gh release upload "$tag" "$tarPath" "$shaFile" --clobber
+          else
+            echo "Creating release $tag with Linux assets..."
+            gh release create "$tag" "$tarPath" "$shaFile" \
+              --title "AksaraSight $tag" \
+              --generate-notes
+          fi
+
+          # Append Linux .tar.gz SHA-256 row to release notes table
+          row="| \`$tarName\` | \`$hash\` |"
+          body=$(gh release view "$tag" --json body -q .body)
+          if ! echo "$body" | grep -Fq "$tarName"; then
+            notesFile="dist/updated-release-notes.md"
+            if echo "$body" | grep -Fq "| :--- | :--- |"; then
+              awk -v r="$row" '{ print } /\| :--- \| :--- \|/ { print r }' <<< "$body" > "$notesFile"
+            else
+              printf "%s\n\n### Integrity Verification\n| Archive Asset | SHA-256 Checksum |\n| :--- | :--- |\n%s\n" "$body" "$row" > "$notesFile"
+            fi
+            gh release edit "$tag" --notes-file "$notesFile"
+          fi

@@ -29,10 +29,17 @@ def _read_version(repo_root: Path) -> str:
 
 __version__ = _read_version(REPO_ROOT)
 
+def _resolve_exe_name(base_name: str) -> str:
+    """Resolve platform-specific executable name."""
+    if sys.platform == "win32":
+        return f"{base_name}.exe" if not base_name.endswith(".exe") else base_name
+    return base_name[:-4] if base_name.endswith(".exe") else base_name
+
+
 _dist_override = os.environ.get("AKSARASIGHT_DIST_DIR") or (sys.argv[1] if len(sys.argv) > 1 else None)
 DIST_DIR = Path(_dist_override).resolve() if _dist_override else REPO_ROOT / "dist" / "AksaraSight"
-GUI_EXE = DIST_DIR / "AksaraSight.exe"
-CLI_EXE = DIST_DIR / "AksaraSight-CLI.exe"
+GUI_EXE = DIST_DIR / _resolve_exe_name("AksaraSight")
+CLI_EXE = DIST_DIR / _resolve_exe_name("AksaraSight-CLI")
 
 
 def test_cli_version() -> bool:
@@ -165,12 +172,22 @@ def test_web_server_startup_and_endpoints() -> bool:
             proc.wait(timeout=2.0)
 
 
-def test_frozen_log_file() -> bool:
-    """Verify %LOCALAPPDATA%\\AksaraSight\\logs\\app.log exists and contains startup message."""
-    print("\n[5/5] Verifying file-based logging for frozen runtime...")
+def _resolve_frozen_log_path() -> Path:
+    """Resolve file-based log path across Windows and Linux platforms."""
     app_data = os.environ.get("LOCALAPPDATA")
-    base_dir = Path(app_data) if app_data else (Path.home() / "AppData" / "Local")
-    log_file = base_dir / "AksaraSight" / "logs" / "app.log"
+    if app_data:
+        return Path(app_data) / "AksaraSight" / "logs" / "app.log"
+    if sys.platform == "win32":
+        return Path.home() / "AppData" / "Local" / "AksaraSight" / "logs" / "app.log"
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    base = Path(xdg_state) if xdg_state else (Path.home() / ".local" / "state")
+    return base / "aksarasight" / "logs" / "app.log"
+
+
+def test_frozen_log_file() -> bool:
+    """Verify log file exists and contains startup message."""
+    print("\n[5/5] Verifying file-based logging for frozen runtime...")
+    log_file = _resolve_frozen_log_path()
 
     if not log_file.is_file():
         print(f"  [FAIL] Log file not found at: {log_file}")

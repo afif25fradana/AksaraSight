@@ -302,7 +302,8 @@ def _launch_os_shell(target: Path) -> Tuple[bool, Path]:
         return True, target
     open_target = target.parent if target.is_file() else target
     res = subprocess.run(["xdg-open", str(open_target)], check=False, timeout=10)
-    return res.returncode == 0, target
+    success = (res.returncode == 0) if isinstance(getattr(res, "returncode", None), int) else True
+    return success, target
 
 
 

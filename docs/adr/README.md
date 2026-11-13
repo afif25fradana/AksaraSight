@@ -1,24 +1,12 @@
-# Architecture Decision Records (ADRs)
+# Architectural Decision Records (ADRs)
 
-This directory documents the significant architectural decisions made during the design, development, and evolution of AksaraSight.
+This directory contains the Living Domain Architecture Decision Records for AksaraSight, formatted according to the Michael Nygard standard. Each domain file is maintained in place as decisions evolve, with superseded revisions preserved in Git history (`git log`).
 
-Each record follows the [Michael Nygard ADR format](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) to capture context, decisions, rejected alternatives, and engineering consequences.
-
-## Settled Decisions
-
-| ADR | Title | Date | Status |
-| :--- | :--- | :--- | :---: |
-| [ADR-0001](0001-decoupled-local-inference-via-openai-compatible-http-backend.md) | Decoupled Local Inference via OpenAI-Compatible HTTP Backend | 2026-10-18 | Accepted |
-| [ADR-0002](0002-migration-from-native-desktop-gui-to-local-web-ui-workspace.md) | Migration from Native Desktop GUI to Local Web UI Workspace | 2026-10-18 | Accepted |
-| [ADR-0003](0003-zero-dependency-hardware-probe-and-managed-runtime-pinning.md) | Zero-Dependency Hardware Probe and Managed Runtime Pinning | 2026-10-18 | Accepted |
-| [ADR-0004](0004-thread-safe-pdfium-rasterization-and-pipeline-guards.md) | Thread-Safe PDFium Rasterization and Pipeline Guards | 2026-10-18 | Accepted |
-| [ADR-0005](0005-strict-loopback-security-port-pinning-and-anti-exfiltration.md) | Strict Loopback Security, Port Pinning, and Anti-Exfiltration | 2026-10-18 | Accepted |
-| [ADR-0006](0006-asynchronous-event-loop-offloading-and-memory-governance.md) | Asynchronous Event Loop Offloading and Memory Governance | 2026-10-18 | Accepted |
-| [ADR-0007](0007-per-job-dynamic-configuration-and-unified-extraction-pipeline.md) | Per-Job Dynamic Configuration and Unified Extraction Pipeline | 2026-10-18 | Accepted |
-| [ADR-0008](0008-real-time-model-lifecycle-streaming-and-view-transition-isolation.md) | Real-Time Model Lifecycle Streaming and CSS View Transition Isolation | 2026-10-21 | Accepted |
-| [ADR-0009](0009-subprocess-proxy-isolation-event-loop-offloading-and-focus-trapping.md) | Subprocess Proxy Isolation, Event Loop Offloading, and Focus Trapping | 2026-10-21 | Accepted |
-| [ADR-0010](0010-core-engine-encapsulation-runtime-path-decoupling-and-concurrency-hardening.md) | Core Engine Encapsulation, Runtime Path Decoupling, and Concurrency Hardening | 2026-10-23 | Accepted |
-| [ADR-0011](0011-automated-maintenance-pipeline-cross-os-coverage-governance-and-ci-bundle-synchronization.md) | Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization | 2026-10-29 | Accepted |
-| [ADR-0012](0012-concurrency-governance-run-token-queue-isolation-and-wire-contract-synchronization.md) | Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization | 2026-11-03 | Accepted |
-| [ADR-0013](0013-linux-x86_64-platform-support.md) | Linux x86_64 Platform Support and Architecture Parity | 2026-11-05 | Accepted |
-
+| ADR | Title | Status | Date | Primary Subject |
+|:---|:---|:---:|:---:|:---|
+| [ADR-0001](./0001-decoupled-local-inference-managed-runtimes-and-subprocess-supervision.md) | Decoupled Local Inference, Managed Runtimes, and Subprocess Supervision | Accepted | 2026-11-13 | Local Inference, Runtime Management & Process Supervision |
+| [ADR-0002](./0002-document-ingestion-thread-safe-pdfium-rasterization-and-core-pipeline.md) | Document Ingestion, Thread-Safe PDFium Rasterization, and Core Pipeline | Accepted | 2026-11-13 | Ingestion, Rasterization Mutex & Processing Pipeline |
+| [ADR-0003](./0003-presentation-architecture-web-ui-workspace-and-accessibility.md) | Presentation Architecture: Web UI Workspace and Accessibility | Accepted | 2026-11-13 | Web Workspace, SPA Ergonomics & WCAG AA Accessibility |
+| [ADR-0004](./0004-web-application-orchestration-event-loop-offloading-and-concurrency.md) | Web Application Orchestration, Event Loop Offloading, and Concurrency | Accepted | 2026-11-13 | Async Offloading, Run-Token Queue & Resource Bounding |
+| [ADR-0005](./0005-defense-in-depth-security-loopback-boundary-and-anti-exfiltration.md) | Defense-in-Depth Security, Loopback Boundary, and Anti-Exfiltration | Accepted | 2026-11-13 | Loopback Binding, Header Filtering & Security Boundary |
+| [ADR-0006](./0006-cross-platform-support-packaging-distribution-and-ci-governance.md) | Cross-Platform Support, Packaging Distribution, and CI Governance | Accepted | 2026-11-13 | Multi-OS Packaging, Test Matrices & CI/CD Governance |

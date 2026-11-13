@@ -1,6 +1,6 @@
 # AksaraSight: Technical Documentation & Architecture
 
-This document provides in-depth technical specifications, architecture notes, configuration details, and developer workflows for engineers, system administrators, and contributors.
+This document provides technical specifications, architecture notes, configuration details, and developer workflows for engineers, system administrators, and contributors.
 
 ---
 
@@ -51,26 +51,20 @@ AksaraSight/
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
 ├── docs/                  # Project documentation and architectural records
-│   ├── adr/               # Architecture Decision Records (ADR-0001 through ADR-0012)
+│   ├── adr/               # Architecture Decision Records (ADR-0001 through ADR-0006)
 │   └── images/            # Documentation screenshots and UI assets
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
 └── tests/                 # Automated test suite (unit, functional, and integration tests)
 ```
 
 ### Architectural Decision Records (ADRs)
-Formal engineering decisions, context, trade-offs, and rejected alternatives are maintained as modular Michael Nygard ADRs under [`docs/adr/`](docs/adr/):
-- **[ADR-0001](docs/adr/0001-decoupled-local-inference-via-openai-compatible-http-backend.md)**: Decoupled local inference via OpenAI-compatible HTTP backend.
-- **[ADR-0002](docs/adr/0002-migration-from-native-desktop-gui-to-local-web-ui-workspace.md)**: Migration from native desktop GUI to local Web UI workspace.
-- **[ADR-0003](docs/adr/0003-zero-dependency-hardware-probe-and-managed-runtime-pinning.md)**: Zero-dependency hardware probe and managed runtime pinning.
-- **[ADR-0004](docs/adr/0004-thread-safe-pdfium-rasterization-and-pipeline-guards.md)**: Thread-safe PDFium rasterization and pipeline guards.
-- **[ADR-0005](docs/adr/0005-strict-loopback-security-port-pinning-and-anti-exfiltration.md)**: Strict loopback security, port pinning, and anti-exfiltration.
-- **[ADR-0006](docs/adr/0006-asynchronous-event-loop-offloading-and-memory-governance.md)**: Asynchronous event loop offloading and memory governance.
-- **[ADR-0007](docs/adr/0007-per-job-dynamic-configuration-and-unified-extraction-pipeline.md)**: Per-job dynamic configuration and unified extraction pipeline.
-- **[ADR-0008](docs/adr/0008-real-time-model-lifecycle-streaming-and-view-transition-isolation.md)**: Real-time model lifecycle streaming and CSS view transition isolation.
-- **[ADR-0009](docs/adr/0009-subprocess-proxy-isolation-event-loop-offloading-and-focus-trapping.md)**: Subprocess proxy isolation, event loop offloading, and focus trapping.
-- **[ADR-0010](docs/adr/0010-core-engine-encapsulation-runtime-path-decoupling-and-concurrency-hardening.md)**: Core engine encapsulation, runtime path decoupling, and concurrency hardening.
-- **[ADR-0011](docs/adr/0011-automated-maintenance-pipeline-cross-os-coverage-governance-and-ci-bundle-synchronization.md)**: Automated maintenance pipeline, cross-OS coverage governance, and CI bundle synchronization.
-- **[ADR-0012](docs/adr/0012-concurrency-governance-run-token-queue-isolation-and-wire-contract-synchronization.md)**: Concurrency governance, run-token queue isolation, and wire contract synchronization.
+Formal engineering decisions, context, trade-offs, and rejected alternatives are maintained as Living Domain Michael Nygard ADRs under [`docs/adr/`](docs/adr/):
+- **[ADR-0001](docs/adr/0001-decoupled-local-inference-managed-runtimes-and-subprocess-supervision.md)**: Decoupled local inference, managed runtimes, and subprocess supervision.
+- **[ADR-0002](docs/adr/0002-document-ingestion-thread-safe-pdfium-rasterization-and-core-pipeline.md)**: Document ingestion, thread-safe PDFium rasterization, and core pipeline.
+- **[ADR-0003](docs/adr/0003-presentation-architecture-web-ui-workspace-and-accessibility.md)**: Presentation architecture: Web UI workspace and accessibility.
+- **[ADR-0004](docs/adr/0004-web-application-orchestration-event-loop-offloading-and-concurrency.md)**: Web application orchestration, event loop offloading, and concurrency.
+- **[ADR-0005](docs/adr/0005-defense-in-depth-security-loopback-boundary-and-anti-exfiltration.md)**: Defense-in-depth security, loopback boundary, and anti-exfiltration.
+- **[ADR-0006](docs/adr/0006-cross-platform-support-packaging-distribution-and-ci-governance.md)**: Cross-platform support, packaging distribution, and CI governance.
 
 ### Architectural Guarantees & Concurrency
 - **Thread Safety**: `pypdfium2` PDF bindings are not thread-safe; all PDF operations are strictly serialized via `_PDFIUM_LOCK` in `core/pipeline.py`.
@@ -314,7 +308,7 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
 ### Application File Logging
 When running as a packaged desktop application, runtime logs are written directly to disk:
 - **Destination**: `%LOCALAPPDATA%\AksaraSight\logs\app.log`
-- **Log Level Routing**: The root logger is initialized at `INFO` to record operational lifecycle events. To capture diagnostic troubleshooting details without polluting logs with high-volume third-party library noise (such as `urllib3` or `PIL`), `DEBUG` logging is specifically enabled for internal application namespaces (`web` and `core`). Unhandled crashes are intercepted via `sys.excepthook` and recorded with full tracebacks.
+- **Log Level Routing**: The root logger is initialized at `INFO` to record operational lifecycle events. To capture diagnostic troubleshooting details without polluting logs with high-volume third-party library noise (such as `urllib3` or `PIL`), `DEBUG` logging is enabled for internal application namespaces (`web` and `core`). Unhandled crashes are intercepted via `sys.excepthook` and recorded with full tracebacks.
 - **Log Rotation Policy**: Log file growth is bounded using a `RotatingFileHandler` configured with a 5 MB maximum file size (`maxBytes=5242880`) and up to 3 backup archives (`backupCount=3`, preserving `app.log.1`, `app.log.2`, and `app.log.3`).
 - **Multi-Instance Concurrency on Windows**: Windows enforces mandatory file locks on open file handles. When two application instances run concurrently and share the same log file, log rotation cannot rename active log files (`PermissionError`). Python's logging handler catches this condition internally, deferring rotation until the secondary process releases its handle. Standard single-instance execution rotates logs cleanly without interruption.
 

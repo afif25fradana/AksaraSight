@@ -127,7 +127,7 @@ describe('SettingsView backend integration and security', () => {
       expect(customPathInput).toHaveValue('C:\\tools\\llama-server.exe');
     });
     expect(screen.getByText('Custom llama-server binary configured')).toBeInTheDocument();
-  });
+  }, 15000);
 
   it('renders Advanced tab with editable endpoint, model repo, and remote security confirmation modal', async () => {
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {

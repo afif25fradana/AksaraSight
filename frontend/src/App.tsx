@@ -7,7 +7,7 @@ import { ExtractedTextPanel } from './components/ExtractedTextPanel';
 import { SettingsView } from './components/SettingsView';
 import { OutputFolderModal } from './components/OutputFolderModal';
 import { ServerLogsModal } from './components/ServerLogsModal';
-import { DocumentItem, EngineSettings, ExportedFile, ModelStatusInfo, OutputFormatType, PromptMode, ServerStatusInfo } from './types';
+import { DocumentItem, DocumentStatus, EngineSettings, ExportedFile, ModelStatusInfo, OutputFormatType, PromptMode, ServerStatusInfo, SSECompletedEventData } from './types';
 import { INITIAL_DOCUMENTS, INITIAL_SETTINGS } from './data/mockDocuments';
 
 export default function App() {
@@ -105,6 +105,7 @@ export default function App() {
   // Server management status and transitioning state
   const [serverStatus, setServerStatus] = useState<ServerStatusInfo | null>(null);
   const [isServerTransitioning, setIsServerTransitioning] = useState<boolean>(false);
+  const [cancellingDocId, setCancellingDocId] = useState<string | null>(null);
 
   const fetchServerStatus = async () => {
     try {
@@ -405,16 +406,23 @@ export default function App() {
 
     eventSource.addEventListener('completed', (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data);
+        const data: SSECompletedEventData = JSON.parse(e.data);
         setRunningJobDocId((curr) => (curr === data.job_id ? null : curr));
         setDocuments((prev) =>
           prev.map((doc) => {
             if (doc.id === data.job_id) {
+              const isTruncated =
+                data.status === 'partial' ||
+                data.truncated === true ||
+                Object.values(doc.pagesData || {}).some((p) => p.isTruncated);
+
               return {
                 ...doc,
-                status: 'Done',
+                status: (isTruncated ? 'Truncated' : 'Done') as DocumentStatus,
+                statusNote: isTruncated
+                  ? (data.status_note || doc.statusNote || 'Output truncated (hit token limit)')
+                  : undefined,
                 processedPages: data.total_pages || doc.pages,
-                statusNote: undefined,
               };
             }
             return doc;
@@ -747,25 +755,88 @@ export default function App() {
   };
 
   const handleCancelExtraction = async (docId: string) => {
-    try {
-      await fetch(`/api/documents/${docId}/cancel`, { method: 'POST' });
-    } catch (err) {
-      console.error('Failed to cancel extraction:', err);
-    }
-    setRunningJobDocId(null);
+    if (cancellingDocId !== null) return;
+    setCancellingDocId(docId);
 
-    setDocuments((prev) =>
-      prev.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              status: 'Waiting' as const,
-              statusNote: 'Job cancelled',
-              queuePosition: undefined,
-            }
-          : doc
-      )
-    );
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let signal: AbortSignal;
+    let timedOut = false;
+
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      signal = AbortSignal.timeout(10000);
+    } else {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        const timeoutErr = new Error('The operation was aborted due to timeout');
+        timeoutErr.name = 'TimeoutError';
+        controller.abort(timeoutErr);
+      }, 10000);
+      signal = controller.signal;
+    }
+
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}/cancel`, {
+        method: 'POST',
+        signal,
+      });
+
+      if (res.ok) {
+        setRunningJobDocId(null);
+        setDocuments((prev) =>
+          prev.map((doc) =>
+            doc.id === docId
+              ? {
+                  ...doc,
+                  status: 'Waiting' as const,
+                  statusNote: 'Job cancelled',
+                  queuePosition: undefined,
+                }
+              : doc
+          )
+        );
+      } else {
+        let errorMsg = '';
+        try {
+          const errorJson = await res.json();
+          errorMsg = errorJson?.detail || errorJson?.error || errorJson?.message || '';
+        } catch {
+          // Response body may not be JSON
+        }
+
+        if (res.status === 404) {
+          setRunningJobDocId(null);
+          setDocuments((prev) =>
+            prev.map((doc) =>
+              doc.id === docId
+                ? {
+                    ...doc,
+                    status: 'Waiting' as const,
+                    statusNote: 'Job not found on server',
+                    queuePosition: undefined,
+                  }
+                : doc
+            )
+          );
+          window.alert(errorMsg || 'Job not found on server');
+        } else if (res.status === 409) {
+          window.alert(errorMsg || 'Document extraction already finished');
+        } else {
+          window.alert(errorMsg ? `Failed to cancel extraction: ${errorMsg}` : `Failed to cancel extraction (server returned ${res.status})`);
+        }
+      }
+    } catch (err: any) {
+      const isTimeout = err?.name === 'TimeoutError' || timedOut;
+      const alertMsg = isTimeout
+        ? 'Cancellation request timed out. The extraction may still be running.'
+        : 'Network error: Could not reach server to cancel extraction. Extraction is still running.';
+      window.alert(alertMsg);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      setCancellingDocId(null);
+    }
   };
 
   const handleReExtractDocument = (docId: string, promptMode?: PromptMode, dpi?: number) => {

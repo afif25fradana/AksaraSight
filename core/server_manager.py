@@ -342,6 +342,10 @@ class ServerManager:
         Returns:
             ServerStatusInfo: Up-to-date server state snapshot.
         """
+        callback: Optional[Callable[[], None]] = None
+        info: Optional[ServerStatusInfo] = None
+        process_exited: bool = False
+
         with self._lock:
             if self._stopping:
                 # Process is actively being terminated by stop(). Do not probe or adopt.
@@ -352,11 +356,11 @@ class ServerManager:
                 ret = self._process.poll()
                 if ret is not None:
                     # Process died
-                    self._process = None
-                    self._ownership = ServerOwnership.NONE
                     if sys.platform == "win32" and self._job_handle is not None:
                         _close_job_handle(self._job_handle)
                         self._job_handle = None
+                    self._process = None
+                    self._ownership = ServerOwnership.NONE
                     if ret != 0:
                         self._status = ServerStatus.ERROR
                         reason = self._diagnose_failure()
@@ -364,10 +368,18 @@ class ServerManager:
                     else:
                         self._status = ServerStatus.OFFLINE
                         self._last_message = "Server process exited cleanly"
-                    return self._build_status_info_locked()
+                    callback = self.on_lifecycle_change
+                    info = self._build_status_info_locked()
+                    process_exited = True
 
-            endpoint = self.settings.local_endpoint
-            session = self._session
+            if not process_exited:
+                endpoint = self.settings.local_endpoint
+                session = self._session
+
+        if process_exited:
+            if callback is not None:
+                self._notify_lifecycle_change(callback)
+            return info
 
         # Probe health outside lock to avoid blocking UI queries during network I/O
         probe_status, probe_msg = probe_server_health(
@@ -399,9 +411,10 @@ class ServerManager:
                     self._status = ServerStatus.STARTING
                     self._last_message = "Starting server process..."
                 else:
-                    self._status = ServerStatus.OFFLINE
+                    if self._status != ServerStatus.ERROR:
+                        self._status = ServerStatus.OFFLINE
+                        self._last_message = "Server is stopped"
                     self._ownership = ServerOwnership.NONE
-                    self._last_message = "Server is stopped"
 
             else:  # ERROR
                 self._status = ServerStatus.ERROR

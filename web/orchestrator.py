@@ -27,6 +27,7 @@ class JobStatus(str, Enum):
     QUEUED = "QUEUED"
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 
@@ -86,6 +87,7 @@ class WebOrchestrator:
                 JobStatus.QUEUED: "Waiting",
                 JobStatus.PROCESSING: "Processing",
                 JobStatus.SUCCESS: "Done",
+                JobStatus.PARTIAL: "Truncated",
                 JobStatus.FAILED: "Failed",
                 JobStatus.CANCELLED: "Waiting",
             }
@@ -165,7 +167,7 @@ class WebOrchestrator:
             if len(self.jobs) <= self.max_stored_jobs:
                 return
             for job in list(self.jobs.values()):
-                if job.status in (JobStatus.SUCCESS, JobStatus.FAILED, JobStatus.CANCELLED):
+                if job.status in (JobStatus.SUCCESS, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.PARTIAL):
                     self.jobs.pop(job.job_id, None)
                     pruned.append(job)
                     if len(self.jobs) <= self.max_stored_jobs:
@@ -513,6 +515,34 @@ class WebOrchestrator:
                         else:
                             job.error = "Document processing failed"
                     self.broadcast("failed", {"job_id": job.job_id, "error": job.error})
+                elif (
+                    getattr(result, "status", None) == CoreJobStatus.PARTIAL
+                    or any(p.get("truncated", False) for p in job.pages_data.values())
+                ):
+                    job.status = JobStatus.PARTIAL
+                    truncated_pages = [
+                        p_num
+                        for p_num, p in sorted(job.pages_data.items())
+                        if p.get("truncated", False)
+                    ]
+                    note = (
+                        f"Output truncated on page(s) {', '.join(map(str, truncated_pages))} (hit token limit)"
+                        if truncated_pages
+                        else "Output truncated (hit token limit)"
+                    )
+                    job.error = note
+                    self.broadcast(
+                        "completed",
+                        {
+                            "job_id": job.job_id,
+                            "pages": job.page_count,
+                            "total_pages": job.page_count,
+                            "status": "partial",
+                            "truncated": True,
+                            "truncated_pages": truncated_pages,
+                            "status_note": note,
+                        },
+                    )
                 else:
                     job.status = JobStatus.SUCCESS
                     self.broadcast(
@@ -521,6 +551,10 @@ class WebOrchestrator:
                             "job_id": job.job_id,
                             "pages": job.page_count,
                             "total_pages": job.page_count,
+                            "status": "success",
+                            "truncated": False,
+                            "truncated_pages": [],
+                            "status_note": None,
                         },
                     )
             self._prune_terminal_jobs()

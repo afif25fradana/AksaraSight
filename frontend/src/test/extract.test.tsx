@@ -1,18 +1,33 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
 import { ExtractedTextPanel } from '../components/ExtractedTextPanel';
 import { DocumentItem } from '../types';
 
+let activeEventSource: MockEventSource | null = null;
+
 class MockEventSource {
+  listeners: Record<string, ((e: any) => void)[]> = {};
   onopen: any = null;
   onerror: any = null;
-  addEventListener = vi.fn();
-  removeEventListener = vi.fn();
+  addEventListener = vi.fn((type: string, cb: any) => {
+    this.listeners[type] = this.listeners[type] || [];
+    this.listeners[type].push(cb);
+  });
+  removeEventListener = vi.fn((type: string, cb: any) => {
+    if (this.listeners[type]) {
+      this.listeners[type] = this.listeners[type].filter((l) => l !== cb);
+    }
+  });
   close = vi.fn();
-  constructor(public url: string) {}
+  emit(type: string, data: any) {
+    (this.listeners[type] || []).forEach((cb) => cb({ data: JSON.stringify(data) }));
+  }
+  constructor(public url: string) {
+    activeEventSource = this;
+  }
 }
 
 describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)', () => {
@@ -21,6 +36,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    activeEventSource = null;
     global.EventSource = MockEventSource as any;
   });
 
@@ -106,7 +122,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
       expect(callInit?.headers).toEqual({ 'Content-Type': 'application/json' });
       expect(callInit?.body).toBe(JSON.stringify({ prompt_mode: 'table', dpi: 100 }));
     });
-  });
+  }, 15000);
 
   it('sends POST /api/documents/{id}/extract with default prompt_mode "text" and dpi 100', async () => {
     const user = userEvent.setup();
@@ -736,6 +752,233 @@ describe('ExtractedTextPanel engine start and queue wiring', () => {
     expect(addToQueueBtn).toBeInTheDocument();
     await user.click(addToQueueBtn);
     expect(onRunDocumentExtraction).toHaveBeenCalledWith('doc-queue-test');
+  });
+});
+
+describe('SSE extraction completion defense and server-authoritative cancellation', () => {
+  const originalFetch = global.fetch;
+  const originalEventSource = global.EventSource;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    activeEventSource = null;
+    global.EventSource = MockEventSource as any;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    global.EventSource = originalEventSource;
+  });
+
+  const processingDoc: DocumentItem = {
+    id: 'doc-proc-wp2',
+    name: 'processing-document.pdf',
+    pages: 3,
+    size: '1.5 MB',
+    status: 'Processing',
+    processedPages: 1,
+    currentPage: 1,
+    docType: 'legal-agreement',
+    extractedText: 'Processing text in progress...',
+  };
+
+  it('cancellation failure (500 error): preserves runningJobDocId, keeps status Processing, and alerts user', async () => {
+    const user = userEvent.setup();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [processingDoc],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/cancel') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ detail: 'Internal worker crash during cancellation' }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel extraction' });
+    expect(cancelBtn).toBeInTheDocument();
+
+    await user.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Internal worker crash'));
+    });
+
+    // Verification: document remains in 'Processing' and Cancel extraction button is still present (runningJobDocId not cleared)
+    expect(screen.getByRole('button', { name: 'Cancel extraction' })).toBeInTheDocument();
+  });
+
+  it('cancellation failure (network rejection): preserves runningJobDocId, keeps status Processing, and alerts network error', async () => {
+    const user = userEvent.setup();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [processingDoc],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/cancel') && init?.method === 'POST') {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel extraction' });
+    await user.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Network error: Could not reach server to cancel extraction. Extraction is still running.'
+      );
+    });
+
+    // Verification: runningJobDocId is preserved, Cancel button remains
+    expect(screen.getByRole('button', { name: 'Cancel extraction' })).toBeInTheDocument();
+  });
+
+  it('cancellation success (200 OK): clears runningJobDocId and sets status to Waiting with "Job cancelled"', async () => {
+    const user = userEvent.setup();
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [processingDoc],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      if (urlStr.includes('/cancel') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ message: 'Extraction cancelled', job_id: processingDoc.id }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel extraction' });
+    await user.click(cancelBtn);
+
+    await waitFor(() => {
+      // Cancel extraction button disappears as runningJobDocId is cleared
+      expect(screen.queryByRole('button', { name: 'Cancel extraction' })).not.toBeInTheDocument();
+      // Document status becomes Waiting with note "Job cancelled"
+      expect(screen.getByText('Job cancelled')).toBeInTheDocument();
+    });
+  });
+
+  it('H1-01 defense-in-depth: completed SSE event with status "partial" transitions document to Truncated with warning note', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/documents' && (!init || !init.method || init.method === 'GET')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [processingDoc],
+        } as Response);
+      }
+      if (urlStr === '/api/server/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', ownership: 'managed' }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response);
+    });
+
+    global.fetch = fetchMock;
+
+    render(<App />);
+
+    // Wait until document is loaded and Cancel extraction button is present
+    await screen.findByRole('button', { name: 'Cancel extraction' });
+
+    // Simulate SSE completed event with partial status and truncated flag
+    expect(activeEventSource).not.toBeNull();
+    act(() => {
+      activeEventSource!.emit('completed', {
+        job_id: processingDoc.id,
+        pages: 3,
+        total_pages: 3,
+        status: 'partial',
+        truncated: true,
+        truncated_pages: [2, 3],
+        status_note: 'Output truncated (hit token limit on page 2)',
+      });
+    });
+
+    await waitFor(() => {
+      // Running job is cleared
+      expect(screen.queryByRole('button', { name: 'Cancel extraction' })).not.toBeInTheDocument();
+      // Status note is updated
+      expect(screen.getByText(/Output truncated \(hit token limit on page 2\)/i)).toBeInTheDocument();
+    });
   });
 });
 

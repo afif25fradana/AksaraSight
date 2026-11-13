@@ -1136,6 +1136,53 @@ def test_server_manager_poll_diagnoses_crashed_process():
         mgr.shutdown()
 
 
+def test_server_manager_poll_invokes_lifecycle_callback_on_process_exit():
+    """Verify on_lifecycle_change callback is invoked when process exits during poll_status()."""
+    mgr = ServerManager()
+    try:
+        callback_mock = MagicMock()
+        mgr.on_lifecycle_change = callback_mock
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1
+        mock_proc.returncode = 1
+        mgr._process = mock_proc
+        mgr._ownership = ServerOwnership.MANAGED
+
+        info = mgr.poll_status()
+        assert info.status == ServerStatus.ERROR
+        callback_mock.assert_called_once()
+    finally:
+        mgr.shutdown()
+
+
+def test_server_manager_poll_preserves_crash_error_on_subsequent_ticks():
+    """Verify ERROR status and diagnosis message persist across subsequent poll_status calls."""
+    mgr = ServerManager()
+    try:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1
+        mock_proc.returncode = 1
+        mgr._process = mock_proc
+        mgr._ownership = ServerOwnership.MANAGED
+        mgr._log_buffer.append("failed to initialize cuda")
+
+        # First tick: detects crash
+        info1 = mgr.poll_status()
+        assert info1.status == ServerStatus.ERROR
+        assert "CUDA/GPU" in info1.message
+        assert mgr._process is None
+
+        # Second tick: probe returns OFFLINE, status must remain ERROR (not overwritten to OFFLINE)
+        with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Connection refused")):
+            info2 = mgr.poll_status()
+            assert info2.status == ServerStatus.ERROR
+            assert "CUDA/GPU" in info2.message
+            assert info2.ownership == ServerOwnership.NONE
+    finally:
+        mgr.shutdown()
+
+
 def test_server_manager_log_buffer_caps_and_retrieves():
     """Verify log ring-buffer caps at 200 items and get_recent_logs returns proper slice."""
     mgr = ServerManager()

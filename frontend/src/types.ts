@@ -10,6 +10,16 @@ export interface PageExtraction {
   tokens?: number;
 }
 
+export interface SSECompletedEventData {
+  job_id: string;
+  pages: number;
+  total_pages: number;
+  status: 'success' | 'partial';
+  truncated: boolean;
+  truncated_pages?: number[];
+  status_note?: string | null;
+}
+
 export type PromptMode = 'text' | 'table' | 'formula';
 
 export interface DocumentItem {

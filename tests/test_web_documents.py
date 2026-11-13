@@ -1690,3 +1690,154 @@ def test_cancel_processing_then_immediate_reextract_isolates_run_cancel_tokens(t
     finally:
         gate.set()
         orchestrator.stop()
+
+
+def test_job_status_partial_enum_and_snapshot_mapping() -> None:
+    """Verify JobStatus.PARTIAL enum value and its representation in get_jobs_snapshot()."""
+    assert hasattr(JobStatus, "PARTIAL")
+    assert JobStatus.PARTIAL == "PARTIAL"
+
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    job = JobState(
+        job_id="test-partial-snapshot",
+        filename="doc.pdf",
+        file_path=Path("doc.pdf"),
+        status=JobStatus.PARTIAL,
+        page_count=2,
+        pages_data={
+            1: {"pageNumber": 1, "text": "Page 1 truncated", "truncated": True},
+            2: {"pageNumber": 2, "text": "Page 2 full", "truncated": False},
+        },
+        error="Output truncated on page(s) 1 (hit token limit)",
+    )
+    orchestrator.register_job(job)
+    snapshot = orchestrator.get_jobs_snapshot()
+    assert len(snapshot) == 1
+    assert snapshot[0]["status"] == "Truncated"
+    assert snapshot[0]["statusNote"] == "Output truncated on page(s) 1 (hit token limit)"
+    assert snapshot[0]["pagesData"][1]["isTruncated"] is True
+    assert snapshot[0]["pagesData"][2]["isTruncated"] is False
+
+
+def test_orchestrator_worker_loop_partial_truncation_lifecycle(tmp_path: Path) -> None:
+    """Verify worker loop handles truncated results, setting JobStatus.PARTIAL and broadcasting details."""
+    from core.models import OCRResult, PageResult
+
+    class TruncatedEngine:
+        def process_document(
+            self,
+            source: Any,
+            config: Optional[Any] = None,
+            cancel_token: Optional[threading.Event] = None,
+            progress_callback: Optional[Any] = None,
+        ) -> OCRResult:
+            page1 = PageResult(
+                page_num=1,
+                markdown="Truncated text...",
+                truncated=True,
+                status=CoreJobStatus.PARTIAL,
+            )
+            page2 = PageResult(
+                page_num=2,
+                markdown="Complete text",
+                truncated=False,
+                status=CoreJobStatus.SUCCESS,
+            )
+            if progress_callback:
+                progress_callback(1, 2, page1)
+                progress_callback(2, 2, page2)
+            res = OCRResult(file_path=str(source), pages=[page1, page2])
+            res.status = CoreJobStatus.PARTIAL
+            return res
+
+    sample_png = tmp_path / "sample_trunc.png"
+    sample_png.write_bytes(_create_sample_png_bytes())
+
+    orchestrator = WebOrchestrator(engine=TruncatedEngine())
+    events: List[Tuple[str, Dict[str, Any]]] = []
+    original_broadcast = orchestrator.broadcast
+    def record_broadcast(event_type: str, data: Dict[str, Any]) -> None:
+        events.append((event_type, data))
+        original_broadcast(event_type, data)
+    orchestrator.broadcast = record_broadcast
+
+    try:
+        job = JobState(
+            job_id="job-trunc-lifecycle",
+            filename="sample_trunc.png",
+            file_path=sample_png,
+            page_count=2,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue("job-trunc-lifecycle")
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job("job-trunc-lifecycle")
+            if j and j.status in (JobStatus.PARTIAL, JobStatus.SUCCESS, JobStatus.FAILED):
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job("job-trunc-lifecycle")
+        assert j is not None
+        assert j.status == JobStatus.PARTIAL
+        assert j.error == "Output truncated on page(s) 1 (hit token limit)"
+
+        completed_events = [data for evt, data in events if evt == "completed"]
+        assert len(completed_events) == 1
+        comp = completed_events[0]
+        assert comp["job_id"] == "job-trunc-lifecycle"
+        assert comp["status"] == "partial"
+        assert comp["truncated"] is True
+        assert comp["truncated_pages"] == [1]
+        assert comp["status_note"] == "Output truncated on page(s) 1 (hit token limit)"
+    finally:
+        orchestrator.stop()
+
+
+def test_orchestrator_worker_loop_full_success_lifecycle(tmp_path: Path) -> None:
+    """Verify worker loop handles successful results, broadcasting status, truncated=False, and empty notes."""
+    sample_png = tmp_path / "sample_success.png"
+    sample_png.write_bytes(_create_sample_png_bytes())
+
+    orchestrator = WebOrchestrator(engine=MockEngine())
+    events: List[Tuple[str, Dict[str, Any]]] = []
+    original_broadcast = orchestrator.broadcast
+    def record_broadcast(event_type: str, data: Dict[str, Any]) -> None:
+        events.append((event_type, data))
+        original_broadcast(event_type, data)
+    orchestrator.broadcast = record_broadcast
+
+    try:
+        job = JobState(
+            job_id="job-succ-lifecycle",
+            filename="sample_success.png",
+            file_path=sample_png,
+            page_count=1,
+            status=JobStatus.UPLOADED,
+        )
+        orchestrator.register_job(job)
+        orchestrator.enqueue("job-succ-lifecycle")
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            j = orchestrator.get_job("job-succ-lifecycle")
+            if j and j.status in (JobStatus.SUCCESS, JobStatus.FAILED):
+                break
+            time.sleep(0.02)
+
+        j = orchestrator.get_job("job-succ-lifecycle")
+        assert j is not None
+        assert j.status == JobStatus.SUCCESS
+
+        completed_events = [data for evt, data in events if evt == "completed"]
+        assert len(completed_events) == 1
+        comp = completed_events[0]
+        assert comp["job_id"] == "job-succ-lifecycle"
+        assert comp["status"] == "success"
+        assert comp["truncated"] is False
+        assert comp["truncated_pages"] == []
+        assert comp["status_note"] is None
+    finally:
+        orchestrator.stop()

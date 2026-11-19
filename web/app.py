@@ -66,6 +66,57 @@ from web.security import LoopbackSecurityMiddleware
 
 logger = logging.getLogger(__name__)
 
+
+class SSEShutdownSupervisor:
+    """Supervises active SSE clients and coordinates graceful server shutdown on window close."""
+
+    def __init__(
+        self,
+        server: Any,
+        orchestrator: WebOrchestrator,
+        debounce_seconds: float = 10.0,
+    ) -> None:
+        self.server = server
+        self.orchestrator = orchestrator
+        self.debounce_seconds = debounce_seconds
+        self.active_clients: int = 0
+        self.has_connected: bool = False
+        self._debounce_task: Optional[asyncio.Task] = None
+        self._evacuating: bool = False
+
+    def on_client_connected(self) -> None:
+        """Register a newly connected SSE client and cancel any pending debounce shutdown."""
+        self.active_clients += 1
+        self.has_connected = True
+        self._evacuating = False
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+            self._debounce_task = None
+
+    def on_client_disconnected(self) -> None:
+        """Register client disconnect; schedule debounce shutdown when active clients drop to 0."""
+        self.active_clients = max(0, self.active_clients - 1)
+        if self.has_connected and self.active_clients == 0:
+            if not self._debounce_task or self._debounce_task.done():
+                self._debounce_task = asyncio.create_task(self._debounce_shutdown())
+
+    async def _debounce_shutdown(self) -> None:
+        """Wait for debounce period and trigger server exit, waiting if orchestrator is busy."""
+        try:
+            await asyncio.sleep(self.debounce_seconds)
+            if self.active_clients > 0:
+                return
+            if self.orchestrator.is_busy():
+                self._evacuating = True
+                while self.orchestrator.is_busy() and self.active_clients == 0:
+                    await asyncio.sleep(0.5)
+            if self.active_clients == 0:
+                if hasattr(self.server, "should_exit"):
+                    self.server.should_exit = True
+        except asyncio.CancelledError:
+            pass
+
+
 ALLOWED_OUTPUT_EXTS: frozenset[str] = frozenset({".docx", ".md", ".json"})
 
 
@@ -450,6 +501,9 @@ def create_app(
         yield
 
         # Server shutdown cleanup: stop worker thread and unlink session upload files
+        supervisor = getattr(app_instance.state, "shutdown_supervisor", None)
+        if supervisor and supervisor._debounce_task and not supervisor._debounce_task.done():
+            supervisor._debounce_task.cancel()
         orch = getattr(app_instance.state, "orchestrator", None)
         if orch:
             await asyncio.to_thread(orch.shutdown)
@@ -512,6 +566,7 @@ def create_app(
     app.state.last_runtime_download_status = None
     app.state.env_path = Path(env_path).resolve() if env_path is not None else None
     app.state.output_dir = Path(output_dir).resolve() if output_dir else None
+    app.state.shutdown_supervisor = None
 
     @app.get("/health")
     async def get_health() -> Dict[str, Any]:
@@ -1058,11 +1113,8 @@ def create_app(
         if not cancelled:
             raise HTTPException(status_code=404, detail="Document job not found")
 
-        if delete_file and job.file_path and job.file_path.exists():
-            try:
-                job.file_path.unlink()
-            except OSError as e:
-                logger.warning("Failed to cleanup file on cancel for job %s: %s", job_id, e)
+        if delete_file and job.file_path:
+            app_orchestrator.defer_or_unlink(job.file_path, job_id=job_id)
 
         return {"message": "Extraction cancelled", "job_id": job_id}
 
@@ -1075,12 +1127,8 @@ def create_app(
         job = app_orchestrator.remove_job(job_id)
 
         file_deleted = False
-        if job and job.file_path and job.file_path.exists():
-            try:
-                job.file_path.unlink()
-                file_deleted = True
-            except OSError as e:
-                logger.warning("Failed to unlink file for job %s: %s", job_id, e)
+        if job and job.file_path:
+            file_deleted = app_orchestrator.defer_or_unlink(job.file_path, job_id=job_id) or job.file_path.exists()
 
         for f in target_upload_dir.glob(f"{job_id}_*"):
             try:
@@ -1664,18 +1712,23 @@ def create_app(
     @app.get("/api/events", response_class=EventSourceResponse)
     async def sse_events(request: Request):
         """Stream real-time orchestrator queue events over Server-Sent Events."""
-        async for msg in app_orchestrator.subscribe():
-            if await request.is_disconnected():
-                break
-            event = msg.get("event", "message")
-            if event == "_ping":
-                yield ServerSentEvent(comment="ping")
-                continue
-            data = msg.get("data")
-            if isinstance(data, str):
-                yield ServerSentEvent(event=event, raw_data=data)
-            else:
-                yield ServerSentEvent(event=event, data=data)
+        supervisor = getattr(request.app.state, "shutdown_supervisor", None)
+        if supervisor:
+            supervisor.on_client_connected()
+        try:
+            async for msg in app_orchestrator.subscribe():
+                event = msg.get("event", "message")
+                if event == "_ping":
+                    yield ServerSentEvent(comment="ping")
+                    continue
+                data = msg.get("data")
+                if isinstance(data, str):
+                    yield ServerSentEvent(event=event, raw_data=data)
+                else:
+                    yield ServerSentEvent(event=event, data=data)
+        finally:
+            if supervisor:
+                supervisor.on_client_disconnected()
 
     if static_dir:
         target_static_dir = Path(static_dir)

@@ -2,7 +2,7 @@
 """PyInstaller spec file for AksaraSight Local Portable Windows Distribution.
 
 Builds a unified, zero-installer portable bundle containing:
-1. AksaraSight.exe: Web UI Desktop Server (console mode, console=True).
+1. AksaraSight.exe: Web UI Desktop Server (windowed mode, console=False).
 2. AksaraSight-CLI.exe: Command Line Interface (console mode, console=True).
 Both executables reside in dist/AksaraSight/ and share dist/AksaraSight/_internal/.
 """
@@ -78,7 +78,7 @@ exe_web = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

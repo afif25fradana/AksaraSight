@@ -360,7 +360,7 @@ def test_web_entrypoint_main_default_and_frozen(monkeypatch, tmp_path):
     assert run_calls[0][0] == ("mock_app",)
     assert run_calls[0][1]["port"] == 8124
     assert len(timer_created) == 1
-    assert timer_created[0] == 0.8
+    assert timer_created[0] == 0.0
 
 def test_web_entrypoint_setup_frozen_logging(monkeypatch, tmp_path):
     """Verify _setup_frozen_logging creates log file and installs excepthook."""
@@ -439,3 +439,177 @@ def test_frozen_logging_none_std_streams(monkeypatch, tmp_path):
         log_path = web_main._setup_frozen_logging()
         assert log_path is not None
         assert log_path.exists()
+
+
+def test_find_browser_executable_windows_msedge(monkeypatch):
+    """Verify find_browser_executable resolves Edge path on Windows."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "platform", "win32")
+    edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+    monkeypatch.setattr(os.path, "isfile", lambda p: p == edge_path)
+    assert web_main.find_browser_executable() == edge_path
+
+
+def test_find_browser_executable_windows_chrome_fallback(monkeypatch):
+    """Verify find_browser_executable falls back to Chrome when Edge is missing."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "platform", "win32")
+    chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    monkeypatch.setattr(os.path, "isfile", lambda p: p == chrome_path)
+    assert web_main.find_browser_executable() == chrome_path
+
+
+def test_find_browser_executable_windows_winreg(monkeypatch):
+    """Verify find_browser_executable checks winreg App Paths when standard files missing."""
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(os.path, "isfile", lambda p: p == r"D:\Custom\msedge.exe")
+
+    class MockKey:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    mock_winreg = MagicMock()
+    mock_winreg.HKEY_LOCAL_MACHINE = 1
+    mock_winreg.HKEY_CURRENT_USER = 2
+    mock_winreg.OpenKey.return_value = MockKey()
+    mock_winreg.QueryValueEx.return_value = (r"D:\Custom\msedge.exe", 1)
+
+    monkeypatch.setitem(sys.modules, "winreg", mock_winreg)
+    assert web_main.find_browser_executable() == r"D:\Custom\msedge.exe"
+
+
+def test_find_browser_executable_linux_headless_and_display(monkeypatch):
+    """Verify find_browser_executable returns None on headless Linux and resolves on display."""
+    import shutil
+    import web.__main__ as web_main
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/chromium")
+    assert web_main.find_browser_executable() is None
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert web_main.find_browser_executable() == "/usr/bin/chromium"
+
+
+def test_launch_desktop_window_flags_windows(monkeypatch, tmp_path):
+    """Verify _launch_desktop_window launches Chromium in app mode with isolated profile."""
+    import subprocess
+    import web.__main__ as web_main
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(web_main, "find_browser_executable", lambda: r"C:\fake\msedge.exe")
+
+    spawn_calls = []
+    def mock_popen(cmd, *a, **k):
+        spawn_calls.append(cmd)
+        return MagicMock()
+
+    monkeypatch.setattr(subprocess, "Popen", mock_popen)
+    web_main._launch_desktop_window("http://127.0.0.1:8000", 8000)
+
+    assert len(spawn_calls) == 1
+    cmd = spawn_calls[0]
+    assert cmd[0] == r"C:\fake\msedge.exe"
+    assert "--app=http://127.0.0.1:8000" in cmd
+    expected_profile = tmp_path / "AksaraSight" / "browser_profile"
+    assert f"--user-data-dir={expected_profile}" in cmd
+    assert expected_profile.is_dir()
+    assert "--no-first-run" in cmd
+    assert "--no-default-browser-check" in cmd
+
+
+def test_launch_desktop_window_flags_linux_xdg(monkeypatch, tmp_path):
+    """Verify _launch_desktop_window resolves XDG profile directory on Linux."""
+    import subprocess
+    import web.__main__ as web_main
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    xdg_state = tmp_path / "xdg_state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state))
+    monkeypatch.setattr(web_main, "find_browser_executable", lambda: "/usr/bin/chromium")
+
+    spawn_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, *a, **k: spawn_calls.append(cmd))
+    web_main._launch_desktop_window("http://127.0.0.1:8000", 8000)
+
+    assert len(spawn_calls) == 1
+    cmd = spawn_calls[0]
+    assert cmd[0] == "/usr/bin/chromium"
+    assert f"--user-data-dir={xdg_state / 'aksarasight' / 'browser_profile'}" in cmd
+    assert (xdg_state / "aksarasight" / "browser_profile").is_dir()
+
+
+def test_launch_desktop_window_fallback_to_open_browser(monkeypatch):
+    """Verify _launch_desktop_window falls back to _open_browser when browser executable is missing or fails."""
+    import subprocess
+    import web.__main__ as web_main
+
+    fallback_calls = []
+    monkeypatch.setattr(web_main, "_open_browser", lambda url: fallback_calls.append(url))
+
+    monkeypatch.setattr(web_main, "find_browser_executable", lambda: None)
+    web_main._launch_desktop_window("http://127.0.0.1:8000", 8000)
+    assert fallback_calls == ["http://127.0.0.1:8000"]
+
+    fallback_calls.clear()
+    monkeypatch.setattr(web_main, "find_browser_executable", lambda: "/bad/path")
+    def mock_bad_popen(*a, **k):
+        raise OSError("Executable failed to launch")
+    monkeypatch.setattr(subprocess, "Popen", mock_bad_popen)
+
+    web_main._launch_desktop_window("http://127.0.0.1:8000", 8000)
+    assert fallback_calls == ["http://127.0.0.1:8000"]
+
+
+def test_fatal_gui_error_windows_frozen(monkeypatch):
+    """Verify _fatal_gui_error invokes Win32 MessageBoxW and logs critical when frozen on Windows."""
+    import web.__main__ as web_main
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    msgbox_calls = []
+    mock_ctypes = MagicMock()
+    mock_ctypes.windll.user32.MessageBoxW = lambda hwnd, text, title, flags: msgbox_calls.append((hwnd, text, title, flags))
+    monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
+
+    with pytest.raises(SystemExit) as exc_info:
+        web_main._fatal_gui_error("Port In Use", "Port 8000 is occupied")
+
+    assert exc_info.value.code == 1
+    assert len(msgbox_calls) == 1
+    assert msgbox_calls[0] == (0, "Port 8000 is occupied", "AksaraSight - Port In Use", 0x10)
+
+
+def test_fatal_gui_error_non_frozen_stderr(monkeypatch, capsys):
+    """Verify _fatal_gui_error writes to stderr when non-frozen."""
+    import web.__main__ as web_main
+
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    with pytest.raises(SystemExit) as exc_info:
+        web_main._fatal_gui_error("Loopback Error", "Binding 0.0.0.0 prohibited")
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: Binding 0.0.0.0 prohibited" in err
+
+
+def test_setup_frozen_logging_redirects_sys_stdin(monkeypatch, tmp_path):
+    """Verify _setup_frozen_logging redirects sys.stdin to os.devnull when stdin is None."""
+    import web.__main__ as web_main
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    with _isolated_frozen_logging_state():
+        web_main._setup_frozen_logging()
+        assert sys.stdin is not None
+        assert sys.stdin.read() == ""
+

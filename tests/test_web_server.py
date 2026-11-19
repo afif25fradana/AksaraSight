@@ -7,7 +7,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib3
 
 from PIL import Image
@@ -1037,3 +1037,289 @@ def test_patch_settings_scoped_409_guard(tmp_path: Path) -> None:
     finally:
         gate.set()
         orchestrator.stop()
+
+
+def test_sse_shutdown_supervisor_client_tracking_and_debounce():
+    """Verify SSEShutdownSupervisor tracks active clients and triggers debounce shutdown."""
+    from web.app import SSEShutdownSupervisor
+
+    mock_server = MagicMock()
+    mock_server.should_exit = False
+    mock_orch = MagicMock()
+    mock_orch.is_busy.return_value = False
+
+    supervisor = SSEShutdownSupervisor(server=mock_server, orchestrator=mock_orch, debounce_seconds=0.05)
+
+    assert supervisor.active_clients == 0
+    assert supervisor.has_connected is False
+
+    # Connect client 1
+    supervisor.on_client_connected()
+    assert supervisor.active_clients == 1
+    assert supervisor.has_connected is True
+    assert supervisor._debounce_task is None
+
+    # Connect client 2
+    supervisor.on_client_connected()
+    assert supervisor.active_clients == 2
+
+    # Disconnect client 2
+    supervisor.on_client_disconnected()
+    assert supervisor.active_clients == 1
+    assert supervisor._debounce_task is None
+
+    # Disconnect client 1 -> active_clients reaches 0, triggers debounce
+    async def _test_debounce():
+        supervisor.on_client_disconnected()
+        assert supervisor.active_clients == 0
+        assert supervisor._debounce_task is not None
+        await supervisor._debounce_task
+        assert mock_server.should_exit is True
+
+    asyncio.run(_test_debounce())
+
+
+def test_sse_shutdown_supervisor_debounce_cancellation_on_reconnect():
+    """Verify reconnecting cancels an in-flight debounce shutdown task."""
+    from web.app import SSEShutdownSupervisor
+
+    mock_server = MagicMock()
+    mock_server.should_exit = False
+    mock_orch = MagicMock()
+    mock_orch.is_busy.return_value = False
+
+    supervisor = SSEShutdownSupervisor(server=mock_server, orchestrator=mock_orch, debounce_seconds=0.2)
+
+    async def _test_reconnect():
+        supervisor.on_client_connected()
+        supervisor.on_client_disconnected()
+        assert supervisor._debounce_task is not None
+        assert not supervisor._debounce_task.done()
+
+        # Reconnect before debounce fires
+        supervisor.on_client_connected()
+        assert supervisor.active_clients == 1
+        assert supervisor._debounce_task is None
+
+        await asyncio.sleep(0.25)
+        assert mock_server.should_exit is False
+
+    asyncio.run(_test_reconnect())
+
+
+def test_sse_shutdown_supervisor_evacuating_state_when_busy():
+    """Verify supervisor enters EVACUATING state if debounce fires while orchestrator is busy."""
+    from web.app import SSEShutdownSupervisor
+
+    mock_server = MagicMock()
+    mock_server.should_exit = False
+    mock_orch = MagicMock()
+    # Initially busy
+    is_busy_flag = True
+    mock_orch.is_busy.side_effect = lambda: is_busy_flag
+
+    supervisor = SSEShutdownSupervisor(server=mock_server, orchestrator=mock_orch, debounce_seconds=0.05)
+
+    async def _test_evacuation():
+        supervisor.on_client_connected()
+        supervisor.on_client_disconnected()
+        assert supervisor.active_clients == 0
+
+        # Wait for debounce to transition to evacuating
+        for _ in range(20):
+            if supervisor._evacuating:
+                break
+            await asyncio.sleep(0.02)
+
+        assert supervisor._evacuating is True
+        assert mock_server.should_exit is False
+
+        # Clear busy flag
+        nonlocal is_busy_flag
+        is_busy_flag = False
+
+        # Wait for evacuating loop to detect idle and trigger shutdown
+        await asyncio.wait_for(supervisor._debounce_task, timeout=2.0)
+        assert mock_server.should_exit is True
+
+    asyncio.run(_test_evacuation())
+
+
+def test_sse_shutdown_supervisor_lifespan_task_cancellation(tmp_path: Path):
+    """Verify lifespan shutdown cancels active supervisor _debounce_task."""
+    from web.app import SSEShutdownSupervisor, create_app
+
+    mock_server = MagicMock()
+    mock_server.should_exit = False
+    app = create_app(upload_dir=tmp_path)
+    supervisor = SSEShutdownSupervisor(server=mock_server, orchestrator=app.state.orchestrator, debounce_seconds=10.0)
+    app.state.shutdown_supervisor = supervisor
+
+    async def _run():
+        async with app.router.lifespan_context(app):
+            supervisor.on_client_connected()
+            supervisor.on_client_disconnected()
+            assert supervisor._debounce_task is not None
+            assert not supervisor._debounce_task.done()
+        # After lifespan exits, task must be cancelled
+        assert supervisor._debounce_task.cancelled() or supervisor._debounce_task.done()
+
+    asyncio.run(_run())
+
+
+def test_orchestrator_is_busy_and_worker_executing(tmp_path: Path):
+    """Verify is_busy and is_processing accurately report queued and executing states."""
+    mock_engine = MockEngine()
+    orch = WebOrchestrator(engine=mock_engine)
+
+    try:
+        # 1. Idle state
+        assert orch.is_busy() is False
+        assert orch.is_processing() is False
+        assert orch._is_worker_executing is False
+
+        # 2. Queued state (before worker picks it up)
+        fake_file = tmp_path / "busy_test.png"
+        fake_file.write_bytes(b"dummy")
+        job = JobState(job_id="busy-1", filename="busy_test.png", file_path=fake_file, page_count=1)
+        orch.register_job(job)
+
+        gate = threading.Event()
+        mock_engine.process_document = lambda *a, **k: (gate.wait(timeout=5.0), OCRResult(source="test", pages=[]))[1]
+
+        orch.enqueue("busy-1")
+        # Enqueued -> is_busy is True immediately
+        assert orch.is_busy() is True
+
+        # Wait until worker begins execution
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if orch._is_worker_executing:
+                break
+            time.sleep(0.01)
+
+        assert orch._is_worker_executing is True
+        assert orch.is_busy() is True
+        assert orch.is_processing() is True
+
+        # Cancel while executing -> status is CANCELLED, but is_busy and is_processing remain True!
+        orch.cancel("busy-1")
+        assert job.status == JobStatus.CANCELLED
+        assert orch._is_worker_executing is True
+        assert orch.is_busy() is True
+        assert orch.is_processing() is True
+
+        # Release worker gate
+        gate.set()
+
+        # Wait until worker finishes
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if not orch._is_worker_executing:
+                break
+            time.sleep(0.01)
+
+        assert orch._is_worker_executing is False
+        assert orch.is_busy() is False
+        assert orch.is_processing() is False
+    finally:
+        orch.stop()
+
+
+def test_orchestrator_deferred_file_unlinking_on_cancel_and_prune(tmp_path: Path):
+    """Verify unlinking active job file is deferred until worker finishes process_document."""
+    mock_engine = MockEngine()
+    orch = WebOrchestrator(engine=mock_engine)
+
+    try:
+        fake_file = tmp_path / "defer_test.png"
+        fake_file.write_bytes(b"sample file content")
+        job = JobState(job_id="defer-1", filename="defer_test.png", file_path=fake_file, page_count=1)
+        orch.register_job(job)
+
+        gate = threading.Event()
+        mock_engine.process_document = lambda *a, **k: (gate.wait(timeout=5.0), OCRResult(source="test", pages=[]))[1]
+
+        orch.enqueue("defer-1")
+
+        # Wait until worker begins executing
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if orch._is_worker_executing:
+                break
+            time.sleep(0.01)
+
+        assert orch._is_worker_executing is True
+        assert fake_file.exists()
+
+        # Request deferred unlink via orchestrator
+        orch.defer_or_unlink(job.file_path, job_id=job.job_id)
+
+        # File must NOT be unlinked while worker is executing
+        assert fake_file.exists()
+        assert fake_file in orch._pending_unlinks
+
+        # Release gate to let worker finish
+        gate.set()
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if not fake_file.exists():
+                break
+            time.sleep(0.02)
+
+        assert not fake_file.exists()
+        assert len(orch._pending_unlinks) == 0
+    finally:
+        orch.stop()
+
+
+def test_sse_endpoint_tracks_clients_via_supervisor(tmp_path: Path):
+    """Verify /api/events registers connect and disconnect callbacks on shutdown supervisor."""
+    from web.app import SSEShutdownSupervisor, create_app
+
+    mock_mgr = MockServerManager()
+    app = create_app(server_manager=mock_mgr, upload_dir=tmp_path)
+
+    supervisor = MagicMock(spec=SSEShutdownSupervisor)
+    app.state.shutdown_supervisor = supervisor
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.1"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events",
+        "raw_path": b"/api/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8000),
+    }
+
+    connected = asyncio.Event()
+
+    async def receive():
+        await connected.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            connected.set()
+
+    async def _run():
+        task = asyncio.create_task(app(scope, receive, send))
+        try:
+            await asyncio.wait_for(connected.wait(), timeout=3.0)
+            assert supervisor.on_client_connected.called
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        assert supervisor.on_client_disconnected.called
+
+    asyncio.run(_run())
+

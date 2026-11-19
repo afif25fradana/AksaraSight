@@ -69,15 +69,40 @@ class WebOrchestrator:
         self._lock = threading.RLock()
         self._subscribers: Set[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = set()
         self._stop_event = threading.Event()
+        self._is_worker_executing: bool = False
+        self._current_job_id: Optional[str] = None
+        self._pending_unlinks: Set[Path] = set()
         self._worker_thread = threading.Thread(
             target=self._worker_loop, daemon=True, name="AksaraSight-WebWorker"
         )
         self._worker_thread.start()
 
-    def is_processing(self) -> bool:
-        """Return True if any job in the orchestrator registry is currently processing."""
+    def is_busy(self) -> bool:
+        """Return True if any job is queued in memory or currently executing on the worker thread."""
         with self._lock:
-            return any(job.status == JobStatus.PROCESSING for job in self.jobs.values())
+            return self._is_worker_executing or not self._queue.empty()
+
+    def is_processing(self) -> bool:
+        """Return True if any job in the orchestrator registry is currently processing or actively executing."""
+        with self._lock:
+            return self._is_worker_executing or any(job.status == JobStatus.PROCESSING for job in self.jobs.values())
+
+    def defer_or_unlink(self, file_path: Optional[Path], job_id: Optional[str] = None) -> bool:
+        """Unlink file immediately, or defer until current worker thread execution completes."""
+        if not file_path:
+            return False
+        with self._lock:
+            if self._is_worker_executing and (job_id is None or job_id == self._current_job_id):
+                self._pending_unlinks.add(file_path)
+                return False
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                return True
+            except OSError as unlink_err:
+                logger.warning("Failed to unlink file %s: %s", file_path, unlink_err)
+                return False
+        return False
 
     def get_jobs_snapshot(self) -> List[Dict[str, Any]]:
         """Return an in-memory snapshot of all active documents in frontend DocumentItem format."""
@@ -174,15 +199,8 @@ class WebOrchestrator:
                         break
 
         for job in pruned:
-            if job.file_path and job.file_path.exists():
-                try:
-                    job.file_path.unlink()
-                except OSError as unlink_err:
-                    logger.warning(
-                        "Failed to clean up upload file for pruned job %s: %s",
-                        job.job_id,
-                        unlink_err,
-                    )
+            if job.file_path:
+                self.defer_or_unlink(job.file_path, job_id=job.job_id)
 
     def register_job(self, job: JobState) -> None:
         """Register a newly uploaded job in the orchestrator registry."""
@@ -351,6 +369,8 @@ class WebOrchestrator:
                     continue
 
                 job.status = JobStatus.PROCESSING
+                self._is_worker_executing = True
+                self._current_job_id = job.job_id
                 run_dpi = job.dpi
                 run_prompt_mode = job.prompt_mode
                 run_cancel_event = (
@@ -428,38 +448,51 @@ class WebOrchestrator:
             )
 
             try:
-                result = self.engine.process_document(
-                    source=job.file_path,
-                    config=cfg,
-                    cancel_token=run_cancel_event,
-                    progress_callback=on_progress,
-                )
+                try:
+                    result = self.engine.process_document(
+                        source=job.file_path,
+                        config=cfg,
+                        cancel_token=run_cancel_event,
+                        progress_callback=on_progress,
+                    )
+                    with self._lock:
+                        if item_run_id is None or job.run_id == item_run_id:
+                            job.result = result
+                except ServerOfflineError as e:
+                    result = None
+                    with self._lock:
+                        if item_run_id is None or job.run_id == item_run_id:
+                            is_cancelling = (
+                                (run_cancel_event is not None and run_cancel_event.is_set())
+                                or job.cancel_event.is_set()
+                            )
+                            if not is_cancelling:
+                                job.status = JobStatus.FAILED
+                                job.error = str(e)
+                except Exception as e:
+                    logger.exception("Unexpected error processing job %s", job.job_id)
+                    result = None
+                    with self._lock:
+                        if item_run_id is None or job.run_id == item_run_id:
+                            is_cancelling = (
+                                (run_cancel_event is not None and run_cancel_event.is_set())
+                                or job.cancel_event.is_set()
+                            )
+                            if not is_cancelling:
+                                job.status = JobStatus.FAILED
+                                job.error = str(e)
+            finally:
                 with self._lock:
-                    if item_run_id is None or job.run_id == item_run_id:
-                        job.result = result
-            except ServerOfflineError as e:
-                result = None
-                with self._lock:
-                    if item_run_id is None or job.run_id == item_run_id:
-                        is_cancelling = (
-                            (run_cancel_event is not None and run_cancel_event.is_set())
-                            or job.cancel_event.is_set()
-                        )
-                        if not is_cancelling:
-                            job.status = JobStatus.FAILED
-                            job.error = str(e)
-            except Exception as e:
-                logger.exception("Unexpected error processing job %s", job.job_id)
-                result = None
-                with self._lock:
-                    if item_run_id is None or job.run_id == item_run_id:
-                        is_cancelling = (
-                            (run_cancel_event is not None and run_cancel_event.is_set())
-                            or job.cancel_event.is_set()
-                        )
-                        if not is_cancelling:
-                            job.status = JobStatus.FAILED
-                            job.error = str(e)
+                    self._is_worker_executing = False
+                    self._current_job_id = None
+                    unlinks_to_perform = list(self._pending_unlinks)
+                    self._pending_unlinks.clear()
+                for pending_p in unlinks_to_perform:
+                    if pending_p and pending_p.exists():
+                        try:
+                            pending_p.unlink()
+                        except OSError as e:
+                            logger.warning("Deferred unlink failed for %s: %s", pending_p, e)
 
             with self._lock:
                 if item_run_id is not None and job.run_id != item_run_id:
@@ -467,11 +500,8 @@ class WebOrchestrator:
                 is_removed = job.job_id not in self.jobs
 
             if is_removed:
-                if job.file_path and job.file_path.exists():
-                    try:
-                        job.file_path.unlink()
-                    except OSError as unlink_err:
-                        logger.warning("Deferred unlink failed for removed job %s: %s", job.job_id, unlink_err)
+                if job.file_path:
+                    self.defer_or_unlink(job.file_path, job_id=job.job_id)
                 continue
 
             with self._lock:

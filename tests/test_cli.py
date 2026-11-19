@@ -1423,7 +1423,7 @@ def test_cli_vram_warning_on_cold_start(
     mock_get_hw.assert_called_once_with(blocking=True)
     captured = capsys.readouterr()
     assert "WARNING: Detected 2048 MB VRAM on 'NVIDIA GeForce GTX 1050'" in captured.err
-    assert "below recommended ~2.2 GB" in captured.err
+    assert "below recommended ~3.0 GB for PaddleOCR-VL-1.6" in captured.err
 
 
 @patch("cli.main.start_hardware_prewarm")

@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
-# "table" and "formula" are upstream native task prompts for zai-org/GLM-OCR.
+# Native task prompts for PaddleOCR-VL.
 PROMPT_PRESETS: Dict[str, str] = {
-    "text": "Text Recognition:",
+    "text": "OCR:",
     "table": "Table Recognition:",
     "formula": "Formula Recognition:",
 }

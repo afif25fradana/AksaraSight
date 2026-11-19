@@ -215,15 +215,15 @@ def probe_server_health(
 
 
 def _warn_if_low_vram(profile: Optional[HardwareProfile]) -> None:
-    """Log a warning if detected CUDA hardware has insufficient VRAM (< 2.2 GB)."""
+    """Log a warning if detected CUDA hardware has insufficient VRAM (< 3.0 GB)."""
     if (
         profile is not None
         and profile.cuda_available
         and profile.vram_mb is not None
-        and profile.vram_mb < 2200
+        and profile.vram_mb < 3000
     ):
         logger.warning(
-            "Detected %d MB VRAM on '%s', below recommended ~2.2 GB for GLM-OCR (-c 8192). "
+            "Detected %d MB VRAM on '%s', below recommended ~3.0 GB for PaddleOCR-VL-1.6 (-c 8192). "
             "Server may encounter CUDA out-of-memory errors.",
             profile.vram_mb,
             profile.gpu_name or "CUDA device",
@@ -609,7 +609,7 @@ class ServerManager:
 
                 # Verified optimal hardware arguments
                 if model_flag != "-m":
-                    local_paths = get_local_model_paths(repo)
+                    local_paths = get_local_model_paths(repo, verify_hash=True)
                     if local_paths is not None:
                         model_path, mmproj_path = local_paths
                         cmd = [
@@ -624,16 +624,9 @@ class ServerManager:
                         ]
                         logger.info("Using local pinned model weights: %s", model_path.name)
                     else:
-                        cmd = [
-                            resolved_path,
-                            "-hf", repo,
-                            "--host", "127.0.0.1",
-                            "--port", str(port),
-                            "-ngl", "99",
-                            "-c", "8192",
-                            "--parallel", "1",
-                        ]
-                        logger.info("Local model weights not found; falling back to -hf %s", repo)
+                        raise FileNotFoundError(
+                            f"Model weights for '{repo}' not found. Download the model before starting the server."
+                        )
                 else:
                     cmd = [
                         resolved_path,

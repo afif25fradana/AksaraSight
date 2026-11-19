@@ -130,13 +130,14 @@ class VisionClient:
     def complete(
         self,
         image_b64: str,
-        prompt: str = "Text Recognition:",
-        model: str = "glm-ocr",
+        prompt: str = "OCR:",
+        model: str = "paddleocr-vl",
         max_tokens: Optional[int] = None,
         temperature: float = 0.0,
         endpoint: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        repeat_penalty: Optional[float] = None,
     ) -> Tuple[str, Dict[str, Any], float, bool]:
         """Send a single page image and prompt to the local vision backend.
 
@@ -187,6 +188,8 @@ class VisionClient:
             "temperature": temperature,
             "stream": False,
         }
+        if repeat_penalty is not None:
+            payload["repeat_penalty"] = repeat_penalty
 
         headers = {"Content-Type": "application/json"}
 

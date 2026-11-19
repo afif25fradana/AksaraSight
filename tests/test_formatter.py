@@ -8,6 +8,7 @@ import pytest
 from docx import Document
 
 from core.formatter import (
+    convert_otsl_to_html,
     format_output,
     resolve_unique_stem,
     sanitize_export_path,
@@ -761,6 +762,55 @@ def test_save_artifacts_json_sanitizes_custom_multi_arg_exception(
     err_str = str(exc_info.value)
     assert str(raw_path) not in err_str
     assert "secret_doc.pdf" in err_str
+
+
+def test_convert_otsl_to_html_basic_table() -> None:
+    """Verify basic 2x2 OTSL table conversion into standard HTML table."""
+    otsl = "<fcel>Col 1<fcel>Col 2<nl><fcel>Val 1<fcel>Val 2"
+    html_out = convert_otsl_to_html(otsl)
+    assert "<table>" in html_out
+    assert "</table>" in html_out
+    assert "<td>Col 1</td>" in html_out
+    assert "<td>Col 2</td>" in html_out
+    assert "<td>Val 1</td>" in html_out
+    assert "<td>Val 2</td>" in html_out
+
+
+def test_convert_otsl_to_html_spans_and_empty() -> None:
+    """Verify colspan, rowspan, cross-cell and empty cell conversions."""
+    # Row 0: Merged cell spanning 2 columns: <fcel>Top<lcel>
+    # Row 1: Merged cell spanning 2 rows: <fcel>Tall<fcel>Right
+    # Row 2: Continued row span with empty cell: <ucel><ecel>
+    otsl = "<fcel>Top<lcel><nl><fcel>Tall<fcel>Right<nl><ucel><ecel>"
+    html_out = convert_otsl_to_html(otsl)
+    assert '<td colspan="2">Top</td>' in html_out
+    assert '<td rowspan="2">Tall</td>' in html_out
+    assert "<td>Right</td>" in html_out
+    assert "<td></td>" in html_out
+
+
+def test_convert_otsl_to_html_cross_cell() -> None:
+    """Verify 2x2 block merge with <lcel>, <ucel>, and <xcel>."""
+    otsl = "<fcel>Big Block<lcel><nl><ucel><xcel>"
+    html_out = convert_otsl_to_html(otsl)
+    assert 'colspan="2"' in html_out
+    assert 'rowspan="2"' in html_out
+    assert "Big Block" in html_out
+
+
+def test_convert_otsl_to_html_escapes_entities() -> None:
+    """Verify HTML special characters are escaped safely."""
+    otsl = "<fcel><script>alert(1)</script> & test"
+    html_out = convert_otsl_to_html(otsl)
+    assert "<script>" not in html_out
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; &amp; test" in html_out
+
+
+def test_convert_otsl_to_html_passthrough_when_no_tags() -> None:
+    """Verify strings without OTSL cell tags are returned unchanged."""
+    raw = "Standard paragraph text without tables."
+    assert convert_otsl_to_html(raw) == raw
+
 
 
 

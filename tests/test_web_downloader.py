@@ -48,8 +48,8 @@ def test_get_model_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert data["percent"] == 0.0
 
     # 2. When local model paths are present
-    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
-    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf"
+    fake_mmproj = tmp_path / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
     monkeypatch.setattr(
         "web.app.get_local_model_paths",
         lambda *args, **kwargs: (fake_model, fake_mmproj),
@@ -226,7 +226,7 @@ def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
         elif message["type"] == "http.response.body":
             body = message.get("body", b"")
             resp_body_chunks.append(body)
-            if b"model_download_progress" in body and b"GLM-OCR-Q8_0.gguf" in body:
+            if b"model_download_progress" in body and b"PaddleOCR-VL-1.6-GGUF.gguf" in body:
                 progress_received.set()
 
     async def _run() -> None:
@@ -267,7 +267,7 @@ def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
     assert "text/event-stream" in resp_headers.get("content-type", "")
     full_body = b"".join(resp_body_chunks).decode("utf-8")
     assert "model_download_progress" in full_body
-    assert "GLM-OCR-Q8_0.gguf" in full_body
+    assert "PaddleOCR-VL-1.6-GGUF.gguf" in full_body
     assert "48.79" in full_body
 
 

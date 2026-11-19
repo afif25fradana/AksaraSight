@@ -15,6 +15,21 @@ from core.hardware import HardwareProfile
 from core.server_manager import ServerManager, ServerOwnership, ServerStatus
 
 
+@pytest.fixture(autouse=True)
+def mock_default_local_model_paths(tmp_path: Path):
+    """Provide dummy local model paths for ServerManager subprocess tests."""
+    mock_dir = tmp_path / "_mock_models_isolated_"
+    mock_dir.mkdir(exist_ok=True)
+    dummy_model = mock_dir / "model.gguf"
+    if not dummy_model.exists():
+        dummy_model.write_bytes(b"dummy-model-bytes")
+    dummy_mmproj = mock_dir / "mmproj.gguf"
+    if not dummy_mmproj.exists():
+        dummy_mmproj.write_bytes(b"dummy-mmproj-bytes")
+    with patch("core.server_manager.get_local_model_paths", return_value=(dummy_model, dummy_mmproj)):
+        yield (dummy_model, dummy_mmproj)
+
+
 def test_server_manager_start_linux_uses_start_new_session_and_ld_library_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

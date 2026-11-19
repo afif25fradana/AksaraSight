@@ -10,31 +10,34 @@ from config.settings import Settings
 from core.model_manager import (
     PINNED_MODEL_FILES,
     PINNED_MODEL_REPO,
+    PINNED_MODEL_REVISION,
     TOTAL_MODEL_BYTES,
     ModelDownloader,
     get_local_model_paths,
+    is_pinned_model_repo,
+    prune_legacy_models,
 )
 from core.server_manager import ServerManager, ServerStatus
 
 
 def test_get_local_model_paths_detects_existing(tmp_path):
     """Test 1: get_local_model_paths detects local files when valid and respects verification."""
-    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
+    fake_model = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf"
     fake_model_content = b"model-weights-content-sample"
     fake_model.write_bytes(fake_model_content)
 
-    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_mmproj = tmp_path / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
     fake_mmproj_content = b"mmproj-weights-content-sample"
     fake_mmproj.write_bytes(fake_mmproj_content)
 
     mock_files_spec = {
         "model": {
-            "filename": "GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF.gguf",
             "sha256": hashlib.sha256(fake_model_content).hexdigest(),
             "size_bytes": len(fake_model_content),
         },
         "mmproj": {
-            "filename": "mmproj-GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF-mmproj.gguf",
             "sha256": hashlib.sha256(fake_mmproj_content).hexdigest(),
             "size_bytes": len(fake_mmproj_content),
         },
@@ -147,7 +150,7 @@ def test_downloader_resume_sends_range_header(tmp_path):
 
 
 def test_server_manager_falls_back_to_hf_when_no_local_model(tmp_path):
-    """Test 5: server_manager uses -hf when get_local_model_paths returns None."""
+    """Test 5: server_manager raises FileNotFoundError when get_local_model_paths returns None."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
@@ -159,20 +162,11 @@ def test_server_manager_falls_back_to_hf_when_no_local_model(tmp_path):
     )
     mgr = ServerManager(settings=settings)
 
-    mock_proc = MagicMock()
-    mock_proc.poll.return_value = None
-    mock_proc.stdout = iter(["[server] listening on 127.0.0.1:8080\n"])
-
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
             with patch("core.server_manager.get_local_model_paths", return_value=None):
-                with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                with pytest.raises(FileNotFoundError, match=f"Model weights for '{PINNED_MODEL_REPO}' not found"):
                     mgr.start()
-                    assert mock_popen.called
-                    cmd_args = mock_popen.call_args[0][0]
-                    assert "-hf" in cmd_args
-                    assert PINNED_MODEL_REPO in cmd_args
-                    assert "-m" not in cmd_args
     finally:
         mgr.shutdown()
 
@@ -182,8 +176,8 @@ def test_server_manager_uses_m_when_local_model_present(tmp_path):
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
-    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
-    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf"
+    fake_mmproj = tmp_path / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
 
     settings = Settings(
         llama_server_path=str(fake_exe),
@@ -254,8 +248,8 @@ def test_server_manager_does_not_hijack_custom_repo(tmp_path):
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
 
-    fake_model = tmp_path / "GLM-OCR-Q8_0.gguf"
-    fake_mmproj = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf"
+    fake_mmproj = tmp_path / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
     fake_model_content = b"model-weights-sample"
     fake_mmproj_content = b"mmproj-weights-sample"
     fake_model.write_bytes(fake_model_content)
@@ -263,19 +257,19 @@ def test_server_manager_does_not_hijack_custom_repo(tmp_path):
 
     mock_files_spec = {
         "model": {
-            "filename": "GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF.gguf",
             "sha256": hashlib.sha256(fake_model_content).hexdigest(),
             "size_bytes": len(fake_model_content),
         },
         "mmproj": {
-            "filename": "mmproj-GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF-mmproj.gguf",
             "sha256": hashlib.sha256(fake_mmproj_content).hexdigest(),
             "size_bytes": len(fake_mmproj_content),
         },
     }
 
-    # 1. Custom HF repo containing 'glm-ocr' in its name
-    custom_repo = "other-org/custom-glm-ocr-finetune"
+    # 1. Custom HF repo without local weights raises FileNotFoundError
+    custom_repo = "other-org/custom-paddleocr-finetune"
     settings = Settings(
         llama_server_path=str(fake_exe),
         runtime_mode="custom",
@@ -284,21 +278,12 @@ def test_server_manager_does_not_hijack_custom_repo(tmp_path):
     )
     mgr = ServerManager(settings=settings)
 
-    mock_proc = MagicMock()
-    mock_proc.poll.return_value = None
-    mock_proc.stdout = iter(["[server] listening on 127.0.0.1:8080\n"])
-
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
             with patch("core.model_manager.get_models_dir", return_value=tmp_path):
                 with patch.dict("core.model_manager.PINNED_MODEL_FILES", mock_files_spec):
-                    with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                    with pytest.raises(FileNotFoundError, match=f"Model weights for '{custom_repo}' not found"):
                         mgr.start()
-                        assert mock_popen.called
-                        cmd_args = mock_popen.call_args[0][0]
-                        assert "-hf" in cmd_args
-                        assert custom_repo in cmd_args
-                        assert "-m" not in cmd_args
     finally:
         mgr.shutdown()
 
@@ -313,6 +298,10 @@ def test_server_manager_does_not_hijack_custom_repo(tmp_path):
         local_endpoint="http://127.0.0.1:8080/v1",
     )
     mgr_custom_m = ServerManager(settings=settings_custom_m)
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout = iter(["[server] listening on 127.0.0.1:8080\n"])
+
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
             with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
@@ -404,21 +393,21 @@ def test_downloader_notifies_sha256_verification(tmp_path):
 
     mock_files_spec = {
         "model": {
-            "filename": "GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF.gguf",
             "sha256": hashlib.sha256(fake_model_content).hexdigest(),
             "size_bytes": len(fake_model_content),
         },
         "mmproj": {
-            "filename": "mmproj-GLM-OCR-Q8_0.gguf",
+            "filename": "PaddleOCR-VL-1.6-GGUF-mmproj.gguf",
             "sha256": hashlib.sha256(fake_mmproj_content).hexdigest(),
             "size_bytes": len(fake_mmproj_content),
         },
     }
 
-    model_file = tmp_path / "GLM-OCR-Q8_0.gguf"
+    model_file = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf"
     model_file.write_bytes(fake_model_content)
 
-    part_file = tmp_path / "mmproj-GLM-OCR-Q8_0.gguf.part"
+    part_file = tmp_path / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf.part"
     part_file.write_bytes(fake_mmproj_content)
 
     mock_usage = MagicMock()
@@ -436,8 +425,8 @@ def test_downloader_notifies_sha256_verification(tmp_path):
             res = downloader.download()
             assert res is True
 
-    assert "Verifying GLM-OCR-Q8_0.gguf (SHA-256)..." in observed_files
-    assert "Verifying mmproj-GLM-OCR-Q8_0.gguf.part (SHA-256)..." in observed_files
+    assert "Verifying PaddleOCR-VL-1.6-GGUF.gguf (SHA-256)..." in observed_files
+    assert "Verifying PaddleOCR-VL-1.6-GGUF-mmproj.gguf.part (SHA-256)..." in observed_files
 
 
 def test_model_downloader_default_session_has_trust_env_false() -> None:
@@ -479,18 +468,18 @@ def test_get_models_dir_linux_xdg_parity(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
 
     resolved = get_models_dir()
-    expected_custom = custom_xdg / "aksarasight" / "models" / "glm-ocr-q8_0"
+    expected_custom = custom_xdg / "aksarasight" / "models" / "paddleocr-vl-1.6"
     assert resolved == expected_custom
     assert "AksaraSight" not in resolved.parts
     assert "aksarasight" in resolved.parts
 
-    # Case 2: Default XDG location (~/.local/share/aksarasight/models/glm-ocr-q8_0)
+    # Case 2: Default XDG location (~/.local/share/aksarasight/models/paddleocr-vl-1.6)
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     fake_home = tmp_path / "user_home"
     monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
 
     resolved_default = get_models_dir()
-    expected_default = fake_home / ".local" / "share" / "aksarasight" / "models" / "glm-ocr-q8_0"
+    expected_default = fake_home / ".local" / "share" / "aksarasight" / "models" / "paddleocr-vl-1.6"
     assert resolved_default == expected_default
     assert "AksaraSight" not in resolved_default.parts
     assert "aksarasight" in resolved_default.parts
@@ -507,18 +496,18 @@ def test_models_dir_linux_legacy_migration_fallback(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("XDG_DATA_HOME", str(xdg_data))
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
 
-    legacy_dir = fake_home / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
+    legacy_dir = fake_home / ".local" / "share" / "AksaraSight" / "models" / "paddleocr-vl-1.6"
     legacy_dir.mkdir(parents=True)
-    fake_model = legacy_dir / "GLM-OCR-Q8_0.gguf"
-    fake_mmproj = legacy_dir / "mmproj-GLM-OCR-Q8_0.gguf"
+    fake_model = legacy_dir / "PaddleOCR-VL-1.6-GGUF.gguf"
+    fake_mmproj = legacy_dir / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
     fake_model.write_bytes(b"legacy-model-weights")
     fake_mmproj.write_bytes(b"legacy-mmproj-weights")
 
     resolved = get_models_dir()
     assert "AksaraSight" not in resolved.parts
     assert "aksarasight" in resolved.parts
-    assert (resolved / "GLM-OCR-Q8_0.gguf").read_bytes() == b"legacy-model-weights"
-    assert (resolved / "mmproj-GLM-OCR-Q8_0.gguf").read_bytes() == b"legacy-mmproj-weights"
+    assert (resolved / "PaddleOCR-VL-1.6-GGUF.gguf").read_bytes() == b"legacy-model-weights"
+    assert (resolved / "PaddleOCR-VL-1.6-GGUF-mmproj.gguf").read_bytes() == b"legacy-mmproj-weights"
     assert not fake_model.exists()
     assert not fake_mmproj.exists()
     assert not (fake_home / ".local" / "share" / "AksaraSight").exists()
@@ -536,6 +525,100 @@ def test_migrate_legacy_models_samefile_guard(tmp_path: Path) -> None:
     result = _migrate_legacy_models(legacy_dir=models_dir, canonical_dir=models_dir)
     assert result is False
     assert dummy_file.exists()
+
+
+def test_pinned_model_spec_paddleocr_vl() -> None:
+    """Verify pinned model constants match PaddleOCR-VL-1.6 specifications."""
+    assert PINNED_MODEL_REPO == "PaddlePaddle/PaddleOCR-VL-1.6-GGUF"
+    assert PINNED_MODEL_REVISION == "511b09642bb324401f15f97cc23bc67e8f0a291d"
+    assert TOTAL_MODEL_BYTES == 1817539616
+
+    model_spec = PINNED_MODEL_FILES["model"]
+    assert model_spec["filename"] == "PaddleOCR-VL-1.6-GGUF.gguf"
+    assert model_spec["size_bytes"] == 935769056
+    assert model_spec["sha256"] == "f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8"
+
+    mmproj_spec = PINNED_MODEL_FILES["mmproj"]
+    assert mmproj_spec["filename"] == "PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
+    assert mmproj_spec["size_bytes"] == 881770560
+    assert mmproj_spec["sha256"] == "204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a"
+
+
+def test_is_pinned_model_repo_recognizes_paddleocr() -> None:
+    """Verify is_pinned_model_repo recognizes PaddleOCR-VL identifiers."""
+    assert is_pinned_model_repo("PaddlePaddle/PaddleOCR-VL-1.6-GGUF")
+    assert is_pinned_model_repo("paddleocr-vl-1.6-gguf")
+    assert is_pinned_model_repo("paddleocr-vl")
+    assert not is_pinned_model_repo("unrelated-org/unrelated-model")
+
+
+def test_prune_legacy_models_removes_glm_dir(tmp_path: Path) -> None:
+    """Verify prune_legacy_models removes deprecated glm-ocr-q8_0 directories and contents."""
+    legacy_dir = tmp_path / "models" / "glm-ocr-q8_0"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "old_model.gguf").write_bytes(b"old weights")
+    (legacy_dir / "old_mmproj.gguf").write_bytes(b"old mmproj")
+
+    assert legacy_dir.exists()
+    pruned = prune_legacy_models(models_dir=legacy_dir.parent)
+    assert pruned is True
+    assert not legacy_dir.exists()
+
+
+def test_downloader_http_416_recovery(tmp_path: Path) -> None:
+    """Verify HTTP 416 causes .part file removal and retry without Range header."""
+    mock_session = MagicMock()
+
+    # Response 1: 416 Range Not Satisfiable
+    resp_416 = MagicMock()
+    resp_416.status_code = 416
+    resp_416.close = MagicMock()
+
+    # Response 2: 200 OK full content for model
+    chunk_model = b"chunk_model_full_download"
+    resp_200_model = MagicMock()
+    resp_200_model.status_code = 200
+    resp_200_model.iter_content = MagicMock(return_value=[chunk_model])
+
+    # Response 3: 200 OK full content for mmproj
+    chunk_mmproj = b"chunk_mmproj_full_download"
+    resp_200_mmproj = MagicMock()
+    resp_200_mmproj.status_code = 200
+    resp_200_mmproj.iter_content = MagicMock(return_value=[chunk_mmproj])
+
+    mock_session.get.side_effect = [resp_416, resp_200_model, resp_200_mmproj]
+
+    part_file = tmp_path / "PaddleOCR-VL-1.6-GGUF.gguf.part"
+    part_file.write_bytes(b"partial")
+
+    downloader = ModelDownloader(dest_dir=tmp_path, session=mock_session)
+    mock_spec = {
+        "model": {
+            "filename": "PaddleOCR-VL-1.6-GGUF.gguf",
+            "sha256": "fake_sha_model",
+            "size_bytes": len(chunk_model),
+        },
+        "mmproj": {
+            "filename": "PaddleOCR-VL-1.6-GGUF-mmproj.gguf",
+            "sha256": "fake_sha_mmproj",
+            "size_bytes": len(chunk_mmproj),
+        },
+    }
+
+    with patch.dict("core.model_manager.PINNED_MODEL_FILES", mock_spec):
+        with patch("shutil.disk_usage") as mock_usage:
+            mock_usage.return_value = MagicMock(free=10_000_000_000)
+            with patch("core.model_manager._compute_sha256", side_effect=["fake_sha_model", "fake_sha_mmproj"]):
+                success = downloader.download()
+                assert success is True
+                assert resp_416.close.called
+                # Verify that get was called 3 times (1st: 416 with Range, 2nd: retry without Range, 3rd: mmproj)
+                assert mock_session.get.call_count == 3
+                first_call_headers = mock_session.get.call_args_list[0].kwargs["headers"]
+                second_call_headers = mock_session.get.call_args_list[1].kwargs["headers"]
+                assert "Range" in first_call_headers
+                assert "Range" not in second_call_headers
+
 
 
 

@@ -346,7 +346,7 @@ class MockModelDownloader:
                 "bytes_downloaded": 700000000,
                 "total_bytes": self.total_bytes,
                 "percent": 48.79,
-                "active_file": "GLM-OCR-Q8_0.gguf",
+                "active_file": "PaddleOCR-VL-1.6-GGUF.gguf",
                 "speed": 10485760.0,
                 "is_downloading": True,
             })

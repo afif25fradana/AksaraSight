@@ -649,3 +649,29 @@ def test_process_document_in_flight_config_isolation(sample_pdf_path: Path, mock
     for call_kw in call_kwargs_history:
         assert call_kw.get("endpoint") == "http://127.0.0.1:8080/v1/chat/completions"
         assert call_kw.get("timeout") == 15.0
+
+
+def test_process_document_formula_repeat_penalty(sample_pdf_path: Path, mock_client: MagicMock) -> None:
+    """Verify formula prompt preset passes repeat_penalty=1.1 to client.complete()."""
+    engine = OCREngine(client=mock_client)
+    cfg = JobConfig(prompt_mode="formula")
+    result = engine.process_document(sample_pdf_path, config=cfg)
+    assert result.status == JobStatus.SUCCESS
+    assert mock_client.complete.called
+    for call in mock_client.complete.call_args_list:
+        assert call.kwargs.get("repeat_penalty") == 1.1
+
+
+def test_process_document_otsl_table_conversion(sample_pdf_path: Path) -> None:
+    """Verify OTSL response tokens are converted to HTML table in result markdown."""
+    client = MagicMock(spec=VisionClient)
+    otsl_output = "<fcel>Col 1<fcel>Col 2<nl><fcel>Val 1<fcel>Val 2"
+    client.complete.return_value = (otsl_output, {"id": "cmpl-table"}, 0.1, False)
+
+    engine = OCREngine(client=client)
+    cfg = JobConfig(prompt_mode="table")
+    result = engine.process_document(sample_pdf_path, config=cfg)
+    assert result.status == JobStatus.SUCCESS
+    assert "<table>" in result.pages[0].markdown
+    assert "<td>Col 1</td>" in result.pages[0].markdown
+

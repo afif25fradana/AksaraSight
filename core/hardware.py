@@ -18,7 +18,7 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Pinned llama.cpp build known to work with GLM-OCR-GGUF
+# Pinned llama.cpp build known to work with PaddleOCR-VL-1.6-GGUF
 PINNED_LLAMA_BUILD = "b11361"
 
 # CUDA 12.4 driver thresholds on Windows:
@@ -27,7 +27,7 @@ PINNED_LLAMA_BUILD = "b11361"
 MIN_CUDA_DRIVER_VERSION: Tuple[int, int] = (550, 54)
 MIN_CUDA_DRIVER_API_VERSION: int = 12040
 
-# Minimum recommended VRAM for GLM-OCR (requires ~2.18 GB under -c 8192 --parallel 1)
+# Minimum recommended VRAM for PaddleOCR-VL-1.6 (requires ~3.0 GB under -c 8192 --parallel 1)
 MIN_RECOMMENDED_VRAM_MB: int = 3000
 
 

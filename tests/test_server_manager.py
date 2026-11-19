@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+from pathlib import Path
 import socket
 import subprocess
 import sys
@@ -22,6 +23,21 @@ from core.server_manager import (
     probe_server_health,
     resolve_base_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def mock_default_local_model_paths(tmp_path):
+    """Provide dummy local model paths for ServerManager subprocess tests."""
+    mock_dir = tmp_path / "_mock_models_isolated_"
+    mock_dir.mkdir(exist_ok=True)
+    dummy_model = mock_dir / "model.gguf"
+    if not dummy_model.exists():
+        dummy_model.write_bytes(b"dummy-model-bytes")
+    dummy_mmproj = mock_dir / "mmproj.gguf"
+    if not dummy_mmproj.exists():
+        dummy_mmproj.write_bytes(b"dummy-mmproj-bytes")
+    with patch("core.server_manager.get_local_model_paths", return_value=(dummy_model, dummy_mmproj)):
+        yield (dummy_model, dummy_mmproj)
 
 
 def test_resolve_base_url():
@@ -320,6 +336,10 @@ def test_server_manager_start_spawns_managed_process(tmp_path):
     """Verify start() spawns subprocess with required flags and manages it."""
     fake_exe = tmp_path / "llama-server.exe"
     fake_exe.write_text("binary", encoding="utf-8")
+    fake_model = tmp_path / "model.gguf"
+    fake_model.write_text("weights", encoding="utf-8")
+    fake_mmproj = tmp_path / "mmproj.gguf"
+    fake_mmproj.write_text("weights", encoding="utf-8")
 
     settings = Settings(
         llama_server_path=str(fake_exe),
@@ -335,16 +355,19 @@ def test_server_manager_start_spawns_managed_process(tmp_path):
 
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")):
-            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-                mgr.start()
-                assert mock_popen.called
-                cmd_args = mock_popen.call_args[0][0]
+            with patch("core.server_manager.get_local_model_paths", return_value=(fake_model, fake_mmproj)):
+                with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                    mgr.start()
+                    assert mock_popen.called
+                    cmd_args = mock_popen.call_args[0][0]
 
-                assert str(fake_exe) in cmd_args[0]
-                assert "-hf" in cmd_args
-                assert "test-org/model-gguf" in cmd_args
-                assert "--port" in cmd_args
-                assert "8080" in cmd_args
+                    assert str(fake_exe) in cmd_args[0]
+                    assert "-m" in cmd_args
+                    assert str(fake_model) in cmd_args
+                    assert "--mmproj" in cmd_args
+                    assert str(fake_mmproj) in cmd_args
+                    assert "--port" in cmd_args
+                    assert "8080" in cmd_args
                 assert "-c" in cmd_args
                 assert "8192" in cmd_args
                 assert "--parallel" in cmd_args
@@ -1504,9 +1527,30 @@ def test_server_manager_start_vram_warning(tmp_path, caplog):
                 mgr.start()
                 mock_hw.assert_called_once_with(blocking=False)
                 assert "Detected 2048 MB VRAM on 'NVIDIA GeForce GTX 1050'" in caplog.text
-                assert "below recommended ~2.2 GB" in caplog.text
+                assert "below recommended ~3.0 GB for PaddleOCR-VL-1.6" in caplog.text
         finally:
             mgr.shutdown()
+
+
+def test_server_manager_start_enforces_verify_hash_and_raises_filenotfound(tmp_path: Path) -> None:
+    """Verify start() checks hash verification and raises FileNotFoundError if model weights missing."""
+    fake_exe = tmp_path / "llama-server.exe"
+    fake_exe.write_text("binary", encoding="utf-8")
+    settings = Settings(
+        llama_server_path=str(fake_exe),
+        runtime_mode="custom",
+        model_repo="PaddlePaddle/PaddleOCR-VL-1.6-GGUF",
+        local_endpoint="http://127.0.0.1:8080/v1",
+    )
+    mgr = ServerManager(settings=settings)
+
+    with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+         patch("core.server_manager.get_local_model_paths") as mock_get_paths:
+        mock_get_paths.return_value = None
+        with pytest.raises(FileNotFoundError, match="Model weights for 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF' not found. Download the model before starting the server."):
+            mgr.start()
+        mock_get_paths.assert_called_once_with("PaddlePaddle/PaddleOCR-VL-1.6-GGUF", verify_hash=True)
+
 
 
 def test_server_manager_start_vram_warning_cold_start(tmp_path, caplog):
@@ -1548,7 +1592,7 @@ def test_server_manager_start_vram_warning_cold_start(tmp_path, caplog):
                 mgr._vram_check_thread.join(timeout=2.0)
                 assert mock_hw.call_count >= 1
                 assert "Detected 2048 MB VRAM on 'NVIDIA GeForce GTX 1050'" in caplog.text
-                assert "below recommended ~2.2 GB" in caplog.text
+                assert "below recommended ~3.0 GB for PaddleOCR-VL-1.6" in caplog.text
         finally:
             mgr.shutdown()
 
@@ -1586,23 +1630,25 @@ def test_server_manager_launch_args_never_verbose(tmp_path):
     mock_proc.poll.return_value = None
     mock_proc.stdout = iter([])
 
-    # 1. Test -hf repo launch path
-    settings_hf = Settings(
+    # 1. Test pinned repo launch path with local model weights
+    settings_repo = Settings(
         llama_server_path=str(fake_exe),
         runtime_mode="custom",
         model_repo="test-org/model-gguf",
         local_endpoint="http://127.0.0.1:8080/v1",
     )
-    mgr_hf = ServerManager(settings=settings_hf)
+    mgr_repo = ServerManager(settings=settings_repo)
     try:
         with patch("core.server_manager.probe_server_health", return_value=(ServerStatus.OFFLINE, "Offline")), \
+             patch("core.server_manager.get_local_model_paths", return_value=(fake_model, fake_model)), \
              patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            mgr_hf.start()
+            mgr_repo.start()
             cmd_args = mock_popen.call_args[0][0]
-            assert "-hf" in cmd_args
+            assert "-m" in cmd_args
+            assert "--mmproj" in cmd_args
             assert not any(flag in cmd_args for flag in forbidden_flags)
     finally:
-        mgr_hf.shutdown()
+        mgr_repo.shutdown()
 
     # 2. Test local -m model launch path
     settings_m = Settings(

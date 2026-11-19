@@ -15,7 +15,7 @@ from core.models import (
 def test_job_config_presets():
     """Verify standard prompt presets resolution."""
     config_text = JobConfig(prompt_mode="text")
-    assert config_text.effective_prompt == "Text Recognition:"
+    assert config_text.effective_prompt == "OCR:"
 
     config_table = JobConfig(prompt_mode="table")
     assert config_table.effective_prompt == "Table Recognition:"

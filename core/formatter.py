@@ -1,6 +1,7 @@
 """Serialization and disk persistence helpers for OCR document results."""
 
 import dataclasses
+import html
 import json
 from pathlib import Path
 import re
@@ -15,6 +16,137 @@ WINDOWS_RESERVED_NAMES: frozenset[str] = frozenset({
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 })
+
+
+class _OTSLCell:
+    """Internal cell representation for OTSL grid reconstruction."""
+
+    __slots__ = ("cell_type", "text", "colspan", "rowspan")
+
+    def __init__(self, cell_type: str, text: str = "") -> None:
+        self.cell_type = cell_type
+        self.text = text
+        self.colspan = 1
+        self.rowspan = 1
+
+
+def convert_otsl_to_html(otsl_text: str) -> str:
+    """Convert OTSL (Open Table Structure Language) string into standard HTML table.
+
+    Supports <fcel> (filled cell), <ecel> (empty cell), <lcel> (left merge/colspan),
+    <ucel> (upper merge/rowspan), <xcel> (cross merge), and <nl> (newline/row break).
+    If no OTSL cell tags are detected, returns otsl_text unchanged.
+    """
+    if not otsl_text or ("<fcel>" not in otsl_text and "<ecel>" not in otsl_text):
+        return otsl_text
+
+    first_match = re.search(r"<fcel>|<ecel>", otsl_text)
+    if not first_match:
+        return otsl_text
+
+    prefix = otsl_text[:first_match.start()]
+    prefix = re.sub(r"(?:<html>\s*<body>\s*)?<table>\s*$", "", prefix, flags=re.IGNORECASE)
+
+    table_part = otsl_text[first_match.start():]
+    suffix = ""
+    table_split = re.split(r"</table>(?:\s*</body>\s*</html>)?", table_part, maxsplit=1, flags=re.IGNORECASE)
+    if len(table_split) == 2:
+        table_raw, suffix = table_split
+    else:
+        table_raw = table_part
+
+    tag_pattern = re.compile(r"(<fcel>|<ecel>|<lcel>|<ucel>|<xcel>|<nl>)")
+    parts = tag_pattern.split(table_raw)
+
+    rows: list[list[_OTSLCell]] = []
+    current_row: list[_OTSLCell] = []
+    current_cell: Optional[_OTSLCell] = None
+
+    idx = 1
+    while idx < len(parts):
+        tag = parts[idx]
+        content = parts[idx + 1] if idx + 1 < len(parts) else ""
+        idx += 2
+
+        if tag == "<nl>":
+            if current_cell is not None:
+                current_row.append(current_cell)
+                current_cell = None
+            if current_row:
+                rows.append(current_row)
+                current_row = []
+        elif tag == "<fcel>":
+            if current_cell is not None:
+                current_row.append(current_cell)
+            current_cell = _OTSLCell("fcel", content.strip())
+        elif tag == "<ecel>":
+            if current_cell is not None:
+                current_row.append(current_cell)
+            current_cell = _OTSLCell("ecel", "")
+        elif tag in ("<lcel>", "<ucel>", "<xcel>"):
+            if current_cell is not None:
+                current_row.append(current_cell)
+            current_cell = _OTSLCell(tag[1:-1], "")
+
+    if current_cell is not None:
+        current_row.append(current_cell)
+    if current_row:
+        rows.append(current_row)
+
+    if not rows:
+        return otsl_text
+
+    num_rows = len(rows)
+    for r in range(num_rows):
+        num_cols = len(rows[r])
+        for c in range(num_cols):
+            cell = rows[r][c]
+            if cell.cell_type in ("fcel", "ecel"):
+                # Calculate colspan via consecutive <lcel> to the right
+                colspan = 1
+                while c + colspan < num_cols and rows[r][c + colspan].cell_type == "lcel":
+                    colspan += 1
+                cell.colspan = colspan
+
+                # Calculate rowspan via consecutive <ucel> below
+                rowspan = 1
+                while (
+                    r + rowspan < num_rows
+                    and c < len(rows[r + rowspan])
+                    and rows[r + rowspan][c].cell_type == "ucel"
+                ):
+                    rowspan += 1
+                cell.rowspan = rowspan
+
+    table_lines = ["<table>"]
+    for r in range(num_rows):
+        row_cells_html = []
+        for c in range(len(rows[r])):
+            cell = rows[r][c]
+            if cell.cell_type in ("fcel", "ecel"):
+                attrs = []
+                if cell.colspan > 1:
+                    attrs.append(f'colspan="{cell.colspan}"')
+                if cell.rowspan > 1:
+                    attrs.append(f'rowspan="{cell.rowspan}"')
+                attr_str = f" {' '.join(attrs)}" if attrs else ""
+                escaped_text = html.escape(cell.text)
+                row_cells_html.append(f"<td{attr_str}>{escaped_text}</td>")
+        if row_cells_html:
+            table_lines.append("  <tr>")
+            for cell_html in row_cells_html:
+                table_lines.append(f"    {cell_html}")
+            table_lines.append("  </tr>")
+    table_lines.append("</table>")
+    table_html = "\n".join(table_lines)
+
+    result = ""
+    if prefix.strip():
+        result += prefix.rstrip() + "\n\n"
+    result += table_html
+    if suffix.strip():
+        result += "\n\n" + suffix.lstrip()
+    return result
 
 
 def sanitize_filename_stem(stem: str) -> str:

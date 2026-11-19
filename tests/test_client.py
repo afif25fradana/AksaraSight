@@ -124,7 +124,7 @@ def test_complete_success_payload_and_return_values() -> None:
     assert kwargs["timeout"] == 60.0
 
     sent_body = kwargs["json"]
-    assert sent_body["model"] == "glm-ocr"
+    assert sent_body["model"] == "paddleocr-vl"
     assert sent_body["max_tokens"] == 4096
     assert sent_body["temperature"] == 0.0
     assert sent_body["stream"] is False
@@ -134,6 +134,35 @@ def test_complete_success_payload_and_return_values() -> None:
         {"type": "text", "text": prompt},
         {"type": "image_url", "image_url": {"url": image_b64}},
     ]
+    assert "repeat_penalty" not in sent_body
+
+
+def test_complete_default_args_and_repeat_penalty() -> None:
+    """Verify default prompt is 'OCR:', default model is 'paddleocr-vl', and repeat_penalty handling."""
+    mock_response = MagicMock(spec=requests.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "result"}}],
+    }
+    mock_session = MagicMock(spec=requests.Session)
+    mock_session.post.return_value = mock_response
+
+    client = VisionClient(session=mock_session)
+    image_b64 = "data:image/jpeg;base64,abc"
+
+    # Call with defaults
+    client.complete(image_b64)
+    _, kwargs = mock_session.post.call_args
+    sent = kwargs["json"]
+    assert sent["model"] == "paddleocr-vl"
+    assert sent["messages"][0]["content"][0]["text"] == "OCR:"
+    assert "repeat_penalty" not in sent
+
+    # Call with repeat_penalty
+    client.complete(image_b64, repeat_penalty=1.1)
+    _, kwargs2 = mock_session.post.call_args
+    sent2 = kwargs2["json"]
+    assert sent2["repeat_penalty"] == 1.1
 
 
 def test_complete_payload_explicitly_disables_streaming() -> None:

@@ -203,7 +203,7 @@ def test_new_settings_fields_defaults():
     """Verify default values for settings additions."""
     s = Settings()
     assert s.llama_server_path is None
-    assert s.model_repo == "ggml-org/GLM-OCR-GGUF"
+    assert s.model_repo == "PaddlePaddle/PaddleOCR-VL-1.6-GGUF"
     assert s.auto_start_server is False
     assert s.dpi == 100
     assert s.max_pages is None
@@ -411,11 +411,11 @@ def test_settings_newline_sanitization():
     s = Settings(
         local_endpoint="http://localhost:8080/v1\r\n",
         llama_server_path="C:\\tools\\llama-server.exe\n",
-        model_repo="ggml-org/GLM-OCR-GGUF\r\n",
+        model_repo="PaddlePaddle/PaddleOCR-VL-1.6-GGUF\r\n",
     )
     assert s.local_endpoint == "http://localhost:8080/v1"
     assert s.llama_server_path == "C:\\tools\\llama-server.exe"
-    assert s.model_repo == "ggml-org/GLM-OCR-GGUF"
+    assert s.model_repo == "PaddlePaddle/PaddleOCR-VL-1.6-GGUF"
 
 
 @pytest.mark.parametrize("bad_dim", [0, -10, 511, 8193, "abc"])

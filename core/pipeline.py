@@ -408,7 +408,7 @@ def ingest(
 
     Args:
         source: File path (str | Path).
-        dpi: PDF rasterization resolution (default: 100, recommended for GLM-OCR).
+        dpi: PDF rasterization resolution (default: 100, recommended for PaddleOCR-VL).
         max_image_dimension: Longest edge resolution cap for standalone images (default: 2048).
 
     Yields:

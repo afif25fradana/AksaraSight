@@ -7,7 +7,8 @@ from typing import Any, Callable, Optional, Union
 
 from config.settings import Settings
 from core.client import ClientError, ServerOfflineError, VisionClient, resolve_chat_endpoint
-from core.models import JobConfig, JobStatus, OCRResult, PageResult
+from core.formatter import convert_otsl_to_html
+from core.models import JobConfig, JobStatus, OCRResult, PageResult, PROMPT_PRESETS
 from core.pipeline import CorruptDocumentError, PipelineError, ingest
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,8 @@ class OCREngine:
                             "prompt": cfg.effective_prompt,
                             "max_tokens": effective_max_tokens,
                         }
+                        if cfg.effective_prompt == PROMPT_PRESETS["formula"]:
+                            complete_kwargs["repeat_penalty"] = 1.1
                         if effective_endpoint is not None:
                             complete_kwargs["endpoint"] = effective_endpoint
                         if effective_timeout is not None:
@@ -178,11 +181,30 @@ class OCREngine:
                             text, raw_json, latency, truncated = self.client.complete(**complete_kwargs)
                         except TypeError:
                             # Fallback for custom mock clients that do not accept endpoint/timeout kwargs
-                            text, raw_json, latency, truncated = self.client.complete(
-                                image_b64=page.image_b64,
-                                prompt=cfg.effective_prompt,
-                                max_tokens=effective_max_tokens,
-                            )
+                            fallback_kwargs = {
+                                "image_b64": page.image_b64,
+                                "prompt": cfg.effective_prompt,
+                                "max_tokens": effective_max_tokens,
+                            }
+                            if cfg.effective_prompt == PROMPT_PRESETS["formula"]:
+                                fallback_kwargs["repeat_penalty"] = 1.1
+                            try:
+                                text, raw_json, latency, truncated = self.client.complete(**fallback_kwargs)
+                            except TypeError:
+                                text, raw_json, latency, truncated = self.client.complete(
+                                    image_b64=page.image_b64,
+                                    prompt=cfg.effective_prompt,
+                                    max_tokens=effective_max_tokens,
+                                )
+
+                        if (
+                            "<fcel>" in text
+                            or "<ecel>" in text
+                            or cfg.prompt_mode == "table"
+                            or cfg.effective_prompt == PROMPT_PRESETS["table"]
+                        ):
+                            text = convert_otsl_to_html(text)
+
                         page_res = PageResult(
                             page_num=page.page_num,
                             markdown=text,

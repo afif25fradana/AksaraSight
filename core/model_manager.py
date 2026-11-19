@@ -18,21 +18,21 @@ import requests
 logger = logging.getLogger(__name__)
 
 # Pinned Model Specification (Single Source of Truth)
-PINNED_MODEL_REPO = "ggml-org/GLM-OCR-GGUF"
-PINNED_MODEL_REVISION = "65a42de1148dbed2297e922b5dbc7d9b70c36578"  # short: 65a42de
+PINNED_MODEL_REPO = "PaddlePaddle/PaddleOCR-VL-1.6-GGUF"
+PINNED_MODEL_REVISION = "511b09642bb324401f15f97cc23bc67e8f0a291d"
 PINNED_MODEL_FILES = {
     "model": {
-        "filename": "GLM-OCR-Q8_0.gguf",
-        "sha256": "45bc244a6446aff850521dc41f18bc8d7105ad5f0c2c8c28af04e7cc4f4d50b1",
-        "size_bytes": 950433408,
+        "filename": "PaddleOCR-VL-1.6-GGUF.gguf",
+        "sha256": "f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8",
+        "size_bytes": 935769056,
     },
     "mmproj": {
-        "filename": "mmproj-GLM-OCR-Q8_0.gguf",
-        "sha256": "9c4b58e33e316ed142eb5dcb41abec3844d3e6e5dc361ffb782c3fa9d175141f",
-        "size_bytes": 484403648,
+        "filename": "PaddleOCR-VL-1.6-GGUF-mmproj.gguf",
+        "sha256": "204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a",
+        "size_bytes": 881770560,
     },
 }
-TOTAL_MODEL_BYTES = 1434837056
+TOTAL_MODEL_BYTES = 1817539616
 REQUIRED_EXTRA_DISK_BYTES = 500_000_000
 
 
@@ -103,14 +103,63 @@ def _migrate_legacy_models(
         return False
 
 
+def prune_legacy_models(models_dir: Optional[Path] = None) -> bool:
+    """Safely remove deprecated GLM-OCR model weights if present.
+
+    Handles Windows file lock errors gracefully.
+    """
+    candidates = []
+    if models_dir is not None:
+        target = Path(models_dir)
+        if target.name == "glm-ocr-q8_0":
+            candidates.append(target)
+        else:
+            candidates.append(target / "glm-ocr-q8_0")
+            if target.parent.name == "models":
+                candidates.append(target.parent / "glm-ocr-q8_0")
+    else:
+        if sys.platform != "win32":
+            xdg_data = os.environ.get("XDG_DATA_HOME")
+            base_dir = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
+            candidates.append(base_dir / "aksarasight" / "models" / "glm-ocr-q8_0")
+            candidates.append(Path.home() / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0")
+        else:
+            candidates.append(
+                Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
+                / "AksaraSight"
+                / "models"
+                / "glm-ocr-q8_0"
+            )
+
+    pruned_any = False
+    for candidate in candidates:
+        if candidate.is_dir():
+            try:
+                for item in list(candidate.iterdir()):
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                    except OSError as file_exc:
+                        logger.warning("Could not delete legacy file '%s': %s", item, file_exc)
+                candidate.rmdir()
+                pruned_any = True
+                logger.info("Pruned legacy model directory: %s", candidate)
+            except OSError as dir_exc:
+                logger.warning("Could not remove legacy model directory '%s': %s", candidate, dir_exc)
+
+    return pruned_any
+
+
 def get_models_dir() -> Path:
     """Return the target local directory for pinned model weights."""
     if sys.platform != "win32":
         xdg_data = os.environ.get("XDG_DATA_HOME")
         base_dir = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
-        canonical_dir = base_dir / "aksarasight" / "models" / "glm-ocr-q8_0"
+        canonical_dir = base_dir / "aksarasight" / "models" / "paddleocr-vl-1.6"
 
-        legacy_dir = Path.home() / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
+        legacy_dir = Path.home() / ".local" / "share" / "AksaraSight" / "models" / "paddleocr-vl-1.6"
         legacy_parent = Path.home() / ".local" / "share" / "AksaraSight" / "models"
         if (legacy_dir.is_dir() and any(legacy_dir.iterdir())) or (legacy_parent.is_dir() and any(legacy_parent.iterdir())):
             _migrate_legacy_models(legacy_dir if legacy_dir.is_dir() else legacy_parent, canonical_dir)
@@ -121,7 +170,7 @@ def get_models_dir() -> Path:
         Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
         / "AksaraSight"
         / "models"
-        / "glm-ocr-q8_0"
+        / "paddleocr-vl-1.6"
     )
 
 
@@ -158,12 +207,12 @@ def _verify_candidate(
 
 
 def is_pinned_model_repo(repo: Optional[str]) -> bool:
-    """Check if repository ID refers to the pinned GLM-OCR model family."""
+    """Check if repository ID refers to the pinned PaddleOCR-VL model family."""
     if not repo:
         return True
     clean = repo.strip().lower()
     pinned = PINNED_MODEL_REPO.lower()
-    return clean == pinned or clean == "glm-ocr-gguf"
+    return clean == pinned or clean in ("paddleocr-vl-1.6-gguf", "paddleocr-vl")
 
 
 def get_local_model_paths(
@@ -285,6 +334,9 @@ class ModelDownloader:
         try:
             self.dest_dir.mkdir(parents=True, exist_ok=True)
 
+            # Safely prune legacy model directory to free disk space
+            prune_legacy_models(self.dest_dir.parent)
+
             # Check available disk space
             usage = shutil.disk_usage(self.dest_dir)
             required_space = TOTAL_MODEL_BYTES + REQUIRED_EXTRA_DISK_BYTES
@@ -386,7 +438,25 @@ class ModelDownloader:
                     headers["Range"] = f"bytes={existing_bytes}-"
 
                 try:
-                    with http_client.get(url, headers=headers, stream=True, timeout=30.0) as resp:
+                    resp = http_client.get(url, headers=headers, stream=True, timeout=30.0)
+                    if resp.status_code == 416:
+                        logger.warning("HTTP 416 received for %s; clearing corrupt .part file and retrying from byte 0", filename)
+                        resp.close()
+                        if part_file.exists():
+                            try:
+                                part_file.unlink()
+                            except OSError:
+                                pass
+                        if existing_bytes > 0:
+                            with self._state_lock:
+                                self.bytes_downloaded -= existing_bytes
+                            existing_bytes = 0
+                            self._notify_progress()
+                        retry_headers = dict(headers)
+                        retry_headers.pop("Range", None)
+                        resp = http_client.get(url, headers=retry_headers, stream=True, timeout=30.0)
+
+                    with resp:
                         if resp.status_code == 206:
                             mode = "ab"
                         elif resp.status_code == 200:

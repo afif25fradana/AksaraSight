@@ -271,11 +271,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 profile is not None
                 and profile.cuda_available
                 and profile.vram_mb is not None
-                and profile.vram_mb < 2200
+                and profile.vram_mb < 3000
             ):
                 sys.stderr.write(
                     f"WARNING: Detected {profile.vram_mb} MB VRAM on '{profile.gpu_name or 'CUDA device'}', "
-                    f"below recommended ~2.2 GB for GLM-OCR (-c 8192). Server may encounter CUDA out-of-memory errors.\n"
+                    f"below recommended ~3.0 GB for PaddleOCR-VL-1.6 (-c 8192). Server may encounter CUDA out-of-memory errors.\n"
                 )
 
         has_aborted = False

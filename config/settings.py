@@ -92,7 +92,7 @@ class Settings:
     runtime_mode: str = "managed"
     managed_backend_override: str = "auto"
     llama_server_path: Optional[str] = None
-    model_repo: str = "ggml-org/GLM-OCR-GGUF"
+    model_repo: str = "PaddlePaddle/PaddleOCR-VL-1.6-GGUF"
     auto_start_server: bool = False
     dpi: int = 100
     max_pages: Optional[int] = None
@@ -287,7 +287,7 @@ class Settings:
         raw_backend_override = _get_env_with_fallback("OCR_MANAGED_BACKEND_OVERRIDE", "MANAGED_BACKEND_OVERRIDE", "auto")
         managed_backend_override = raw_backend_override.strip().lower() if raw_backend_override else "auto"
 
-        model_repo = _get_env_with_fallback("OCR_MODEL_REPO", "MODEL_REPO", "ggml-org/GLM-OCR-GGUF")
+        model_repo = _get_env_with_fallback("OCR_MODEL_REPO", "MODEL_REPO", "PaddlePaddle/PaddleOCR-VL-1.6-GGUF")
         auto_start = _to_bool(_get_env_with_fallback("OCR_AUTO_START_SERVER", "AUTO_START_SERVER", "false"))
 
         raw_dpi = _get_env_with_fallback("OCR_DPI", "DPI", "100")

@@ -445,7 +445,10 @@ def test_find_browser_executable_windows_msedge(monkeypatch):
     """Verify find_browser_executable resolves Edge path on Windows."""
     import web.__main__ as web_main
     monkeypatch.setattr(sys, "platform", "win32")
-    edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setenv("LocalAppData", r"C:\Users\Test\AppData\Local")
+    edge_path = os.path.join(r"C:\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe")
     monkeypatch.setattr(os.path, "isfile", lambda p: p == edge_path)
     assert web_main.find_browser_executable() == edge_path
 
@@ -454,7 +457,10 @@ def test_find_browser_executable_windows_chrome_fallback(monkeypatch):
     """Verify find_browser_executable falls back to Chrome when Edge is missing."""
     import web.__main__ as web_main
     monkeypatch.setattr(sys, "platform", "win32")
-    chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setenv("LocalAppData", r"C:\Users\Test\AppData\Local")
+    chrome_path = os.path.join(r"C:\Program Files", "Google", "Chrome", "Application", "chrome.exe")
     monkeypatch.setattr(os.path, "isfile", lambda p: p == chrome_path)
     assert web_main.find_browser_executable() == chrome_path
 
@@ -463,6 +469,9 @@ def test_find_browser_executable_windows_winreg(monkeypatch):
     """Verify find_browser_executable checks winreg App Paths when standard files missing."""
     import web.__main__ as web_main
     monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setenv("LocalAppData", r"C:\Users\Test\AppData\Local")
     monkeypatch.setattr(os.path, "isfile", lambda p: p == r"D:\Custom\msedge.exe")
 
     class MockKey:

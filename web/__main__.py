@@ -42,12 +42,15 @@ def _fatal_gui_error(title: str, message: str) -> None:
 def find_browser_executable() -> Optional[str]:
     """Resolve a Chromium-family browser executable for app-mode launching, or None for fallback."""
     if sys.platform == "win32":
+        prog_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        prog = os.environ.get("ProgramFiles", r"C:\Program Files")
+        local_app = os.environ.get("LocalAppData", r"C:\Users\Default\AppData\Local")
         candidates = [
-            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
-            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
-            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            os.path.join(prog_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(prog, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(prog, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(prog_x86, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(local_app, "Google", "Chrome", "Application", "chrome.exe"),
         ]
         for p in candidates:
             if os.path.isfile(p):

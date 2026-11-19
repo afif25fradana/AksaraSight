@@ -4,10 +4,10 @@
 Accepted
 
 ## Date
-2026-11-13
+2026-11-19
 
 ## Context
-AksaraSight executes vision-language OCR using GLM-OCR (~0.9B parameters) locally across Windows 10/11 x64 and Linux x86_64 (native desktop distributions and WSL2 environments) under Python 3.12 and 3.14. Executing local inference within a desktop client poses several architectural constraints:
+AksaraSight executes vision-language OCR using GLM-OCR (~0.9B parameters) locally across Windows 10/11 x64 and Linux x86_64 (native desktop distributions and WSL2 environments) pinned to Python 3.12. Executing local inference within a desktop client poses several architectural constraints:
 1. **In-Process Dependency Overhead**: Deep learning frameworks (PyTorch, Hugging Face Transformers) have massive disk footprints (>3–5 GB), slow cold-start times (>15s), lack timely pre-built wheels for new Python releases (such as Python 3.14 on Windows), and create severe DLL dependency conflicts.
 2. **Crash Resilience**: Direct C/C++ Python bindings (`ctypes` or `pybind11` directly to `llama.cpp`) expose the host process to unhandled memory faults or C++ segmentation faults that crash the entire Python desktop application without recovery.
 3. **Distribution Size vs. User Setup**: Bundling all platform binaries (CUDA, Vulkan, CPU) inside the installer bloats distribution packages from ~52 MB to over 1.5 GB. Directing end users to manual upstream GitHub downloads introduces supply-chain tampering risks and configuration mismatches.

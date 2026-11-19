@@ -48,30 +48,36 @@ jobs:
         run: |
           cd frontend
           npm run build
-          if [ -n "$(git status --porcelain ../web/static)" ]; then
+          cd ..
+          if [ -n "$(git status --porcelain web/static)" ]; then
             if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
               echo "::notice::Static bundle drift detected on Dependabot PR. Bypassing failure since Dependabot does not compile frontend assets."
             elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
               if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.head_commit.author.name }}" = "dependabot[bot]" ] || echo "${{ github.event.head_commit.author.email }}" | grep -q "dependabot"; then
                 echo "::notice::Static bundle drift detected on Dependabot merge. Dedicated sync-static-bundle job will manage auto-commit."
               else
-                echo "::notice::Cross-OS static bundle variance detected on main (e.g. Windows vs Linux minification float precision), but compiled assets were updated or untouched. Build accepted."
+                echo "::notice::Cross-OS static bundle variance detected on main, but compiled assets were updated or untouched. Build accepted."
               fi
             else
-              # Pull Request from developer: check whether frontend source was modified without updating web/static
-              cd ..
               BASE_REF="${{ github.base_ref || 'main' }}"
               CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || true)
               FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^frontend/' || true)
               STATIC_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^web/static/' || true)
 
+              # Block direct manual modification of web/static without frontend source changes
+              if [ -z "$FRONTEND_CHANGED" ] && [ -n "$STATIC_CHANGED" ]; then
+                echo "::error::Direct modification of web/static/ is prohibited. Edit frontend/ source and run 'npm run build'."
+                exit 1
+              fi
+
+              # Enforce bundle rebuild when frontend source is modified
               if [ -n "$FRONTEND_CHANGED" ] && [ -z "$STATIC_CHANGED" ]; then
-                echo "::error::Frontend source files were modified in this PR, but web/static bundle was not updated. Please run 'npm run build' inside frontend/ and commit the compiled assets."
+                echo "::error::Frontend source files were modified, but web/static bundle was not updated. Please run 'npm run build' inside frontend/ and commit compiled assets."
                 git status --porcelain web/static
                 exit 1
-              else
-                echo "::notice::Cross-OS static bundle variance detected (e.g. Windows vs Linux minification float precision), but compiled assets were updated or untouched. Build accepted."
               fi
+
+              echo "::notice::Cross-OS static bundle variance within acceptable build parameters. Build accepted."
             fi
           fi
 
@@ -124,7 +130,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.14"]
+        python-version: ["3.12"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -162,7 +168,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.14"]
+        python-version: ["3.12"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

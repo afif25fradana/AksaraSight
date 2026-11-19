@@ -20,7 +20,7 @@ Any contribution must adhere to these non-negotiable architectural principles:
 ## Local Development Setup
 
 ### Prerequisites
-- Python 3.12+ (tested on Python 3.12 and 3.14).
+- Python 3.12 (specifically tested and supported on Python 3.12).
 - Node.js 22+ (for frontend development).
 - Standard [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) on Windows.
 

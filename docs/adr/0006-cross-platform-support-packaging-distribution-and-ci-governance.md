@@ -4,10 +4,10 @@
 Accepted
 
 ## Date
-2026-11-13
+2026-11-19
 
 ## Context
-AksaraSight runs OCR across Windows 10/11 x64 and Linux x86_64 (native desktop distributions and WSL2) on Python 3.12 and 3.14. Maintaining cross-platform distribution and testing infrastructure requires addressing several operational constraints:
+AksaraSight runs OCR across Windows 10/11 x64 and Linux x86_64 (native desktop distributions and WSL2) pinned to Python 3.12. Maintaining cross-platform distribution and testing infrastructure requires addressing several operational constraints:
 1. **Host-Independent Portable Distribution**: End users should not be required to install system Python runtimes, node packages, or virtual environments. Packaging must generate standalone binaries that bundle all required interpreters and dependencies cleanly.
 2. **Structural Cross-OS Test Coverage Variance**: AksaraSight incorporates deep Win32 integrations (Win32 Job Objects in `core/job_object.py`, Windows hardware DLL probing via `ctypes` in `core/hardware.py`, Windows error suppression via `SetErrorMode`). On Linux CI runners (`ubuntu-latest`), these ~150 platform-specific statements are skipped by design. Enforcing a single uniform 90% coverage threshold across all platforms causes false-negative build failures on Linux despite 100% test pass rates.
 3. **Automated Dependency Updates & Minified Asset Drift**: Dependabot updates frontend npm dependencies (`frontend/package.json`), but GitHub's Dependabot runner cannot compile TypeScript or execute Vite build tools. This creates drift between source assets and the committed production bundle (`web/static/`), risking broken releases.
@@ -29,7 +29,7 @@ AksaraSight runs OCR across Windows 10/11 x64 and Linux x86_64 (native desktop d
    - Extract frontend static bundle auto-compilation into a separate, dedicated CI job (`sync-static-bundle`) with `contents: write` permissions.
    - Gate execution strictly on push events to `main` where the actor or head commit author is `dependabot[bot]`. Developer pushes bypass auto-commit logic entirely.
 4. **Branch Protection Status Check Gate with Admin Bypass**:
-   - Configure a GitHub Branch Protection Rule on `main` requiring core status checks (`Lint & Code Style` and `Windows Python 3.14 (Full Test Suite)`).
+   - Configure a GitHub Branch Protection Rule on `main` requiring core status checks (`Lint & Code Style` and `Windows Python 3.12 (Full Test Suite)`).
    - Set `enforce_admins: false` and `required_pull_request_reviews: null` to allow automated merges in a solo maintainer workflow without review deadlocks. Enable `delete_branch_on_merge: true` in repository settings.
    - Add defensive fallback warning handling in `.github/workflows/dependabot-automerge.yml` to prevent unhandled GraphQL exceptions from failing the workflow.
 5. **Test Suite Invariant Enforcement & Anti-Mock Drift**:
@@ -52,4 +52,4 @@ AksaraSight runs OCR across Windows 10/11 x64 and Linux x86_64 (native desktop d
 - Frontend static asset bundles remain synchronized on `main` without risking accidental developer push overrides or token leakage.
 - CI workflows enforce strict coverage regressions without generating false-positive failures on non-Windows platforms.
 - Test suites strictly mirror production engine contracts with zero handle leaks or mock drift.
-- Requires maintaining dual-platform build scripts and running CI test matrices across Windows and Linux on both Python 3.12 and 3.14.
+- Requires maintaining dual-platform build scripts and running CI test matrices across Windows and Linux on Python 3.12.

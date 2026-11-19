@@ -30,7 +30,7 @@ Download the pre-compiled portable zip package from the [Releases](https://githu
 
 ### Option 2: Running from source
 
-Prerequisites: Windows 10/11 or Linux, Python 3.12+ (tested on Python 3.12 & 3.14; 3.14 recommended), and [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) on Windows.
+Prerequisites: Windows 10/11 or Linux, Python 3.12 (Python 3.12 recommended), and [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) on Windows.
 
 ```powershell
 git clone https://github.com/afif25fradana/AksaraSight

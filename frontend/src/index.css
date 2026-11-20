@@ -16,8 +16,8 @@ html {
   --border: rgba(138, 148, 166, 0.3);
   --border-strong: rgba(138, 148, 166, 0.6);
   --text-1: #14213d;
-  --text-2: #5a6478;
-  --text-3: #8a94a6;
+  --text-2: #475569;
+  --text-3: #5c6779;
   --success: #15803d;
   --danger: #b91c1c;
   --warning: #b45309;
@@ -38,7 +38,7 @@ html {
   --border-strong: #464c56;
   --text-1: #f0f1f3;
   --text-2: #abb0b8;
-  --text-3: #8c919c;
+  --text-3: #9ca3af;
   --success: #78c697;
   --danger: #e58383;
   --warning: #e0a96d;
@@ -352,5 +352,12 @@ input[type="number"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .animate-spin,
+  [data-animate-spin] {
+    animation-duration: 2.5s !important;
+    animation-iteration-count: infinite !important;
+    animation-timing-function: linear !important;
   }
 }

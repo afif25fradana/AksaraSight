@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 from urllib.parse import quote
 import uuid
 
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +38,7 @@ from core.formatter import (
 from core.hardware import (
     PINNED_LLAMA_BUILD,
     get_cached_hardware_profile,
+    probe_nvml_vram,
     start_hardware_prewarm,
 )
 from core.model_manager import (
@@ -1526,6 +1527,12 @@ def create_app(
             downloader.cancel()
 
         return {"cancelled": True, "message": "Download cancellation requested"}
+
+    @app.get("/api/hardware/vram")
+    async def get_hardware_vram(
+        device_index: Optional[int] = Query(None, ge=0, description="Optional target GPU index")
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(probe_nvml_vram, device_index=device_index)
 
     @app.get("/api/runtime/status")
     async def get_runtime_status() -> Dict[str, Any]:

@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -592,4 +592,234 @@ def clear_hardware_cache() -> None:
     with _PREWARM_LOCK:
         _CACHED_HARDWARE_PROFILE = None
         _PREWARM_THREAD = None
+
+
+def probe_nvml_vram(device_index: Optional[int] = None) -> Dict[str, Any]:
+    """Query in-process NVIDIA Management Library (NVML) for real-time VRAM telemetry.
+
+    Searches standard Windows and Linux NVML paths, initializes the library,
+    queries device memory and telemetry, and guarantees proper lifecycle cleanup.
+
+    Args:
+        device_index: Optional target GPU device index. If None, auto-selects
+            the device with the highest total VRAM.
+
+    Returns:
+        Dict adhering to hardware VRAM schema with keys: available, device_name,
+        device_index, device_count, total_mb, used_mb, free_mb, usage_percent, error.
+    """
+    import ctypes
+
+    nvml = None
+    if sys.platform == "win32":
+        candidates = [
+            Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "nvml.dll",
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvml.dll",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                try:
+                    nvml = ctypes.CDLL(str(cand))
+                    break
+                except Exception:
+                    continue
+    else:
+        candidates = [
+            "libnvidia-ml.so.1",
+            "/usr/lib/wsl/lib/libnvidia-ml.so.1",
+        ]
+        for cand in candidates:
+            try:
+                nvml = ctypes.CDLL(str(cand))
+                if nvml:
+                    break
+            except Exception:
+                continue
+
+    if not nvml:
+        return {
+            "available": False,
+            "device_name": None,
+            "device_index": None,
+            "device_count": None,
+            "total_mb": None,
+            "used_mb": None,
+            "free_mb": None,
+            "usage_percent": None,
+            "error": "NVML library (nvml.dll / libnvidia-ml.so.1) not found",
+        }
+
+    init_fn = getattr(nvml, "nvmlInit_v2", getattr(nvml, "nvmlInit", None))
+    if not init_fn:
+        return {
+            "available": False,
+            "device_name": None,
+            "device_index": None,
+            "device_count": None,
+            "total_mb": None,
+            "used_mb": None,
+            "free_mb": None,
+            "usage_percent": None,
+            "error": "NVML symbol nvmlInit_v2 not found",
+        }
+
+    init_ret = init_fn()
+    if init_ret != 0:
+        return {
+            "available": False,
+            "device_name": None,
+            "device_index": None,
+            "device_count": None,
+            "total_mb": None,
+            "used_mb": None,
+            "free_mb": None,
+            "usage_percent": None,
+            "error": f"nvmlInit_v2 failed with error code {init_ret}",
+        }
+
+    class _c_nvmlMemory_t(ctypes.Structure):
+        _fields_ = [
+            ("total", ctypes.c_ulonglong),
+            ("free", ctypes.c_ulonglong),
+            ("used", ctypes.c_ulonglong),
+        ]
+
+    try:
+        get_count_fn = getattr(nvml, "nvmlDeviceGetCount_v2", getattr(nvml, "nvmlDeviceGetCount", None))
+        get_handle_fn = getattr(nvml, "nvmlDeviceGetHandleByIndex_v2", getattr(nvml, "nvmlDeviceGetHandleByIndex", None))
+        get_name_fn = getattr(nvml, "nvmlDeviceGetName", None)
+        get_mem_fn = getattr(nvml, "nvmlDeviceGetMemoryInfo", None)
+
+        if not get_count_fn or not get_handle_fn or not get_mem_fn:
+            return {
+                "available": False,
+                "device_name": None,
+                "device_index": None,
+                "device_count": None,
+                "total_mb": None,
+                "used_mb": None,
+                "free_mb": None,
+                "usage_percent": None,
+                "error": "Required NVML symbols not found",
+            }
+
+        count = ctypes.c_uint(0)
+        ret = get_count_fn(ctypes.byref(count))
+        if ret != 0 or count.value == 0:
+            return {
+                "available": False,
+                "device_name": None,
+                "device_index": None,
+                "device_count": count.value,
+                "total_mb": None,
+                "used_mb": None,
+                "free_mb": None,
+                "usage_percent": None,
+                "error": "No NVIDIA devices found or query failed",
+            }
+
+        device_count = count.value
+
+        if device_index is not None:
+            if device_index < 0 or device_index >= device_count:
+                return {
+                    "available": False,
+                    "device_name": None,
+                    "device_index": device_index,
+                    "device_count": device_count,
+                    "total_mb": None,
+                    "used_mb": None,
+                    "free_mb": None,
+                    "usage_percent": None,
+                    "error": f"Device index {device_index} out of range (device_count={device_count})",
+                }
+
+        best_index: Optional[int] = None
+        best_name: str = "NVIDIA GPU"
+        best_total = 0
+        best_used = 0
+        best_free = 0
+        found = False
+
+        if device_index is not None:
+            indices_to_query = [device_index]
+        else:
+            indices_to_query = list(range(device_count))
+
+        max_total_bytes = -1
+
+        for idx in indices_to_query:
+            dev_handle = ctypes.c_void_p()
+            if get_handle_fn(ctypes.c_uint(idx), ctypes.byref(dev_handle)) != 0:
+                continue
+
+            mem = _c_nvmlMemory_t()
+            if get_mem_fn(dev_handle, ctypes.byref(mem)) != 0:
+                continue
+
+            name = f"NVIDIA GPU #{idx}"
+            if get_name_fn:
+                name_buf = ctypes.create_string_buffer(96)
+                if get_name_fn(dev_handle, name_buf, ctypes.c_uint(len(name_buf))) == 0:
+                    name = name_buf.value.decode("utf-8", errors="replace").strip() or name
+
+            if mem.total > max_total_bytes:
+                max_total_bytes = mem.total
+                best_index = idx
+                best_name = name
+                best_total = mem.total
+                best_used = mem.used
+                best_free = mem.free
+                found = True
+
+        if not found or best_index is None:
+            return {
+                "available": False,
+                "device_name": None,
+                "device_index": device_index,
+                "device_count": device_count,
+                "total_mb": None,
+                "used_mb": None,
+                "free_mb": None,
+                "usage_percent": None,
+                "error": "Failed to query VRAM memory info from target device",
+            }
+
+        total_mb = int(best_total // (1024 * 1024))
+        used_mb = int(best_used // (1024 * 1024))
+        free_mb = int(best_free // (1024 * 1024))
+        usage_pct = round((best_used / best_total) * 100.0, 1) if best_total > 0 else 0.0
+
+        return {
+            "available": True,
+            "device_name": best_name,
+            "device_index": best_index,
+            "device_count": device_count,
+            "total_mb": total_mb,
+            "used_mb": used_mb,
+            "free_mb": free_mb,
+            "usage_percent": usage_pct,
+            "error": None,
+        }
+    except Exception as exc:
+        logger.debug("NVML query exception: %s", exc)
+        return {
+            "available": False,
+            "device_name": None,
+            "device_index": device_index,
+            "device_count": None,
+            "total_mb": None,
+            "used_mb": None,
+            "free_mb": None,
+            "usage_percent": None,
+            "error": f"NVML query exception: {exc}",
+        }
+    finally:
+        shutdown_fn = getattr(nvml, "nvmlShutdown", None)
+        if shutdown_fn:
+            try:
+                shutdown_fn()
+            except Exception as exc:
+                logger.debug("nvmlShutdown failed: %s", exc)
+
 

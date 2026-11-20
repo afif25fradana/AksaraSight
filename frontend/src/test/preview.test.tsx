@@ -1,7 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ExtractedTextPanel } from '../components/ExtractedTextPanel';
+import userEvent from '@testing-library/user-event';
+import { ExtractedTextPanel } from '../components/workspace/ExtractedTextPanel';
 import { DocumentItem } from '../types';
 
 const defaultProps = {
@@ -143,5 +144,43 @@ describe('ExtractedTextPanel table preview DOMParser logic', () => {
 
     expect(screen.getByText('Mango')).toBeInTheDocument();
     expect(screen.getByText('Durian')).toBeInTheDocument();
+  });
+});
+
+describe('ExtractedTextPanel JSON Tree OCRResult schema parity', () => {
+  it('renders JSON Tree adhering to OCRResult.to_dict() schema parity', async () => {
+    const user = userEvent.setup();
+    const doc = createMockDoc('Page 1 Content', {
+      id: 'doc-schema-test',
+      name: 'invoice-sample.pdf',
+      pages: 2,
+      status: 'Done',
+      pagesData: {
+        1: { pageNumber: 1, text: 'Page 1 Content', latency: 1.25, tokens: 42, isTruncated: false },
+        2: { pageNumber: 2, text: 'Page 2 Content', latency: 0.85, tokens: 28, isTruncated: false },
+      },
+    });
+
+    render(<ExtractedTextPanel {...defaultProps} document={doc} />);
+
+    // Click JSON Tree tab
+    const jsonTab = screen.getByRole('tab', { name: /JSON Tree/i });
+    await user.click(jsonTab);
+
+    // Verify copy JSON button is displayed
+    const copyButton = screen.getByRole('button', { name: /Copy JSON/i });
+    expect(copyButton).toBeInTheDocument();
+
+    // Verify the JSON tree contains expected schema keys
+    expect(screen.getByText(/"file_path"/)).toBeInTheDocument();
+    expect(screen.getByText(/"invoice-sample\.pdf"/)).toBeInTheDocument();
+    expect(screen.getByText(/"total_duration"/)).toBeInTheDocument();
+    expect(screen.getByText(/"page_count"/)).toBeInTheDocument();
+    expect(screen.getByText(/"pages"/)).toBeInTheDocument();
+    expect(screen.getAllByText(/"page_num"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"latency"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"tokens"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"markdown"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"truncated"/).length).toBeGreaterThan(0);
   });
 });

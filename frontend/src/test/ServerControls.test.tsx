@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
-import { TopNavBar } from '../components/TopNavBar';
+import { TopNavBar } from '../components/workspace/TopNavBar';
 import { ServerLogsModal } from '../components/ServerLogsModal';
-import { FileQueuePanel } from '../components/FileQueuePanel';
+import { FileQueuePanel } from '../components/workspace/FileQueuePanel';
 import { DocumentItem, EngineSettings, ServerStatusInfo } from '../types';
 
 class MockEventSource {
@@ -52,7 +52,7 @@ const mockDefaultSettings: EngineSettings = {
   timeout: 60,
   max_retries: 2,
   auto_start_server: false,
-  model_repo: 'ggml-org/GLM-OCR-GGUF',
+  model_repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
 };
 
 describe('ServerControls and Live Log Viewer State Machine', () => {

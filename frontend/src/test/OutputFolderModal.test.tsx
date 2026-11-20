@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OutputFolderModal } from '../components/OutputFolderModal';
-import { FileQueuePanel } from '../components/FileQueuePanel';
+import { FileQueuePanel } from '../components/workspace/FileQueuePanel';
 import App from '../App';
 import { DocumentItem, ExportedFile } from '../types';
 

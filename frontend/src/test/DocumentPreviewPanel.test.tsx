@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DocumentPreviewPanel } from '../components/DocumentPreviewPanel';
+import { DocumentPreviewPanel } from '../components/workspace/DocumentPreviewPanel';
 import { DocumentItem } from '../types';
 
 const mockDoc: DocumentItem = {

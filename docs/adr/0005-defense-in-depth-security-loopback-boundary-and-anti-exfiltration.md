@@ -40,7 +40,10 @@ AksaraSight processes private, sensitive, and proprietary documents (financial r
    - Write export files atomically via `.tmp` scratch files and `os.replace`.
    - Require `target.suffix.lower() in ALLOWED_OUTPUT_EXTS`, reject symlinks, and assert canonical directory containment in `delete_output_file`.
    - Sanitize export stems with `sanitize_filename_stem` against Windows reserved DOS device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9).
-   - Pin Windows NVIDIA CUDA DLL loading strictly to `%SystemRoot%\System32\nvcuda.dll`. Sanitize `LD_LIBRARY_PATH` against empty segments, trailing colons, whitespace, and relative paths.
+   - Anchor dynamic library loading strictly to authoritative paths to prevent CWE-427 DLL search order preloading/hijacking:
+     - CUDA: pin Windows NVIDIA CUDA driver loading strictly to `%SystemRoot%\System32\nvcuda.dll`.
+     - NVML Telemetry: enforce a dual-path anchored search order on Windows, checking `%SystemRoot%\System32\nvml.dll` followed by `%ProgramFiles%\NVIDIA Corporation\NVSMI\nvml.dll` via `os.environ.get()` with robust defaults; on Linux and WSL environments, query explicit system locations (`libnvidia-ml.so.1` and `/usr/lib/wsl/lib/libnvidia-ml.so.1`).
+     - Sanitize `LD_LIBRARY_PATH` against empty segments, trailing colons, whitespace, and relative paths.
 7. **Downloader Hardening & Verified Model Integrity (`core/model_manager.py`, `core/server_manager.py`)**:
    - **Mandatory Pre-Execution Hash Verification**: `ServerManager` enforces `get_local_model_paths(repo, verify_hash=True)` before spawning `llama-server`. The check computes chunked SHA-256 digests fail-closed against authoritative pinned constants for both the base model and projector.
    - **Elimination of Outbound `-hf` Fallback**: The legacy fallback that spawned `llama-server -hf <repo>` when weights were missing is removed. Missing or corrupt model files raise `FileNotFoundError` immediately, guaranteeing that child processes never initiate outbound network connections to external services.
@@ -54,11 +57,13 @@ AksaraSight processes private, sensitive, and proprietary documents (financial r
 - **Unlinking `.instance.lock` on Windows Exit**: Rejected because Windows NTFS file locking causes immediate WinError 32 contention if a new process attempts to acquire the lock before the exiting process completes handle teardown. Retaining the 0-byte lock file eliminates this race.
 - **Allowing `-hf` Subprocess Fallback for Missing Models**: Rejected because passing repository IDs to child binaries allows external HTTP/HTTPS calls outside Python application oversight, violating the zero-exfiltration security boundary.
 - **Ignoring HTTP 416 / Unconditional Overwrite without Reset**: Rejected because failing to reset range headers on invalid partial files causes permanent download loops or corrupt model weights.
+- **Unanchored Dynamic Library Loading (`ctypes.CDLL("nvml.dll")`)**: Rejected because unanchored DLL loading follows default OS search heuristics (searching current working directory and application root first), creating CWE-427 DLL hijacking attack surfaces if malicious binaries are planted in user folders.
 
 ## Consequences
 - Documents and OCR transcriptions never leave the local workstation.
 - Protects the local server from browser-based drive-by attacks originating from malicious websites open in other tabs.
 - Child processes are isolated from host proxy configurations and prohibited from initiating outbound network connections.
+- Dynamic library loading for GPU detection and NVML telemetry is anchored to absolute system paths, mitigating CWE-427 DLL preloading.
 - Runtime extraction is protected against malicious archive traversal and symlink escapes.
 - Model downloads feature cryptographic SHA-256 integrity verification, safe range-resumption with HTTP 416 self-healing, and automatic legacy weight pruning.
 - Sensitive configuration and upload directories are protected by strict permissions (`0o600`/`0o700`).

@@ -8,6 +8,7 @@ from core.hardware import (
     _parse_driver_version,
     _probe_nvidia_smi,
     detect_hardware,
+    probe_nvml_vram,
 )
 
 
@@ -544,4 +545,226 @@ def test_probe_linux_wsl_detection(monkeypatch) -> None:
 
     with patch.object(Path, "exists", return_value=False), patch.object(Path, "is_dir", return_value=False):
         assert probe_fn() is False
+
+
+def test_probe_nvml_vram_success() -> None:
+    """Verify probe_nvml_vram parses memory and device properties upon successful NVML call."""
+    mock_nvml = MagicMock()
+    mock_nvml.nvmlInit_v2.return_value = 0
+
+    def fake_get_count(p_count):
+        if hasattr(p_count, "_obj"):
+            p_count._obj.value = 1
+        return 0
+
+    def fake_get_handle(idx, p_handle):
+        if hasattr(p_handle, "_obj"):
+            p_handle._obj.value = 0x1234
+        return 0
+
+    def fake_get_name(handle, buf, size):
+        buf.value = b"NVIDIA GeForce RTX 4090\x00"
+        return 0
+
+    def fake_get_mem(handle, p_mem):
+        if hasattr(p_mem, "_obj"):
+            p_mem._obj.total = 24576 * 1024 * 1024
+            p_mem._obj.used = 6144 * 1024 * 1024
+            p_mem._obj.free = 18432 * 1024 * 1024
+        return 0
+
+    mock_nvml.nvmlDeviceGetCount_v2.side_effect = fake_get_count
+    mock_nvml.nvmlDeviceGetHandleByIndex_v2.side_effect = fake_get_handle
+    mock_nvml.nvmlDeviceGetName.side_effect = fake_get_name
+    mock_nvml.nvmlDeviceGetMemoryInfo.side_effect = fake_get_mem
+    mock_nvml.nvmlShutdown.return_value = 0
+
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("ctypes.CDLL", return_value=mock_nvml),
+    ):
+        res = probe_nvml_vram()
+        assert res["available"] is True
+        assert res["device_name"] == "NVIDIA GeForce RTX 4090"
+        assert res["device_index"] == 0
+        assert res["device_count"] == 1
+        assert res["total_mb"] == 24576
+        assert res["used_mb"] == 6144
+        assert res["free_mb"] == 18432
+        assert res["usage_percent"] == 25.0
+        assert res["error"] is None
+        mock_nvml.nvmlShutdown.assert_called_once()
+
+
+def test_probe_nvml_vram_missing_dll_fallback() -> None:
+    """Verify probe_nvml_vram returns available=False and error string when NVML is missing."""
+    with (
+        patch("pathlib.Path.is_file", return_value=False),
+        patch("ctypes.CDLL", side_effect=OSError("DLL not found")),
+    ):
+        res = probe_nvml_vram()
+        assert res["available"] is False
+        assert res["device_name"] is None
+        assert res["device_index"] is None
+        assert res["device_count"] is None
+        assert res["total_mb"] is None
+        assert res["used_mb"] is None
+        assert res["free_mb"] is None
+        assert res["usage_percent"] is None
+        assert res["error"] is not None
+        assert len(res["error"]) > 0
+
+
+def test_probe_nvml_vram_init_nonzero_does_not_call_shutdown() -> None:
+    """Verify probe_nvml_vram does NOT call nvmlShutdown when nvmlInit_v2 returns non-zero."""
+    mock_nvml = MagicMock()
+    mock_nvml.nvmlInit_v2.return_value = 1
+
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("ctypes.CDLL", return_value=mock_nvml),
+    ):
+        res = probe_nvml_vram()
+        assert res["available"] is False
+        assert res["error"] is not None
+        assert "nvmlInit" in res["error"] or "1" in res["error"]
+        mock_nvml.nvmlShutdown.assert_not_called()
+
+
+def test_probe_nvml_vram_multi_gpu_highest_vram_selection() -> None:
+    """Verify multi-GPU device selection picks the device with maximum total VRAM when device_index=None."""
+    mock_nvml = MagicMock()
+    mock_nvml.nvmlInit_v2.return_value = 0
+
+    def fake_get_count(p_count):
+        if hasattr(p_count, "_obj"):
+            p_count._obj.value = 2
+        return 0
+
+    def fake_get_handle(idx, p_handle):
+        dev_idx = getattr(idx, "value", idx)
+        if hasattr(p_handle, "_obj"):
+            p_handle._obj.value = 0x1000 + int(dev_idx)
+        return 0
+
+    def fake_get_name(handle, buf, size):
+        val = getattr(handle, "value", handle)
+        if val == 0x1000:
+            buf.value = b"NVIDIA GeForce RTX 3060\x00"
+        else:
+            buf.value = b"NVIDIA GeForce RTX 4090\x00"
+        return 0
+
+    def fake_get_mem(handle, p_mem):
+        val = getattr(handle, "value", handle)
+        if hasattr(p_mem, "_obj"):
+            if val == 0x1000:
+                p_mem._obj.total = 12288 * 1024 * 1024
+                p_mem._obj.used = 2048 * 1024 * 1024
+                p_mem._obj.free = 10240 * 1024 * 1024
+            else:
+                p_mem._obj.total = 24576 * 1024 * 1024
+                p_mem._obj.used = 4096 * 1024 * 1024
+                p_mem._obj.free = 20480 * 1024 * 1024
+        return 0
+
+    mock_nvml.nvmlDeviceGetCount_v2.side_effect = fake_get_count
+    mock_nvml.nvmlDeviceGetHandleByIndex_v2.side_effect = fake_get_handle
+    mock_nvml.nvmlDeviceGetName.side_effect = fake_get_name
+    mock_nvml.nvmlDeviceGetMemoryInfo.side_effect = fake_get_mem
+    mock_nvml.nvmlShutdown.return_value = 0
+
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("ctypes.CDLL", return_value=mock_nvml),
+    ):
+        res = probe_nvml_vram(device_index=None)
+        assert res["available"] is True
+        assert res["device_index"] == 1
+        assert res["device_name"] == "NVIDIA GeForce RTX 4090"
+        assert res["device_count"] == 2
+        assert res["total_mb"] == 24576
+        mock_nvml.nvmlShutdown.assert_called_once()
+
+
+def test_probe_nvml_vram_explicit_device_index() -> None:
+    """Verify probe_nvml_vram respects explicit device_index."""
+    mock_nvml = MagicMock()
+    mock_nvml.nvmlInit_v2.return_value = 0
+
+    def fake_get_count(p_count):
+        if hasattr(p_count, "_obj"):
+            p_count._obj.value = 2
+        return 0
+
+    def fake_get_handle(idx, p_handle):
+        dev_idx = getattr(idx, "value", idx)
+        if hasattr(p_handle, "_obj"):
+            p_handle._obj.value = 0x1000 + int(dev_idx)
+        return 0
+
+    def fake_get_name(handle, buf, size):
+        val = getattr(handle, "value", handle)
+        if val == 0x1000:
+            buf.value = b"NVIDIA GeForce RTX 3060\x00"
+        else:
+            buf.value = b"NVIDIA GeForce RTX 4090\x00"
+        return 0
+
+    def fake_get_mem(handle, p_mem):
+        val = getattr(handle, "value", handle)
+        if hasattr(p_mem, "_obj"):
+            if val == 0x1000:
+                p_mem._obj.total = 12288 * 1024 * 1024
+                p_mem._obj.used = 2048 * 1024 * 1024
+                p_mem._obj.free = 10240 * 1024 * 1024
+            else:
+                p_mem._obj.total = 24576 * 1024 * 1024
+                p_mem._obj.used = 4096 * 1024 * 1024
+                p_mem._obj.free = 20480 * 1024 * 1024
+        return 0
+
+    mock_nvml.nvmlDeviceGetCount_v2.side_effect = fake_get_count
+    mock_nvml.nvmlDeviceGetHandleByIndex_v2.side_effect = fake_get_handle
+    mock_nvml.nvmlDeviceGetName.side_effect = fake_get_name
+    mock_nvml.nvmlDeviceGetMemoryInfo.side_effect = fake_get_mem
+    mock_nvml.nvmlShutdown.return_value = 0
+
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("ctypes.CDLL", return_value=mock_nvml),
+    ):
+        res = probe_nvml_vram(device_index=0)
+        assert res["available"] is True
+        assert res["device_index"] == 0
+        assert res["device_name"] == "NVIDIA GeForce RTX 3060"
+        assert res["total_mb"] == 12288
+        mock_nvml.nvmlShutdown.assert_called_once()
+
+
+def test_probe_nvml_vram_device_index_out_of_range() -> None:
+    """Verify probe_nvml_vram handles out-of-range device_index safely."""
+    mock_nvml = MagicMock()
+    mock_nvml.nvmlInit_v2.return_value = 0
+
+    def fake_get_count(p_count):
+        if hasattr(p_count, "_obj"):
+            p_count._obj.value = 2
+        return 0
+
+    mock_nvml.nvmlDeviceGetCount_v2.side_effect = fake_get_count
+    mock_nvml.nvmlShutdown.return_value = 0
+
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("ctypes.CDLL", return_value=mock_nvml),
+    ):
+        res = probe_nvml_vram(device_index=5)
+        assert res["available"] is False
+        assert res["device_index"] == 5
+        assert res["device_count"] == 2
+        assert res["error"] is not None
+        assert "range" in res["error"].lower() or "invalid" in res["error"].lower()
+        mock_nvml.nvmlShutdown.assert_called_once()
+
 

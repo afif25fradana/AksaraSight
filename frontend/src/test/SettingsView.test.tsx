@@ -2,7 +2,8 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SettingsView } from '../components/SettingsView';
+import { SettingsView } from '../components/modals/SettingsView';
+import { ServerEventsProvider } from '../context/ServerEventsContext';
 import { BackendSettings } from '../types';
 
 const mockDefaultSettings: BackendSettings = {
@@ -16,7 +17,7 @@ const mockDefaultSettings: BackendSettings = {
   timeout: 60,
   max_retries: 2,
   auto_start_server: false,
-  model_repo: 'ggml-org/GLM-OCR-GGUF',
+  model_repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
   allow_remote: false,
   llama_server_path: null,
 };
@@ -33,7 +34,7 @@ const mockModelStatusResponse = {
   status: 200,
   json: async () => ({
     downloaded: true,
-    repo: 'ggml-org/GLM-OCR-GGUF',
+    repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
     model_path: 'C:\\models\\model.gguf',
     mmproj_path: 'C:\\models\\mmproj.gguf',
     is_downloading: false,
@@ -175,7 +176,7 @@ describe('SettingsView backend integration and security', () => {
 
     // Verify model_repo input is editable
     const modelRepoInput = screen.getByLabelText(/Hugging Face Model Repository/i);
-    expect(modelRepoInput).toHaveValue('ggml-org/GLM-OCR-GGUF');
+    expect(modelRepoInput).toHaveValue('PaddlePaddle/PaddleOCR-VL-1.6-GGUF');
     await userEvent.clear(modelRepoInput);
     await userEvent.type(modelRepoInput, 'custom-org/model-gguf');
     expect(modelRepoInput).toHaveValue('custom-org/model-gguf');
@@ -554,7 +555,6 @@ describe('SettingsView backend integration and security', () => {
       removeEventListener: vi.fn(),
       close: vi.fn(),
     };
-    (window as any).__eventSource = mockEventSource;
 
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -594,7 +594,11 @@ describe('SettingsView backend integration and security', () => {
       return Promise.reject(new Error(`Unhandled fetch: ${urlStr}`));
     });
 
-    render(<SettingsView />);
+    render(
+      <ServerEventsProvider eventSource={mockEventSource}>
+        <SettingsView />
+      </ServerEventsProvider>
+    );
 
     // Wait for Download Runtime button to appear
     const downloadBtn = await screen.findByRole('button', { name: /download runtime/i });
@@ -622,6 +626,5 @@ describe('SettingsView backend integration and security', () => {
     }
 
     expect(await screen.findByText('Extracting runtime archive...')).toBeInTheDocument();
-    delete (window as any).__eventSource;
   });
 });

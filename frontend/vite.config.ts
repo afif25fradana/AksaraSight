@@ -15,11 +15,17 @@ export default defineConfig(() => {
     build: {
       outDir: normalizePath(path.resolve(import.meta.dirname, '../web/static')),
       emptyOutDir: true,
-      rollupOptions: {
+      rolldownOptions: {
         output: {
           entryFileNames: 'assets/[name].js',
           chunkFileNames: 'assets/[name].js',
-          assetFileNames: 'assets/[name].[ext]',
+          assetFileNames: (assetInfo) => {
+            const name = typeof assetInfo === 'string' ? assetInfo : (assetInfo.name || '');
+            if (/\.(woff2?|ttf|otf|eot)$/i.test(name)) {
+              return 'assets/fonts/[name].[ext]';
+            }
+            return 'assets/[name].[ext]';
+          },
         },
       },
     },

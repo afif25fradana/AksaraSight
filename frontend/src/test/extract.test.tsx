@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
-import { ExtractedTextPanel } from '../components/ExtractedTextPanel';
+import { ExtractedTextPanel } from '../components/workspace/ExtractedTextPanel';
 import { DocumentItem } from '../types';
 
 let activeEventSource: MockEventSource | null = null;
@@ -96,7 +96,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
     // Wait for document to load and Extract Document button to appear
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Extract Document' })).toBeInTheDocument();
-    });
+    }, { timeout: 4000 });
 
     // Select 'table' mode from Extraction Options popover
     const optionsButton = screen.getByRole('button', { name: /Extraction Options/i });
@@ -163,7 +163,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
     // Wait for document to load and Extract Document button to appear
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Extract Document' })).toBeInTheDocument();
-    });
+    }, { timeout: 4000 });
 
     // Directly click Extract Document without changing options (default is text, 100 DPI)
     const extractButton = screen.getByRole('button', { name: 'Extract Document' });
@@ -784,7 +784,6 @@ describe('SSE extraction completion defense and server-authoritative cancellatio
 
   it('cancellation failure (500 error): preserves runningJobDocId, keeps status Processing, and alerts user', async () => {
     const user = userEvent.setup();
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -825,9 +824,8 @@ describe('SSE extraction completion defense and server-authoritative cancellatio
 
     await user.click(cancelBtn);
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Internal worker crash'));
-    });
+    const toastAlert = await screen.findByRole('alert');
+    expect(toastAlert).toHaveTextContent(/Internal worker crash/i);
 
     // Verification: document remains in 'Processing' and Cancel extraction button is still present (runningJobDocId not cleared)
     expect(screen.getByRole('button', { name: 'Cancel extraction' })).toBeInTheDocument();
@@ -835,7 +833,6 @@ describe('SSE extraction completion defense and server-authoritative cancellatio
 
   it('cancellation failure (network rejection): preserves runningJobDocId, keeps status Processing, and alerts network error', async () => {
     const user = userEvent.setup();
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -870,11 +867,8 @@ describe('SSE extraction completion defense and server-authoritative cancellatio
     const cancelBtn = await screen.findByRole('button', { name: 'Cancel extraction' });
     await user.click(cancelBtn);
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(
-        'Network error: Could not reach server to cancel extraction. Extraction is still running.'
-      );
-    });
+    const toastAlert = await screen.findByRole('alert');
+    expect(toastAlert).toHaveTextContent(/Network error: Could not reach server to cancel extraction/i);
 
     // Verification: runningJobDocId is preserved, Cancel button remains
     expect(screen.getByRole('button', { name: 'Cancel extraction' })).toBeInTheDocument();

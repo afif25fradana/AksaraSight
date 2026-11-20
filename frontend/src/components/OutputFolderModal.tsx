@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FolderOpen, X, Trash2, Eye, ExternalLink, Copy, Check, FileText } from 'lucide-react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useToast } from '../hooks/useToast';
 import { ExportedFile } from '../types';
 
 interface OutputFolderModalProps {
@@ -18,6 +19,7 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
   onDeleteFile,
   folderPath = '~/Documents/AksaraSight/output',
 }) => {
+  const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<ExportedFile | null>(files[0] || null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
@@ -103,11 +105,11 @@ export const OutputFolderModal: React.FC<OutputFolderModalProps> = ({
         const errData = await res.json().catch(() => ({}));
         const errorMsg = errData.detail || errData.error || errData.message || `Failed to delete file (HTTP ${res.status})`;
         console.error('Failed to delete output file from disk:', errorMsg);
-        alert(errorMsg);
+        toast.error(errorMsg);
       }
     } catch (err: any) {
       console.error('Failed to delete output file from disk:', err);
-      alert(err?.message || 'Failed to delete file');
+      toast.error(err?.message || 'Failed to delete file');
     }
   };
 

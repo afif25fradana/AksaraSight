@@ -42,9 +42,13 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 5. **CSS View Transitions Isolation Boundary**:
    - Reserve the native View Transitions API exclusively for document-wide, full-viewport transformations (the circular ripple theme transition).
    - Prohibit assigning explicit `view-transition-name` to inner layout containers. Sub-view transitions (Workspace ↔ Settings) use standard CSS transitions (`animate-fade-in`) to maintain a monolithic DOM root for full-screen view transitions.
-6. **Zero-Dependency Native Accessibility (WCAG 2.1 AA)**:
-   - Implement a lightweight, zero-dependency `useFocusTrap` hook (`frontend/src/hooks/useFocusTrap.ts`) utilizing React refs and standard DOM event listeners. Caches `document.activeElement` prior to opening to restore focus on unmount; traps `Tab` / `Shift+Tab` within the modal container.
-   - Provide semantic keyboard controls (`role="button"`, `tabIndex={0}`, `aria-pressed`, `onKeyDown` Enter/Space) on exported file items in modals.
+6. **Zero-Dependency Native Accessibility (WCAG 2.2 AA)**:
+   - Implement a lightweight, zero-dependency `useFocusTrap` hook (`frontend/src/hooks/useFocusTrap.ts`) utilizing React refs and standard DOM event listeners. Caches `document.activeElement` prior to opening to restore focus on unmount; traps `Tab` / `Shift+Tab` within modal containers.
+   - Provide semantic keyboard controls (`role="button"`, `tabIndex={0}`, `aria-pressed`, `onKeyDown` Enter/Space) across interactive list and grid items.
+   - Calibrate light-theme color palette tokens to guarantee WCAG 2.2 AA contrast ratios (>= 4.5:1 against light backgrounds): `--text-2` (`#475569`) and `--text-3` (`#5c6779`).
+   - Implement WAI-ARIA roving tabindex navigation across Settings categories (`role="tablist"` / `role="tab"`), allowing seamless traversal via `ArrowLeft`, `ArrowRight`, `Home`, and `End` keys (`tabIndex={active ? 0 : -1}`).
+   - Enforce minimum 24px x 24px touch targets on all interactive icon buttons and toggles.
+   - Under `prefers-reduced-motion: reduce`, exempt activity spinners (`.animate-spin`) from instant freezing by slowing rotation to 2.5s linear duration, maintaining ongoing operational awareness while preventing vestibular discomfort.
 7. **Responsive Viewport Overflow Resilience**:
    - Configure `<main>` in `frontend/src/App.tsx` with `overflow-y-auto lg:overflow-hidden` and provide minimum panel heights (`min-h-[340px]`, `min-h-[460px] lg:h-full`), enabling smooth vertical scrolling on mobile/tablet viewports while preserving fixed 3-column height on desktop displays.
 8. **Discrete Parameter Controls & Real-Time SSE Synchronization**:
@@ -55,6 +59,26 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
    - **File Chooser**: Win32 FileDialog on Windows; `zenity` (or fallback `kdialog`) on Linux desktop.
    - **Directory Reveal**: Windows Explorer on Windows; `xdg-open` on Linux with returncode validation.
    - **WSL Browser Bridging**: In headless WSL environments, route browser launches via `wslview -- <url>` or `powershell.exe Start-Process '<safe_url>'` with single-quote escaping and URL scheme validation.
+10. **Modular Component Architecture & Type-Safe Context Boundary**:
+    - Decompose monolithic frontend views into focused presentational views and specialized sub-components, maintaining a modular design target (< 350 LOC per file) to prevent architectural drift:
+      - Workspace views (`ExtractedTextPanel`, `DocumentPreviewPanel`, `FileQueuePanel`) decompose into specialized sub-components (`QueueItemRow`, `ExtractionOptionsPopover`, `ExportDropdown`) and dedicated format renderers (`FormulaRenderer`, `TableRenderer`, `MarkdownRenderer`).
+      - Configuration views (`SettingsView`) isolate settings categories into dedicated tabs (`SettingsEngineTab`, `SettingsProcessingTab`, `SettingsAdvancedTab`) and runtime diagnostic cards (`ManagedRuntimeSection`, `ModelWeightsSection`, `DoctorDiagnosticSection`).
+    - Encapsulate domain lifecycles into dedicated custom hooks:
+      - `useExtractionQueue`: Manages document queue state, batch dispatch, active extraction polling, SSE event reconciliation, and abort handling.
+      - `useServerStatus`: Monitors local server health, backend start/stop lifecycle, and live VRAM telemetry.
+      - `useSettings`: Manages engine configuration state, persistence to local backend settings, and dirty-state tracking.
+      - `useToast`: Dispatches non-blocking, accessible status notifications.
+    - Eradicate untyped browser globals and ad-hoc singletons:
+      - Replace `window.__eventSource` with typed `ServerEventsContext` (`frontend/src/context/ServerEventsContext.tsx`), providing type-safe Server-Sent Events subscriptions with automatic listener cleanup on unmount.
+      - Replace blocking native `window.alert()` calls with an accessible, non-blocking `ToastContext` (`frontend/src/context/ToastContext.tsx`) rendering polite screen-reader alerts via `ToastContainer`.
+11. **Offline KaTeX Math Formula Rendering & Font Asset Bundling**:
+    - Incorporate KaTeX (0.19.1) for offline client-side LaTeX math formula rendering (`FormulaRenderer.tsx`) across preview and transcription panels.
+    - Enforce defensive execution constraints: `trust: false` (prohibits dangerous KaTeX commands and arbitrary HTML injection), `throwOnError: false` (renders fallback raw text gracefully without crashing), and `strict: false`.
+    - Route all KaTeX font assets (`.woff2`, `.ttf`, etc.) into `assets/fonts/` via Vite 8 `rolldownOptions.output.assetFileNames` to guarantee full functionality in strictly air-gapped environments without CDN requests.
+12. **Live In-Process NVML VRAM Telemetry**:
+    - Expose a dedicated hardware telemetry endpoint (`GET /api/hardware/vram`) in `web/app.py`, offloading NVML queries to worker threads (`asyncio.to_thread`).
+    - Poll telemetry at a 6-second interval via `useServerStatus` to display a compact, live VRAM utilization badge in the top navigation bar (`TopNavBar.tsx`).
+    - Surface device name, total memory, used memory, and a dynamic color-coded usage bar (green <= 65%, amber > 65%, red > 85%) for NVIDIA GPUs while remaining inert on non-NVIDIA systems.
 
 ## Alternatives Considered & Rejected
 - **PySide6 / PyQt6**: Rejected due to heavy distribution size (>150 MB binary overhead), complex LGPL licensing, and continued display server requirements in headless CI.
@@ -62,9 +86,13 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 - **Electron / WebView2 / PyWebView Application Wrapper**: Rejected due to excessive memory footprint, heavy runtime DLL dependencies, complex COM/C++ bindings, and Linux display server requirements. Chromium/Edge `--app` mode provides a borderless desktop window using browsers already present on user systems.
 - **Immediate Server Shutdown on Client Disconnect**: Rejected because page refreshes (F5) or brief network pauses momentarily drop SSE connections. A 10-second debounce window prevents premature termination.
 - **Client-Side HTTP Unload Beacon / Polling**: Rejected because Chromium 88+ throttles background timers to once per 60 seconds on hidden/minimized windows, and unload beacons (`navigator.sendBeacon`) are unreliable during abrupt process kills. Backend SSE socket tracking provides deterministic client presence detection.
-- **Third-Party Focus Trap Libraries (`focus-trap-react`, `react-focus-lock`)**: Rejected because they add ~15–30 KB to bundle size, introduce transitive dependencies, and trigger React 19 peer-dependency warnings. Standard DOM querySelector and keydown listeners solve the problem with zero dependencies in < 80 lines of TypeScript.
+- **Third-Party Focus Trap Libraries (`focus-trap-react`, `react-focus-lock`)**: Rejected because they add ~15–30 KB to bundle size, introduce transitive dependencies, and trigger React 19 peer-dependency warnings. Standard DOM querySelector and keydown listeners solve the problem with zero dependencies in a compact custom hook.
 - **Nested Multi-Group View Transitions**: Rejected because browser View Transitions API isolates named groups from the root snapshot, breaking unified full-viewport clip-path transitions.
 - **Continuous DPI Slider (50–600 DPI)**: Rejected because unconstrained raster resolutions cause erratic memory consumption, cache invalidation, and unpredictable vision LLM inference times.
+- **External CDN for KaTeX / MathJax**: Rejected because external asset loading violates the 100% offline security and privacy architecture.
+- **Unrestricted KaTeX Trust Flag (`trust: true`)**: Rejected because processing unvetted OCR transcriptions with `trust: true` introduces script execution and XSS risks.
+- **Global `window.alert` and Unmanaged `window.__eventSource` Singletons**: Rejected because native blocking dialogs disrupt screen readers and keyboard workflows, while unmanaged global event sources cause connection leaks across component remounts.
+- **Full Spinner Freeze Under Reduced Motion**: Rejected because completely freezing progress indicators leaves users unable to distinguish active processing from hung background threads; a calmed 2.5s rotation provides clear status feedback without triggering vestibular triggers.
 
 ## Consequences
 - Standalone desktop app window experience with zero bundled browser bloat.
@@ -73,7 +101,11 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 - Safe fallback to default browser launching on systems without Chromium-family browsers, including headless WSL2 bridging.
 - Test suites run 100% headless across Windows and Linux CI without display server emulators (Xvfb).
 - Rich, responsive UI with side-by-side document preview, full-text rendering, theme switching, and real-time SSE progress updates.
-- All modal dialogs comply with WCAG 2.1 AA requirements for keyboard navigation, focus containment, and focus restoration.
+- Modular frontend architecture with presentational views decomposed into specialized sub-components (< 350 LOC design target) and clear custom domain hook separation.
+- Full client-side LaTeX formula rendering with KaTeX operating 100% offline via Vite 8 Rolldown font routing without external CDN requests.
+- Type-safe, leak-free Server-Sent Events management via `ServerEventsContext` and non-blocking notifications via `ToastContext`.
+- All modal dialogs and workspace components comply with WCAG 2.2 AA requirements (contrast tokens, roving tabindex, 24px touch targets, focus containment, and calibrated reduced motion).
+- Live in-process NVML VRAM telemetry monitoring without external subprocess dependencies.
 - Mobile and tablet viewports scroll cleanly through all workspace panels without content truncation.
 - Full-screen circular ripple theme transitions render smoothly without clipping or frame tearing.
 - Provides desktop integration across Windows, Linux, and WSL2.

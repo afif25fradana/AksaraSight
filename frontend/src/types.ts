@@ -156,3 +156,25 @@ export interface RuntimeStatusInfo {
   error: string | null;
 }
 
+export interface VramTelemetry {
+  available: boolean;
+  device_name?: string | null;
+  device_index?: number | null;
+  device_count?: number;
+  total_mb?: number;
+  used_mb?: number;
+  free_mb?: number;
+  usage_percent?: number;
+  error?: string | null;
+}
+
+export type ToastType = 'info' | 'success' | 'warning' | 'error';
+
+export interface ToastItem {
+  id: string;
+  message: string;
+  type: ToastType;
+  duration?: number;
+}
+
+

@@ -1323,3 +1323,67 @@ def test_sse_endpoint_tracks_clients_via_supervisor(tmp_path: Path):
 
     asyncio.run(_run())
 
+
+def test_hardware_vram_endpoint_schema(tmp_path: Path) -> None:
+    """Verify GET /api/hardware/vram returns expected JSON schema."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    status_code, _, body = client.get("/api/hardware/vram")
+    assert status_code == 200
+    data = json.loads(body.decode("utf-8"))
+
+    expected_keys = {
+        "available",
+        "device_name",
+        "device_index",
+        "device_count",
+        "total_mb",
+        "used_mb",
+        "free_mb",
+        "usage_percent",
+        "error",
+    }
+    assert set(data.keys()) == expected_keys
+    assert isinstance(data["available"], bool)
+    if data["available"]:
+        assert isinstance(data["device_name"], str)
+        assert isinstance(data["device_index"], int)
+        assert isinstance(data["device_count"], int)
+        assert isinstance(data["total_mb"], int)
+        assert isinstance(data["used_mb"], int)
+        assert isinstance(data["free_mb"], int)
+        assert isinstance(data["usage_percent"], (int, float))
+        assert data["error"] is None
+    else:
+        assert data["error"] is not None
+
+
+def test_hardware_vram_endpoint_offload_and_query_param(tmp_path: Path) -> None:
+    """Verify GET /api/hardware/vram uses asyncio.to_thread and passes device_index."""
+    app = create_app(upload_dir=tmp_path)
+    client = AsgiClient(app)
+
+    mock_result = {
+        "available": True,
+        "device_name": "NVIDIA GeForce RTX 4090",
+        "device_index": 1,
+        "device_count": 2,
+        "total_mb": 24576,
+        "used_mb": 4096,
+        "free_mb": 20480,
+        "usage_percent": 16.7,
+        "error": None,
+    }
+
+    with patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread:
+        with patch("web.app.probe_nvml_vram", return_value=mock_result) as mock_probe:
+            status_code, _, body = client.get("/api/hardware/vram?device_index=1")
+            assert status_code == 200
+            data = json.loads(body.decode("utf-8"))
+            assert data == mock_result
+            mock_probe.assert_called_once_with(device_index=1)
+            spy_to_thread.assert_called_once()
+            assert spy_to_thread.call_args[0][0] == mock_probe
+
+

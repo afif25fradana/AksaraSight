@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
-import { SettingsView } from '../components/SettingsView';
+import { SettingsView } from '../components/modals/SettingsView';
 import { ModelStatusInfo } from '../types';
 
 class MockEventSource {
@@ -41,26 +41,26 @@ class MockEventSource {
 }
 
 const mockDownloadedStatus: ModelStatusInfo = {
-  repo: 'ggml-org/GLM-OCR-GGUF',
-  revision: '65a42de',
+  repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
+  revision: '511b0964',
   downloaded: true,
-  model_path: 'C:\\Users\\TestUser\\AppData\\Local\\AksaraSight\\models\\glm-ocr-q8_0.gguf',
-  mmproj_path: 'C:\\Users\\TestUser\\AppData\\Local\\AksaraSight\\models\\glm-ocr-mmproj.gguf',
-  total_bytes: 1440000000,
+  model_path: 'C:\\Users\\TestUser\\AppData\\Local\\AksaraSight\\models\\PaddleOCR-VL-1.6-GGUF.gguf',
+  mmproj_path: 'C:\\Users\\TestUser\\AppData\\Local\\AksaraSight\\models\\PaddleOCR-VL-1.6-GGUF-mmproj.gguf',
+  total_bytes: 1817539616,
   is_downloading: false,
-  bytes_downloaded: 1440000000,
+  bytes_downloaded: 1817539616,
   percent: 100,
   active_file: null,
   error: null,
 };
 
 const mockNotDownloadedStatus: ModelStatusInfo = {
-  repo: 'ggml-org/GLM-OCR-GGUF',
-  revision: '65a42de',
+  repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
+  revision: '511b0964',
   downloaded: false,
   model_path: null,
   mmproj_path: null,
-  total_bytes: 1440000000,
+  total_bytes: 1817539616,
   is_downloading: false,
   bytes_downloaded: 0,
   percent: 0,
@@ -69,16 +69,16 @@ const mockNotDownloadedStatus: ModelStatusInfo = {
 };
 
 const mockDownloadingStatus: ModelStatusInfo = {
-  repo: 'ggml-org/GLM-OCR-GGUF',
-  revision: '65a42de',
+  repo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF',
+  revision: '511b0964',
   downloaded: false,
   model_path: null,
   mmproj_path: null,
-  total_bytes: 1440000000,
+  total_bytes: 1817539616,
   is_downloading: true,
-  bytes_downloaded: 720000000,
+  bytes_downloaded: 908769808,
   percent: 50,
-  active_file: 'glm-ocr-q8_0.gguf',
+  active_file: 'PaddleOCR-VL-1.6-GGUF.gguf',
   error: null,
 };
 
@@ -197,21 +197,21 @@ describe('Model Weights Management UI and Download Workflow', () => {
     expect(badge).toHaveClass('text-[#14532D]');
 
     // Verify metadata
-    expect(screen.getByText('GLM-OCR (Q8_0)')).toBeInTheDocument();
-    expect(screen.getByText(/ggml-org\/GLM-OCR-GGUF/)).toBeInTheDocument();
-    expect(screen.getByText(/65a42de/)).toBeInTheDocument();
-    expect(screen.getByText('1.34 GB')).toBeInTheDocument();
+    expect(screen.getByText('PaddleOCR-VL-1.6')).toBeInTheDocument();
+    expect(screen.getByText(/PaddlePaddle\/PaddleOCR-VL-1.6-GGUF/)).toBeInTheDocument();
+    expect(screen.getByText(/511b0964/)).toBeInTheDocument();
+    expect(screen.getByText('1.69 GB')).toBeInTheDocument();
 
     // Verify Re-download button text when already downloaded
     expect(screen.getByRole('button', { name: /Re-download Weights/i })).toBeInTheDocument();
     expect(screen.getByText('Model verified & ready for offline inference.')).toBeInTheDocument();
   });
 
-  // Test 2: displays "Not Downloaded (Using -hf fallback)" when not downloaded
-  it('displays "Not Downloaded (Using -hf fallback)" when not downloaded', async () => {
+  // Test 2: displays "Not Downloaded (Download required)" when not downloaded
+  it('displays "Not Downloaded (Download required)" when not downloaded', async () => {
     render(<SettingsView modelStatus={mockNotDownloadedStatus} />);
 
-    const badge = await screen.findByText(/Not Downloaded \(Using -hf fallback\)/i);
+    const badge = await screen.findByText(/Not Downloaded \(Download required\)/i);
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveClass('bg-amber-500/10');
     expect(badge).toHaveClass('text-amber-700');
@@ -264,7 +264,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     render(<SettingsView modelStatus={mockDownloadingStatus} />);
 
     // Verify progress text and active file
-    expect(await screen.findByText('glm-ocr-q8_0.gguf')).toBeInTheDocument();
+    expect(await screen.findByText('PaddleOCR-VL-1.6-GGUF.gguf')).toBeInTheDocument();
     expect(screen.getByText(/50%/)).toBeInTheDocument();
 
     // Verify Cancel button is present
@@ -394,7 +394,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     await user.click(settingsNavBtn);
 
     // Initial state: Not Downloaded
-    expect(await screen.findByText(/Not Downloaded \(Using -hf fallback\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Not Downloaded \(Download required\)/i)).toBeInTheDocument();
 
     // Broadcast SSE progress event
     const sseInstance = MockEventSource.instances[0];
@@ -403,17 +403,17 @@ describe('Model Weights Management UI and Download Workflow', () => {
     act(() => {
       sseInstance.emit('model_download_progress', {
         is_downloading: true,
-        bytes_downloaded: 720000000,
-        total_bytes: 1440000000,
+        bytes_downloaded: 908769808,
+        total_bytes: 1817539616,
         percent: 50,
-        active_file: 'glm-ocr-q8_0.gguf',
+        active_file: 'PaddleOCR-VL-1.6-GGUF.gguf',
         error: null,
       });
     });
 
     // Verify progress UI appears in SettingsView
     expect(await screen.findByText('Cancel Download')).toBeInTheDocument();
-    expect(screen.getByText('glm-ocr-q8_0.gguf')).toBeInTheDocument();
+    expect(screen.getByText('PaddleOCR-VL-1.6-GGUF.gguf')).toBeInTheDocument();
     expect(screen.getByText(/50%/)).toBeInTheDocument();
   });
 
@@ -446,7 +446,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     await user.click(redownloadBtn);
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?'
+      'Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?'
     );
     expect(downloadCalled).toBe(false);
   });
@@ -487,7 +487,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     await user.click(redownloadBtn);
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Model weights are already verified and installed locally. Do you want to re-download the ~1.4 GB model from Hugging Face?'
+      'Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?'
     );
     await waitFor(() => {
       expect(downloadCalled).toBe(true);
@@ -568,7 +568,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
     const settingsNavBtn = await screen.findByRole('button', { name: 'Settings' });
     await user.click(settingsNavBtn);
 
-    expect(await screen.findByText(/Not Downloaded \(Using -hf fallback\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Not Downloaded \(Download required\)/i)).toBeInTheDocument();
 
     const sseInstance = MockEventSource.instances[0];
     expect(sseInstance).toBeDefined();
@@ -578,8 +578,8 @@ describe('Model Weights Management UI and Download Workflow', () => {
       sseInstance.emit('model_download_progress', {
         status: 'completed',
         is_downloading: false,
-        bytes_downloaded: 1440000000,
-        total_bytes: 1440000000,
+        bytes_downloaded: 1817539616,
+        total_bytes: 1817539616,
         percent: 100,
         downloaded: true,
         active_file: null,

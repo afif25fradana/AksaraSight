@@ -157,5 +157,5 @@ export const INITIAL_SETTINGS: EngineSettings = {
   allowRemote: false,
   timeout: 60,
   retries: 2,
-  modelRepo: 'ggml-org/GLM-OCR-GGUF'
+  modelRepo: 'PaddlePaddle/PaddleOCR-VL-1.6-GGUF'
 };

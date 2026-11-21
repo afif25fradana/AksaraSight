@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
-import { SettingsView } from '../components/modals/SettingsView';
+import { SettingsView } from '../components/settings/SettingsView';
 import { ModelStatusInfo } from '../types';
 
 class MockEventSource {

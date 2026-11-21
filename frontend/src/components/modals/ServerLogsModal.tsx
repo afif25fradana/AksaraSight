@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Terminal, X, Copy, Check, Search, ArrowDown } from 'lucide-react';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { ServerStatusInfo } from '../types';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { ServerStatusInfo } from '../../types';
 
 interface ServerLogsModalProps {
   isOpen: boolean;

@@ -4,7 +4,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
 import { TopNavBar } from '../components/workspace/TopNavBar';
-import { ServerLogsModal } from '../components/ServerLogsModal';
+import { ServerLogsModal } from '../components/modals/ServerLogsModal';
 import { FileQueuePanel } from '../components/workspace/FileQueuePanel';
 import { DocumentItem, EngineSettings, ServerStatusInfo } from '../types';
 

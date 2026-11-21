@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Cpu, Sliders, Terminal, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { BackendSettings, EngineSettings, ModelStatusInfo, RuntimeStatusInfo } from '../../types';
 import { useToast } from '../../hooks/useToast';
-import { SettingsEngineTab } from '../settings/SettingsEngineTab';
-import { SettingsProcessingTab } from '../settings/SettingsProcessingTab';
-import { SettingsAdvancedTab } from '../settings/SettingsAdvancedTab';
+import { SettingsEngineTab } from './SettingsEngineTab';
+import { SettingsProcessingTab } from './SettingsProcessingTab';
+import { SettingsAdvancedTab } from './SettingsAdvancedTab';
 import { useSettingsLifecycle } from './useSettingsLifecycle';
 import { MUTABLE_KEYS, buildInitialFormData } from './settingsDefaults';
 

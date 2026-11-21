@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { FolderOpen, X, Trash2, Eye, ExternalLink, Copy, Check, FileText } from 'lucide-react';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { useToast } from '../hooks/useToast';
-import { ExportedFile } from '../types';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useToast } from '../../hooks/useToast';
+import { ExportedFile } from '../../types';
 
 interface OutputFolderModalProps {
   isOpen: boolean;

@@ -70,8 +70,8 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
     global.EventSource = originalEventSource;
   });
 
-  // Test 1: Start Server calls POST /api/server/start when server is offline
-  it('calls POST /api/server/start when Start Server button is clicked in offline state', async () => {
+  // Test 1: Start Engine calls POST /api/server/start when engine is offline
+  it('calls POST /api/server/start when Start Engine button is clicked in offline state', async () => {
     const user = userEvent.setup();
 
     const offlineStatus: ServerStatusInfo = {
@@ -125,8 +125,8 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
 
     render(<App />);
 
-    // Wait for Start Server button to appear
-    const startButton = await screen.findByRole('button', { name: 'Start Server' });
+    // Wait for Start Engine button to appear
+    const startButton = (await screen.findAllByRole('button', { name: 'Start Engine' }))[0];
     expect(startButton).toBeInTheDocument();
     expect(startButton).not.toBeDisabled();
 
@@ -140,8 +140,8 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
     });
   });
 
-  // Test 2: Stop Server calls POST /api/server/stop when server is managed and ready
-  it('calls POST /api/server/stop when Stop Server button is clicked in managed ready state', async () => {
+  // Test 2: Stop Engine calls POST /api/server/stop when engine is managed and ready
+  it('calls POST /api/server/stop when Stop Engine button is clicked in managed ready state', async () => {
     const user = userEvent.setup();
 
     const readyStatus: ServerStatusInfo = {
@@ -195,11 +195,11 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
 
     render(<App />);
 
-    // Wait for Local Engine Ready indicator and PID badge
-    expect(await screen.findByText('Local Engine Ready')).toBeInTheDocument();
+    // Wait for Engine Ready indicator and PID badge
+    expect(await screen.findByText('Engine Ready')).toBeInTheDocument();
     expect(screen.getByText('PID 2468')).toBeInTheDocument();
 
-    const stopButton = await screen.findByRole('button', { name: 'Stop Server' });
+    const stopButton = await screen.findByRole('button', { name: 'Stop Engine' });
     expect(stopButton).toBeInTheDocument();
     expect(stopButton).not.toBeDisabled();
 
@@ -213,7 +213,7 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
     });
   });
 
-  // Test 3: Stop Server is disabled with appropriate title when server is external (ownership: 'external')
+  // Test 3: Stop Engine is disabled with appropriate title when server is external (ownership: 'external')
   it('disables Stop Server button with external ownership tooltip when server is external', () => {
     const onToggleServer = vi.fn();
     const externalStatus: ServerStatusInfo = {
@@ -228,28 +228,22 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
 
     render(
       <TopNavBar
-        currentTab="workspace"
-        onSelectTab={vi.fn()}
-        engineSettings={mockDefaultSettings}
         onToggleServer={onToggleServer}
-        onOpenServerLogs={vi.fn()}
         onOpenOutputFolder={vi.fn()}
-        theme="light"
-        onToggleTheme={vi.fn()}
         serverStatus={externalStatus}
         isExtracting={false}
       />
     );
 
     const stopButton = screen.getByRole('button', {
-      name: 'Stop Server (Disabled - External Server)',
+      name: 'Stop Engine (Disabled - External Server)',
     });
     expect(stopButton).toBeInTheDocument();
     expect(stopButton).toBeDisabled();
     expect(stopButton).toHaveAttribute('title', 'Server managed externally (PID 9999)');
   });
 
-  // Test 4: Stop Server is disabled when extraction is in progress (isExtracting: true)
+  // Test 4: Stop Engine is disabled when extraction is in progress (isExtracting: true)
   it('disables Stop Server button with extraction in progress tooltip when isExtracting is true', () => {
     const onToggleServer = vi.fn();
     const managedReadyStatus: ServerStatusInfo = {
@@ -264,21 +258,15 @@ describe('ServerControls and Live Log Viewer State Machine', () => {
 
     render(
       <TopNavBar
-        currentTab="workspace"
-        onSelectTab={vi.fn()}
-        engineSettings={mockDefaultSettings}
         onToggleServer={onToggleServer}
-        onOpenServerLogs={vi.fn()}
         onOpenOutputFolder={vi.fn()}
-        theme="light"
-        onToggleTheme={vi.fn()}
         serverStatus={managedReadyStatus}
         isExtracting={true}
       />
     );
 
     const stopButton = screen.getByRole('button', {
-      name: 'Stop Server (Disabled - Extraction in progress)',
+      name: 'Stop Engine (Disabled - Extraction in progress)',
     });
     expect(stopButton).toBeInTheDocument();
     expect(stopButton).toBeDisabled();

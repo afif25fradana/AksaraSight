@@ -93,28 +93,28 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
       <button
         type="button"
         onClick={onToggleOpen}
-        className="h-8 px-2.5 bg-black/[0.04] dark:bg-[var(--bg-elevated)] hover:bg-black/[0.08] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] rounded-lg text-xs font-medium flex items-center gap-1.5 border border-black/10 dark:border-[var(--border)] active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+        className="h-8 px-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] rounded-sm text-xs font-medium flex items-center gap-1.5 border border-white/8 active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
         title="Extraction Options (Target Mode & Scan Detail)"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-label="Extraction Options"
       >
-        <SlidersHorizontal className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
+        <SlidersHorizontal className="w-3.5 h-3.5 text-[#60CDFF]" aria-hidden="true" />
         <span className="font-semibold">{activeMode?.shortLabel || 'Full Document'}</span>
-        <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-black/5 dark:bg-[var(--bg-active)] text-[#5A6478] dark:text-[var(--text-2)] border border-black/5 dark:border-[var(--border)]">
+        <span className="text-2xs font-mono px-1.5 py-0.5 rounded-sm bg-white/5 text-[#A6A6A6] border border-white/8">
           {currentDpi} DPI
         </span>
-        <ChevronDown className="w-3 h-3 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
+        <ChevronDown className="w-3 h-3 text-[#A6A6A6]" aria-hidden="true" />
       </button>
 
       {isOpen && (
         <div
-          className="absolute left-0 top-9 w-[290px] bg-white dark:bg-[var(--bg-elevated)] rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] py-1.5 z-30 shadow-lg text-[13px] origin-top-left animate-dropdown"
+          className="absolute left-0 top-9 w-[290px] bg-[#272727] dark:bg-[var(--bg-elevated)] rounded-sm border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.36)] py-1.5 z-30 text-[13px] origin-top-left animate-dropdown"
           role="dialog"
           aria-label="Extraction Options"
         >
           {/* Section 1: EXTRACTION TARGET */}
-          <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-b border-black/5 dark:border-[var(--border)] mb-1">
+          <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#A6A6A6] border-b border-white/8 mb-1">
             EXTRACTION TARGET
           </div>
           <div role="group" aria-label="Extraction target modes">
@@ -125,30 +125,30 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
                 onClick={() => {
                   onSelectMode(tm.mode);
                 }}
-                className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none transition-colors ${
-                  taskMode === tm.mode ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15' : ''
+                className={`w-full text-left px-3 py-1.5 hover:bg-white/[0.08] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
+                  taskMode === tm.mode ? 'bg-[#60CDFF]/15' : ''
                 }`}
                 role="menuitem"
               >
                 <div className="pr-2">
-                  <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] block text-xs">
+                  <span className="font-semibold text-[#F3F3F3] block text-xs">
                     {tm.label}
                   </span>
-                  <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] block leading-snug">
+                  <span className="text-2xs text-[#A6A6A6] block leading-snug">
                     {tm.desc}
                   </span>
                 </div>
                 {taskMode === tm.mode && (
-                  <Check className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)] ml-2 shrink-0" aria-hidden="true" />
+                  <Check className="w-4 h-4 text-[#60CDFF] ml-2 shrink-0" aria-hidden="true" />
                 )}
               </button>
             ))}
           </div>
 
           {/* Section 2: SCAN DETAIL / RESOLUTION */}
-          <div className="px-3 pt-2 pb-1 flex items-center justify-between text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)] border-t border-b border-black/5 dark:border-[var(--border)] my-1">
+          <div className="px-3 pt-2 pb-1 flex items-center justify-between text-2xs font-semibold uppercase tracking-wider text-[#A6A6A6] border-t border-b border-white/8 my-1">
             <span>SCAN DETAIL / RESOLUTION</span>
-            <span className="font-normal normal-case text-[10px] text-[#0F766E] dark:text-[var(--accent)] font-mono">
+            <span className="font-normal normal-case text-[10px] text-[#60CDFF] font-mono">
               Syncs with Settings
             </span>
           </div>
@@ -160,28 +160,28 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
                 onClick={() => {
                   onSelectDpi(res.dpi);
                 }}
-                className={`w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-[var(--bg-active)] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none transition-colors ${
-                  currentDpi === res.dpi ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/15' : ''
+                className={`w-full text-left px-3 py-1.5 hover:bg-white/[0.08] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
+                  currentDpi === res.dpi ? 'bg-[#60CDFF]/15' : ''
                 }`}
                 role="menuitem"
               >
                 <div className="pr-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-[#14213D] dark:text-[var(--text-1)] block text-xs">
+                    <span className="font-semibold text-[#F3F3F3] block text-xs">
                       {res.label}
                     </span>
                     {res.recommended && (
-                      <span className="text-2xs font-semibold uppercase px-1.5 py-0.5 rounded bg-[#0F766E]/15 dark:bg-[var(--accent)]/20 text-[#0F766E] dark:text-[var(--accent)]">
+                      <span className="text-2xs font-semibold uppercase px-1.5 py-0.5 rounded-sm bg-[#60CDFF]/20 text-[#60CDFF]">
                         Recommended
                       </span>
                     )}
                   </div>
-                  <span className="text-2xs text-[#5A6478] dark:text-[var(--text-2)] block leading-snug">
+                  <span className="text-2xs text-[#A6A6A6] block leading-snug">
                     {res.desc}
                   </span>
                 </div>
                 {currentDpi === res.dpi && (
-                  <Check className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)] ml-2 shrink-0" aria-hidden="true" />
+                  <Check className="w-4 h-4 text-[#60CDFF] ml-2 shrink-0" aria-hidden="true" />
                 )}
               </button>
             ))}

@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ServerStatusInfo, VramTelemetry } from '../types';
+import { ServerStatusInfo } from '../types';
 import { useToast } from './useToast';
 
 export function useServerStatus(runningJobDocId: string | null) {
   const [serverStatus, setServerStatus] = useState<ServerStatusInfo | null>(null);
-  const [vram, setVram] = useState<VramTelemetry | null>(null);
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
   const { toast } = useToast();
   const isMountedRef = useRef(true);
@@ -48,32 +47,15 @@ export function useServerStatus(runningJobDocId: string | null) {
     }
   }, []);
 
-  const fetchVram = useCallback(async () => {
-    try {
-      const res = await fetch('/api/hardware/vram');
-      if (res.ok) {
-        const data: VramTelemetry = await res.json();
-        if (isMountedRef.current) {
-          setVram(data);
-        }
-      }
-    } catch {
-      // Hardware telemetry query is non-critical; suppress logs
-    }
-  }, []);
-
   useEffect(() => {
     fetchServerStatus();
-    fetchVram();
 
     const statusInterval = setInterval(fetchServerStatus, 5000);
-    const vramInterval = setInterval(fetchVram, 6000);
 
     return () => {
       clearInterval(statusInterval);
-      clearInterval(vramInterval);
     };
-  }, [fetchServerStatus, fetchVram]);
+  }, [fetchServerStatus]);
 
   const handleToggleServer = useCallback(async () => {
     if (isTransitioning) return;
@@ -107,7 +89,6 @@ export function useServerStatus(runningJobDocId: string | null) {
         }
       }
       await fetchServerStatus();
-      await fetchVram();
     } catch (err: any) {
       console.error('Failed to toggle server state:', err);
       toast.error(err?.message || 'Failed to toggle server state');
@@ -116,14 +97,12 @@ export function useServerStatus(runningJobDocId: string | null) {
         setIsTransitioning(false);
       }
     }
-  }, [isTransitioning, serverStatus, runningJobDocId, toast, fetchServerStatus, fetchVram]);
+  }, [isTransitioning, serverStatus, runningJobDocId, toast, fetchServerStatus]);
 
   return {
     serverStatus,
-    vram,
     isTransitioning,
     fetchServerStatus,
-    fetchVram,
     handleToggleServer,
     setServerStatus,
   };

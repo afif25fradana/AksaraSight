@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { NavRail, NavRailTab } from './components/workspace/NavRail';
 import { TopNavBar } from './components/workspace/TopNavBar';
+import { BottomStatusBar } from './components/workspace/BottomStatusBar';
 import { FileQueuePanel } from './components/workspace/FileQueuePanel';
 import { DocumentPreviewPanel } from './components/workspace/DocumentPreviewPanel';
 import { ExtractedTextPanel } from './components/workspace/ExtractedTextPanel';
@@ -15,13 +16,31 @@ import { useSettings } from './hooks/useSettings';
 import { useExtractionQueue } from './hooks/useExtractionQueue';
 import { ExportedFile, OutputFormatType } from './types';
 
+const MemoizedFileQueuePanel = React.memo(FileQueuePanel);
+const MemoizedDocumentPreviewPanel = React.memo(DocumentPreviewPanel);
+const MemoizedExtractedTextPanel = React.memo(ExtractedTextPanel);
+
 function AppContent() {
   const [currentTab, setCurrentTab] = useState<NavRailTab>('workspace');
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(true);
   const { toast } = useToastContext();
 
-  const handleTabChange = (nextTab: NavRailTab) => {
-    if (nextTab !== currentTab) setCurrentTab(nextTab);
-  };
+  const handleTabChange = useCallback((nextTab: NavRailTab) => {
+    setCurrentTab(nextTab);
+  }, []);
+
+  const handleToggleQueue = useCallback(() => {
+    if (currentTab !== 'workspace') {
+      setCurrentTab('workspace');
+      setIsQueueOpen(true);
+    } else {
+      setIsQueueOpen((prev) => !prev);
+    }
+  }, [currentTab]);
+
+  const handleOpenSettings = useCallback(() => {
+    handleTabChange('settings');
+  }, [handleTabChange]);
 
   const urlState = useMemo(() => {
     if (typeof window !== 'undefined') {
@@ -46,7 +65,7 @@ function AppContent() {
   } = useExtractionQueue(urlState, isEngineOnline, selectedDpi);
 
   const {
-    serverStatus, vram, isTransitioning, handleToggleServer,
+    serverStatus, isTransitioning, handleToggleServer,
   } = useServerStatus(runningJobDocId);
 
   // Sync engine settings running state from serverStatus
@@ -67,7 +86,7 @@ function AppContent() {
   const [exportedFiles, setExportedFiles] = useState<ExportedFile[]>([]);
   const [outputFolderPath, setOutputFolderPath] = useState<string>('~/Documents/AksaraSight/output');
 
-  const fetchOutputFiles = async () => {
+  const fetchOutputFiles = useCallback(async () => {
     try {
       const res = await fetch('/api/output');
       if (res.ok) {
@@ -78,18 +97,18 @@ function AppContent() {
     } catch (err) {
       console.warn('Failed to fetch output files:', err);
     }
-  };
-
-  useEffect(() => {
-    fetchOutputFiles();
   }, []);
 
   useEffect(() => {
+    fetchOutputFiles();
+  }, [fetchOutputFiles]);
+
+  useEffect(() => {
     if (isOutputFolderOpen) fetchOutputFiles();
-  }, [isOutputFolderOpen]);
+  }, [isOutputFolderOpen, fetchOutputFiles]);
 
   // Export handler matching engine formats: docx, md, json, both
-  const handleExport = (format: OutputFormatType) => {
+  const handleExport = useCallback((format: OutputFormatType) => {
     if (!selectedDocument) return;
     const baseName = selectedDocument.name.replace(/\.[^/.]+$/, '');
 
@@ -129,7 +148,7 @@ function AppContent() {
       fetchOutputFiles();
       setTimeout(fetchOutputFiles, 800);
     }
-  };
+  }, [selectedDocument, toast, fetchOutputFiles]);
 
   return (
     <div className="bg-[#202020] text-[#F3F3F3] antialiased h-screen overflow-hidden flex flex-row font-sans text-[14px] select-text relative">
@@ -137,94 +156,108 @@ function AppContent() {
       <NavRail
         activeTab={currentTab}
         onSelectTab={handleTabChange}
+        isQueueOpen={isQueueOpen}
+        onToggleQueue={handleToggleQueue}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
       />
 
       {/* Main Column */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopNavBar
-          currentTab={currentTab}
-          onSelectTab={handleTabChange}
-          engineSettings={engineSettings}
           onToggleServer={handleToggleServer}
-          onOpenServerLogs={() => setIsServerLogsOpen(true)}
           onOpenOutputFolder={() => setIsOutputFolderOpen(true)}
           serverStatus={serverStatus}
           isExtracting={runningJobDocId !== null}
           isTransitioning={isTransitioning}
-          vram={vram}
         />
 
-        {currentTab === 'settings' ? (
-          <div
-            role="tabpanel"
-            id="nav-panel-settings"
-            aria-labelledby="nav-tab-settings"
-            className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in"
-          >
-            <SettingsView
-              settings={engineSettings}
-              onSave={(newSettings) => {
-                handleSaveSettings(newSettings);
-                if (typeof newSettings.dpi === 'number') setSelectedDpi(newSettings.dpi);
-              }}
-              onCancel={() => handleTabChange('workspace')}
-              modelStatus={modelStatus}
-              onDownloadModel={handleDownloadModel}
-              onCancelModelDownload={handleCancelModelDownload}
-            />
-          </div>
-        ) : (
-          <main
-            role="tabpanel"
-            id="nav-panel-workspace"
-            aria-labelledby="nav-tab-workspace"
-            className="flex-1 p-3 pb-2.5 min-h-0 overflow-y-auto lg:overflow-hidden relative z-10 animate-fade-in"
-            aria-label="AksaraSight Workspace"
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:h-full min-h-0">
-              <div className="lg:col-span-3 min-h-[340px] lg:min-h-0 lg:h-full overflow-hidden">
-                <FileQueuePanel
-                  documents={documents}
-                  selectedDocId={selectedDocId}
-                  onSelectDoc={setSelectedDocId}
-                  onAddFiles={handleAddFiles}
-                  onClearFinished={handleClearFinished}
-                  onOpenSettings={() => handleTabChange('settings')}
-                  onRetryDoc={handleRetryDoc}
-                  onRemoveDoc={handleRemoveDoc}
-                  onRemoveFromQueue={handleRemoveFromQueue}
-                />
-              </div>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          aria-label="AksaraSight Workspace"
+          className="flex-1 min-h-0 flex flex-col overflow-hidden relative focus:outline-none"
+        >
+          {currentTab === 'settings' ? (
+            <div
+              role="tabpanel"
+              id="nav-panel-settings"
+              aria-labelledby="nav-tab-settings"
+              tabIndex={0}
+              className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in focus:outline-none"
+            >
+              <SettingsView
+                settings={engineSettings}
+                onSave={(newSettings) => {
+                  handleSaveSettings(newSettings);
+                  if (typeof newSettings.dpi === 'number') setSelectedDpi(newSettings.dpi);
+                }}
+                onCancel={() => handleTabChange('workspace')}
+                modelStatus={modelStatus}
+                onDownloadModel={handleDownloadModel}
+                onCancelModelDownload={handleCancelModelDownload}
+              />
+            </div>
+          ) : (
+            <div
+              role="tabpanel"
+              id="nav-panel-workspace"
+              aria-labelledby="nav-tab-workspace"
+              tabIndex={0}
+              className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden relative z-10 focus:outline-none"
+            >
+              {isQueueOpen && (
+                <aside
+                  id="workspace-file-queue"
+                  aria-label="Document Queue"
+                  className="w-full lg:w-[252px] shrink-0 border-b lg:border-b-0 lg:border-r border-white/8 bg-[#202020] overflow-hidden flex flex-col"
+                >
+                  <MemoizedFileQueuePanel
+                    documents={documents}
+                    selectedDocId={selectedDocId}
+                    onSelectDoc={setSelectedDocId}
+                    onAddFiles={handleAddFiles}
+                    onClearFinished={handleClearFinished}
+                    onOpenSettings={handleOpenSettings}
+                    onRetryDoc={handleRetryDoc}
+                    onRemoveDoc={handleRemoveDoc}
+                    onRemoveFromQueue={handleRemoveFromQueue}
+                  />
+                </aside>
+              )}
 
-              <div className="lg:col-span-5 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
-                <DocumentPreviewPanel
-                  document={selectedDocument}
-                  onPageChange={handlePageChange}
-                />
-              </div>
-
-              <div className="lg:col-span-4 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
-                <ExtractedTextPanel
-                  document={selectedDocument}
-                  runningJobDocId={runningJobDocId}
-                  isEngineOnline={isEngineOnline}
-                  isTransitioning={isTransitioning}
-                  selectedDpi={selectedDpi}
-                  onDpiChange={handleDpiChange}
-                  onStartEngine={handleToggleServer}
-                  onOpenSettings={() => handleTabChange('settings')}
-                  onExport={handleExport}
-                  onRunDocumentExtraction={handleRunDocumentExtraction}
-                  onAddToQueue={handleAddToQueue}
-                  onRemoveFromQueue={handleRemoveFromQueue}
-                  onCancelExtraction={handleCancelExtraction}
-                  onReExtractDocument={handleReExtractDocument}
-                />
+              <div className="flex-1 min-w-0 flex flex-col lg:flex-row h-full overflow-hidden">
+                <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-white/8 bg-[#202020] overflow-hidden flex flex-col">
+                  <MemoizedDocumentPreviewPanel
+                    document={selectedDocument}
+                    onPageChange={handlePageChange}
+                  />
+                </div>
+                <div className="flex-1 min-w-0 bg-[#202020] overflow-hidden flex flex-col">
+                  <MemoizedExtractedTextPanel
+                    document={selectedDocument}
+                    runningJobDocId={runningJobDocId}
+                    isEngineOnline={isEngineOnline}
+                    isTransitioning={isTransitioning}
+                    selectedDpi={selectedDpi}
+                    onDpiChange={handleDpiChange}
+                    onStartEngine={handleToggleServer}
+                    onOpenSettings={handleOpenSettings}
+                    onExport={handleExport}
+                    onRunDocumentExtraction={handleRunDocumentExtraction}
+                    onAddToQueue={handleAddToQueue}
+                    onRemoveFromQueue={handleRemoveFromQueue}
+                    onCancelExtraction={handleCancelExtraction}
+                    onReExtractDocument={handleReExtractDocument}
+                  />
+                </div>
               </div>
             </div>
-          </main>
-        )}
+          )}
+        </main>
+
+        <BottomStatusBar
+          serverStatus={serverStatus}
+        />
       </div>
 
       <OutputFolderModal

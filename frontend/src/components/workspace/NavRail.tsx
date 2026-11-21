@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Layers, ListOrdered, Settings, Terminal } from 'lucide-react';
 
-export type NavRailTab = 'workspace' | 'queue' | 'settings';
+export type NavRailTab = 'workspace' | 'settings';
 
 export interface NavRailProps {
   activeTab: string;
   onSelectTab: (tab: NavRailTab) => void;
   onOpenServerLogs?: () => void;
+  isQueueOpen?: boolean;
+  onToggleQueue?: () => void;
 }
 
 interface TabItem {
@@ -24,11 +26,6 @@ const TABS: TabItem[] = [
     icon: <Layers className="w-5 h-5" aria-hidden="true" />,
   },
   {
-    id: 'queue',
-    label: 'Queue',
-    icon: <ListOrdered className="w-5 h-5" aria-hidden="true" />,
-  },
-  {
     id: 'settings',
     label: 'Settings',
     shortcut: 'Ctrl+,',
@@ -40,6 +37,8 @@ export const NavRail: React.FC<NavRailProps> = ({
   activeTab,
   onSelectTab,
   onOpenServerLogs,
+  isQueueOpen = true,
+  onToggleQueue,
 }) => {
   const [focusedIndex, setFocusedIndex] = useState(() => {
     const idx = TABS.findIndex((t) => t.id === activeTab);
@@ -55,7 +54,7 @@ export const NavRail: React.FC<NavRailProps> = ({
     }
   }, [activeTab]);
 
-  // Global keyboard shortcuts: Ctrl+1 for Workspace, Ctrl+, for Settings
+  // Global keyboard shortcuts: Ctrl+1 for Workspace, Ctrl+, for Settings, Ctrl+B for Queue
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isModifier = e.ctrlKey || e.metaKey;
@@ -67,14 +66,17 @@ export const NavRail: React.FC<NavRailProps> = ({
       } else if (e.key === ',') {
         e.preventDefault();
         onSelectTab('settings');
+      } else if (e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        onToggleQueue?.();
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onSelectTab]);
+  }, [onSelectTab, onToggleQueue]);
 
-  // Roving Tabindex keyboard cycling
+  // Roving Tabindex keyboard cycling for the 2 view tabs
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent, index: number) => {
       let nextIndex = index;
@@ -117,7 +119,7 @@ export const NavRail: React.FC<NavRailProps> = ({
       aria-label="Application Navigation"
       className="w-12 bg-[#202020] border-r border-white/8 flex flex-col justify-between py-2 shrink-0 select-none z-30 h-full"
     >
-      {/* Upper Stack: AksaraSight App Mark + View Tabs */}
+      {/* Upper Stack: AksaraSight App Mark + View Tabs + Queue Disclosure */}
       <div className="flex flex-col items-center gap-2">
         {/* App Mark */}
         <div
@@ -142,7 +144,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           </svg>
         </div>
 
-        {/* WAI-ARIA Vertical Tablist */}
+        {/* WAI-ARIA Vertical Tablist (owns Workspace and Settings only) */}
         <div
           role="tablist"
           aria-orientation="vertical"
@@ -190,6 +192,26 @@ export const NavRail: React.FC<NavRailProps> = ({
             );
           })}
         </div>
+
+        {/* Divider between view tabs and queue panel disclosure */}
+        <div className="w-6 h-px bg-white/10 my-0.5" aria-hidden="true" />
+
+        {/* Standalone Queue Panel Disclosure Button (Outside tablist) */}
+        <button
+          type="button"
+          aria-expanded={isQueueOpen}
+          aria-controls="workspace-file-queue"
+          aria-label={isQueueOpen ? 'Collapse File Queue' : 'Expand File Queue'}
+          title={isQueueOpen ? 'Collapse Queue (Ctrl+B)' : 'Expand Queue (Ctrl+B)'}
+          onClick={onToggleQueue}
+          className={`w-10 h-10 flex items-center justify-center rounded-sm transition-colors duration-100 ease-out cursor-pointer ${
+            isQueueOpen && activeTab === 'workspace'
+              ? 'text-[#60CDFF] bg-white/[0.05]'
+              : 'text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.05]'
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020]`}
+        >
+          <ListOrdered className="w-5 h-5" aria-hidden="true" />
+        </button>
       </div>
 
       {/* Lower Stack: Server Logs */}

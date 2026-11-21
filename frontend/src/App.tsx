@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { flushSync } from 'react-dom';
+import { NavRail, NavRailTab } from './components/workspace/NavRail';
 import { TopNavBar } from './components/workspace/TopNavBar';
 import { FileQueuePanel } from './components/workspace/FileQueuePanel';
 import { DocumentPreviewPanel } from './components/workspace/DocumentPreviewPanel';
@@ -16,31 +16,12 @@ import { useExtractionQueue } from './hooks/useExtractionQueue';
 import { ExportedFile, OutputFormatType } from './types';
 
 function AppContent() {
-  const [currentTab, setCurrentTab] = useState<'workspace' | 'settings'>('workspace');
+  const [currentTab, setCurrentTab] = useState<NavRailTab>('workspace');
   const { toast } = useToastContext();
 
-  const handleTabChange = (nextTab: 'workspace' | 'settings') => {
+  const handleTabChange = (nextTab: NavRailTab) => {
     if (nextTab !== currentTab) setCurrentTab(nextTab);
   };
-
-  // Theme state with localStorage persistence and View Transitions
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) return 'dark';
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('aksarasight_theme');
-      if (stored === 'light' || stored === 'dark') return stored;
-      if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
-    }
-    return 'light';
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('aksarasight_theme', theme);
-      if (theme === 'dark') document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
 
   const urlState = useMemo(() => {
     if (typeof window !== 'undefined') {
@@ -150,111 +131,101 @@ function AppContent() {
     }
   };
 
-  const handleToggleTheme = (event?: React.SyntheticEvent) => {
-    const nextTheme = theme === 'light' ? 'dark' : 'light';
-    if (typeof document !== 'undefined' && 'startViewTransition' in document && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      let x = window.innerWidth - 32;
-      let y = 24;
-      if (event?.target && (event.target as HTMLElement).getBoundingClientRect) {
-        const rect = (event.target as HTMLElement).getBoundingClientRect();
-        x = rect.left + rect.width / 2;
-        y = rect.top + rect.height / 2;
-      }
-      const endRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
-      document.documentElement.style.setProperty('--ripple-x', `${x}px`);
-      document.documentElement.style.setProperty('--ripple-y', `${y}px`);
-      document.documentElement.style.setProperty('--ripple-r', `${endRadius}px`);
-
-      (document as any).startViewTransition(() => {
-        if (nextTheme === 'dark') document.documentElement.classList.add('dark');
-        else document.documentElement.classList.remove('dark');
-        localStorage.setItem('aksarasight_theme', nextTheme);
-        flushSync(() => setTheme(nextTheme));
-      });
-    } else {
-      if (nextTheme === 'dark') document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-      localStorage.setItem('aksarasight_theme', nextTheme);
-      setTheme(nextTheme);
-    }
-  };
-
   return (
-    <div className="bg-[#EFEDE6] dark:bg-[var(--bg-base)] text-[#14213D] dark:text-[var(--text-1)] antialiased h-screen overflow-hidden flex flex-col font-sans text-[13px] select-text relative transition-colors">
-      <TopNavBar
-        currentTab={currentTab}
+    <div className="bg-[#202020] text-[#F3F3F3] antialiased h-screen overflow-hidden flex flex-row font-sans text-[14px] select-text relative">
+      {/* 48px Left Navigation Rail */}
+      <NavRail
+        activeTab={currentTab}
         onSelectTab={handleTabChange}
-        engineSettings={engineSettings}
-        onToggleServer={handleToggleServer}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
-        onOpenOutputFolder={() => setIsOutputFolderOpen(true)}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        serverStatus={serverStatus}
-        isExtracting={runningJobDocId !== null}
-        isTransitioning={isTransitioning}
-        vram={vram}
       />
 
-      {currentTab === 'workspace' ? (
-        <main className="flex-1 p-3 pb-2.5 min-h-0 overflow-y-auto lg:overflow-hidden relative z-10 animate-fade-in" aria-label="AksaraSight Workspace">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:h-full min-h-0">
-            <div className="lg:col-span-3 min-h-[340px] lg:min-h-0 lg:h-full overflow-hidden">
-              <FileQueuePanel
-                documents={documents}
-                selectedDocId={selectedDocId}
-                onSelectDoc={setSelectedDocId}
-                onAddFiles={handleAddFiles}
-                onClearFinished={handleClearFinished}
-                onOpenSettings={() => handleTabChange('settings')}
-                onRetryDoc={handleRetryDoc}
-                onRemoveDoc={handleRemoveDoc}
-                onRemoveFromQueue={handleRemoveFromQueue}
-              />
-            </div>
+      {/* Main Column */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <TopNavBar
+          currentTab={currentTab}
+          onSelectTab={handleTabChange}
+          engineSettings={engineSettings}
+          onToggleServer={handleToggleServer}
+          onOpenServerLogs={() => setIsServerLogsOpen(true)}
+          onOpenOutputFolder={() => setIsOutputFolderOpen(true)}
+          serverStatus={serverStatus}
+          isExtracting={runningJobDocId !== null}
+          isTransitioning={isTransitioning}
+          vram={vram}
+        />
 
-            <div className="lg:col-span-5 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
-              <DocumentPreviewPanel
-                document={selectedDocument}
-                onPageChange={handlePageChange}
-              />
-            </div>
-
-            <div className="lg:col-span-4 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
-              <ExtractedTextPanel
-                document={selectedDocument}
-                runningJobDocId={runningJobDocId}
-                isEngineOnline={isEngineOnline}
-                isTransitioning={isTransitioning}
-                selectedDpi={selectedDpi}
-                onDpiChange={handleDpiChange}
-                onStartEngine={handleToggleServer}
-                onOpenSettings={() => handleTabChange('settings')}
-                onExport={handleExport}
-                onRunDocumentExtraction={handleRunDocumentExtraction}
-                onAddToQueue={handleAddToQueue}
-                onRemoveFromQueue={handleRemoveFromQueue}
-                onCancelExtraction={handleCancelExtraction}
-                onReExtractDocument={handleReExtractDocument}
-              />
-            </div>
+        {currentTab === 'settings' ? (
+          <div
+            role="tabpanel"
+            id="nav-panel-settings"
+            aria-labelledby="nav-tab-settings"
+            className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in"
+          >
+            <SettingsView
+              settings={engineSettings}
+              onSave={(newSettings) => {
+                handleSaveSettings(newSettings);
+                if (typeof newSettings.dpi === 'number') setSelectedDpi(newSettings.dpi);
+              }}
+              onCancel={() => handleTabChange('workspace')}
+              modelStatus={modelStatus}
+              onDownloadModel={handleDownloadModel}
+              onCancelModelDownload={handleCancelModelDownload}
+            />
           </div>
-        </main>
-      ) : (
-        <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in">
-          <SettingsView
-            settings={engineSettings}
-            onSave={(newSettings) => {
-              handleSaveSettings(newSettings);
-              if (typeof newSettings.dpi === 'number') setSelectedDpi(newSettings.dpi);
-            }}
-            onCancel={() => handleTabChange('workspace')}
-            modelStatus={modelStatus}
-            onDownloadModel={handleDownloadModel}
-            onCancelModelDownload={handleCancelModelDownload}
-          />
-        </div>
-      )}
+        ) : (
+          <main
+            role="tabpanel"
+            id="nav-panel-workspace"
+            aria-labelledby="nav-tab-workspace"
+            className="flex-1 p-3 pb-2.5 min-h-0 overflow-y-auto lg:overflow-hidden relative z-10 animate-fade-in"
+            aria-label="AksaraSight Workspace"
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:h-full min-h-0">
+              <div className="lg:col-span-3 min-h-[340px] lg:min-h-0 lg:h-full overflow-hidden">
+                <FileQueuePanel
+                  documents={documents}
+                  selectedDocId={selectedDocId}
+                  onSelectDoc={setSelectedDocId}
+                  onAddFiles={handleAddFiles}
+                  onClearFinished={handleClearFinished}
+                  onOpenSettings={() => handleTabChange('settings')}
+                  onRetryDoc={handleRetryDoc}
+                  onRemoveDoc={handleRemoveDoc}
+                  onRemoveFromQueue={handleRemoveFromQueue}
+                />
+              </div>
+
+              <div className="lg:col-span-5 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
+                <DocumentPreviewPanel
+                  document={selectedDocument}
+                  onPageChange={handlePageChange}
+                />
+              </div>
+
+              <div className="lg:col-span-4 min-h-[460px] lg:min-h-0 lg:h-full overflow-hidden">
+                <ExtractedTextPanel
+                  document={selectedDocument}
+                  runningJobDocId={runningJobDocId}
+                  isEngineOnline={isEngineOnline}
+                  isTransitioning={isTransitioning}
+                  selectedDpi={selectedDpi}
+                  onDpiChange={handleDpiChange}
+                  onStartEngine={handleToggleServer}
+                  onOpenSettings={() => handleTabChange('settings')}
+                  onExport={handleExport}
+                  onRunDocumentExtraction={handleRunDocumentExtraction}
+                  onAddToQueue={handleAddToQueue}
+                  onRemoveFromQueue={handleRemoveFromQueue}
+                  onCancelExtraction={handleCancelExtraction}
+                  onReExtractDocument={handleReExtractDocument}
+                />
+              </div>
+            </div>
+          </main>
+        )}
+      </div>
 
       <OutputFolderModal
         isOpen={isOutputFolderOpen}

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Download, ChevronDown, Check } from 'lucide-react';
 import { OutputFormatType } from '../../types';
 
@@ -26,17 +26,35 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
   selectedFormat,
   onSelectFormat,
 }) => {
-  const menuRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) {
+      const selectedIdx = EXPORT_FORMATS.findIndex((f) => f.ext === selectedFormat);
+      const initialIdx = selectedIdx >= 0 ? selectedIdx : 0;
+      setFocusedIndex(initialIdx);
+      requestAnimationFrame(() => {
+        itemRefs.current[initialIdx]?.focus();
+      });
+    }
+  }, [isOpen, selectedFormat]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        triggerButtonRef.current?.focus();
+      }
     };
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
@@ -49,13 +67,64 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
     };
   }, [isOpen, onClose]);
 
+  const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      if (!isOpen) {
+        e.preventDefault();
+        onToggleOpen();
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (!isOpen) {
+        e.preventDefault();
+        onToggleOpen();
+        setFocusedIndex(EXPORT_FORMATS.length - 1);
+      }
+    }
+  };
+
+  const handleItemKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = (index + 1) % EXPORT_FORMATS.length;
+      setFocusedIndex(next);
+      itemRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = (index - 1 + EXPORT_FORMATS.length) % EXPORT_FORMATS.length;
+      setFocusedIndex(prev);
+      itemRefs.current[prev]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusedIndex(0);
+      itemRefs.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const last = EXPORT_FORMATS.length - 1;
+      setFocusedIndex(last);
+      itemRefs.current[last]?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const fmt = EXPORT_FORMATS[index];
+      onSelectFormat(fmt.ext);
+      onExport(fmt.ext);
+      onClose();
+      triggerButtonRef.current?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      triggerButtonRef.current?.focus();
+    }
+  };
+
   return (
-    <div ref={menuRef} className="relative inline-flex">
+    <div ref={containerRef} className="relative inline-flex">
       <button
+        ref={triggerButtonRef}
         onClick={onToggleOpen}
-        className="h-8 px-3 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-sm shadow-xs active:scale-[0.98] transition-all duration-100 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+        onKeyDown={handleTriggerKeyDown}
+        className="h-8 px-3 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-md shadow-xs active:scale-[0.98] transition-all duration-100 ease-out flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
         type="button"
-        aria-haspopup="true"
+        aria-haspopup="menu"
         aria-expanded={isOpen}
       >
         <Download className="w-4 h-4 text-[#000000]" aria-hidden="true" />
@@ -65,26 +134,32 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
 
       {isOpen && (
         <div
-          className="absolute right-0 top-9 w-60 bg-[#272727] dark:bg-[var(--bg-elevated)] rounded-sm border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.36)] py-1.5 z-30 text-[13px] origin-top-right animate-dropdown"
+          className="absolute right-0 top-9 w-60 bg-[#272727] dark:bg-[var(--bg-elevated)] rounded-lg border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.36)] py-1.5 z-30 text-[13px] origin-top-right animate-dropdown"
           role="menu"
           aria-label="Export format options"
         >
           <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#A6A6A6] border-b border-white/8 mb-1">
             Engine Output Format
           </div>
-          {EXPORT_FORMATS.map((fmt) => (
+          {EXPORT_FORMATS.map((fmt, idx) => (
             <button
               key={fmt.ext}
+              ref={(el) => {
+                itemRefs.current[idx] = el;
+              }}
               onClick={() => {
                 onSelectFormat(fmt.ext);
                 onExport(fmt.ext);
                 onClose();
+                triggerButtonRef.current?.focus();
               }}
+              onKeyDown={(e) => handleItemKeyDown(e, idx)}
               className={`w-full text-left px-3 py-1.5 hover:bg-white/[0.08] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
                 selectedFormat === fmt.ext ? 'bg-white/[0.05]' : ''
               }`}
               type="button"
               role="menuitem"
+              tabIndex={focusedIndex === idx ? 0 : -1}
             >
               <div>
                 <span className="font-semibold text-[#F3F3F3] block text-xs">

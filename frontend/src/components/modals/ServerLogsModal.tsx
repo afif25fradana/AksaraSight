@@ -157,26 +157,26 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         return {
           label: '● RUNNING :8080',
           className:
-            'bg-[#0F766E]/10 dark:bg-[var(--success)]/10 text-[#0F766E] dark:text-[var(--success)] border-[#0F766E]/30 dark:border-[var(--success)]/30',
+            'bg-[#78c697]/15 text-[#78c697] border-[#78c697]/30',
         };
       case 'starting':
         return {
           label: '○ STARTING',
           className:
-            'bg-amber-500/10 text-amber-800 dark:text-amber-400 border-amber-500/30',
+            'bg-amber-500/15 text-amber-300 border-amber-500/30',
         };
       case 'error':
         return {
           label: '○ ERROR',
           className:
-            'bg-red-500/10 text-red-700 dark:text-[var(--danger)] border-red-500/30',
+            'bg-red-500/15 text-[#e58383] border-red-500/30',
         };
       case 'offline':
       default:
         return {
           label: '○ OFFLINE',
           className:
-            'bg-red-50 dark:bg-[var(--danger)]/10 text-red-700 dark:text-[var(--danger)] border-red-200 dark:border-[var(--danger)]/30',
+            'bg-red-500/15 text-[#e58383] border-red-500/30',
         };
     }
   }, [serverStatus?.status]);
@@ -191,14 +191,14 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
 
   return (
     <div 
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14213D]/40 dark:bg-black/70 backdrop-blur-[4px] ${
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[4px] ${
         isClosing ? 'opacity-0 transition-opacity duration-150 ease-tactile pointer-events-none' : 'animate-modal-backdrop'
       }`}
       onClick={onClose}
     >
       <div 
         ref={modalRef}
-        className={`w-full max-w-4xl bg-[#FBFAF7] dark:bg-[var(--bg-surface)] border border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] rounded-xl shadow-2xl will-change-transform overflow-hidden flex flex-col h-[85vh] max-h-[720px] transition-colors ${
+        className={`w-full max-w-4xl bg-[#272727] border border-white/[0.08] text-[#F3F3F3] rounded-lg shadow-xs will-change-transform overflow-hidden flex flex-col h-[85vh] max-h-[720px] transition-colors ${
           isClosing ? 'animate-modal-window-exit' : 'animate-modal-window'
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -207,29 +207,29 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         aria-labelledby="server-logs-title"
       >
         {/* Header */}
-        <div className="px-5 py-3.5 bg-[#FBFAF7] dark:bg-[var(--bg-surface)] border-b border-[#8A94A6]/25 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] flex items-center justify-between shrink-0">
+        <div className="px-5 py-3.5 bg-[#272727] border-b border-white/[0.04] text-[#F3F3F3] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border border-[#0F766E]/20 dark:border-[var(--accent)]/30 flex items-center justify-center text-[#0F766E] dark:text-[var(--accent)]">
+            <div className="w-8 h-8 rounded-md bg-[#60CDFF]/10 border border-[#60CDFF]/20 flex items-center justify-center text-[#60CDFF]">
               <Terminal className="w-4.5 h-4.5" aria-hidden="true" />
             </div>
             <div>
-              <h3 id="server-logs-title" className="font-['IBM_Plex_Sans',sans-serif] font-semibold text-[15px] text-[#14213D] dark:text-[var(--text-1)] flex items-center gap-2">
+              <h3 id="server-logs-title" className="font-sans font-semibold text-[15px] text-[#F3F3F3] flex items-center gap-2">
                 Server Logs
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-black/[0.04] dark:bg-[var(--bg-base)] text-[#14213D] dark:text-[var(--text-1)] border border-black/10 dark:border-[var(--border)]">
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-sm bg-[#202020] text-[#F3F3F3] border border-white/[0.06]">
                   {pidText}
                 </span>
-                <span className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded border ${statusBadge.className}`}>
+                <span className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm border ${statusBadge.className}`}>
                   {statusBadge.label}
                 </span>
               </h3>
-              <p className="text-[12px] text-[#5A6478] dark:text-[var(--text-2)] mt-0.5">
+              <p className="text-[12px] text-[#A6A6A6] mt-0.5">
                 Live stdout / stderr from ServerManager ({logs.length} entries)
               </p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] flex items-center justify-center cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
+            className="w-8 h-8 rounded-md hover:bg-white/5 text-[#A6A6A6] hover:text-[#F3F3F3] flex items-center justify-center cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none active:scale-90 active:translate-y-px transition-transform duration-100 ease-out"
             aria-label="Close"
             type="button"
           >
@@ -238,29 +238,29 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         </div>
 
         {/* Toolbar: Search, Filters, Auto-scroll, Copy */}
-        <div className="px-5 py-2.5 bg-[#FBFAF7] dark:bg-[var(--bg-elevated)] border-b border-[#8A94A6]/25 dark:border-[var(--border)] flex flex-wrap items-center justify-between gap-3 shrink-0 text-[12px]">
+        <div className="px-5 py-2.5 bg-[#2D2D2D] border-b border-white/[0.04] flex flex-wrap items-center justify-between gap-3 shrink-0 text-[12px]">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
             <div className="relative flex-1 max-w-xs">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#929292]" aria-hidden="true" />
               <input
                 type="text"
                 placeholder="Filter logs..."
                 aria-label="Filter logs"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[var(--bg-base)] border border-[#8A94A6]/35 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] placeholder-[#5A6478] dark:placeholder-[var(--text-3)] rounded-lg text-[12px] focus:outline-none focus:border-[#0F766E] dark:focus:border-[var(--accent)] focus:ring-1 focus:ring-[#0F766E] dark:focus:ring-[var(--accent)] font-mono"
+                className="w-full pl-8 pr-3 py-1.5 bg-[#202020] border border-white/[0.06] text-[#F3F3F3] placeholder-[#929292] rounded-md text-[12px] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF] font-mono"
               />
             </div>
-            <div className="flex items-center gap-1 bg-[#F0EEE8] dark:bg-[var(--bg-base)] p-0.5 rounded-lg border border-[#8A94A6]/25 dark:border-[var(--border)]">
+            <div className="flex items-center gap-1 bg-[#202020] p-0.5 rounded-md border border-white/[0.04]">
               {(['ALL', 'INFO', 'HEALTH', 'OCR', 'WARN', 'ERROR'] as const).map((lvl) => (
                 <button
                   key={lvl}
                   type="button"
                   onClick={() => setLevelFilter(lvl)}
-                  className={`px-2 py-1 rounded text-[11px] font-mono cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
+                  className={`px-2 py-1 rounded-sm text-[11px] font-mono cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none ${
                     levelFilter === lvl
-                      ? 'bg-[#0F766E] dark:bg-[var(--accent)]/15 text-white dark:text-[var(--accent)] font-semibold shadow-2xs dark:shadow-none'
-                      : 'text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] hover:bg-black/5 dark:hover:bg-white/5'
+                      ? 'bg-[#60CDFF] text-[#000000] font-semibold'
+                      : 'text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/5'
                   }`}
                 >
                   {lvl}
@@ -273,10 +273,10 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
             <button
               type="button"
               onClick={() => setAutoScroll(!autoScroll)}
-              className={`px-2.5 py-1.5 rounded-lg border text-[11.5px] flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
+              className={`px-2.5 py-1.5 rounded-md border text-[11.5px] flex items-center gap-1 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none ${
                 autoScroll
-                  ? 'bg-[#0F766E]/10 dark:bg-[var(--accent)]/10 border-[#0F766E]/30 dark:border-[var(--accent)]/30 text-[#0F766E] dark:text-[var(--accent)] font-medium'
-                  : 'border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] text-[#14213D] dark:text-[var(--text-1)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)]'
+                  ? 'bg-[#60CDFF]/15 border-[#60CDFF]/30 text-[#60CDFF] font-medium'
+                  : 'border-white/[0.08] bg-[#202020] text-[#A6A6A6] hover:text-[#F3F3F3]'
               }`}
             >
               <ArrowDown className="w-3 h-3" aria-hidden="true" />
@@ -285,16 +285,16 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
             <button
               type="button"
               onClick={handleCopy}
-              className="px-3 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] text-[11.5px] flex items-center gap-1.5 cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+              className="px-3 py-1.5 rounded-md border border-white/[0.08] bg-[#202020] hover:bg-white/5 text-[#F3F3F3] text-[11.5px] flex items-center gap-1.5 cursor-pointer active:scale-95 active:translate-y-px transition-all duration-100 ease-out focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
             >
               {copied ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--success)]" aria-hidden="true" />
-                  <span className="text-[#0F766E] dark:text-[var(--success)] font-medium">Copied!</span>
+                  <Check className="w-3.5 h-3.5 text-[#78c697]" aria-hidden="true" />
+                  <span className="text-[#78c697] font-medium">Copied!</span>
                 </>
               ) : (
                 <>
-                  <Copy className="w-3.5 h-3.5 text-[#5A6478] dark:text-[var(--text-2)]" aria-hidden="true" />
+                  <Copy className="w-3.5 h-3.5 text-[#A6A6A6]" aria-hidden="true" />
                   <span>Copy All</span>
                 </>
               )}
@@ -303,13 +303,13 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         </div>
 
         {/* Log Viewer Content */}
-        <div className="flex-1 p-3.5 bg-[#FBFAF7] dark:bg-[var(--bg-surface)] min-h-0 flex flex-col">
+        <div className="flex-1 p-3.5 bg-[#272727] min-h-0 flex flex-col">
           <div 
             ref={logContainerRef}
-            className="flex-1 p-3.5 overflow-y-auto font-mono text-[11.5px] leading-relaxed bg-[#FAF9F5] dark:bg-[var(--bg-base)] border border-[#8A94A6]/25 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] rounded-lg space-y-0.5 select-text shadow-2xs"
+            className="flex-1 p-3.5 overflow-y-auto font-mono text-[11.5px] leading-relaxed bg-[#202020] border border-white/[0.04] text-[#F3F3F3] rounded-md space-y-0.5 select-text shadow-xs"
           >
             {filteredLogs.length === 0 ? (
-              <div className="text-[#5A6478] dark:text-[var(--text-2)] py-8 text-center italic">
+              <div className="text-[#A6A6A6] py-8 text-center italic">
                 {logs.length === 0
                   ? 'Waiting for engine server logs...'
                   : `No logs matching "${filterText}"`}
@@ -320,31 +320,31 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
                 return (
                   <div 
                     key={idx} 
-                    className={`px-2 py-0.5 rounded transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] flex items-baseline gap-2 ${
-                      tag === '[WARN]' ? 'bg-amber-500/5 dark:bg-[var(--warning)]/10' : tag === '[ERROR]' ? 'bg-red-500/5 dark:bg-[var(--danger)]/10' : ''
+                    className={`px-2 py-0.5 rounded transition-colors hover:bg-white/[0.03] flex items-baseline gap-2 ${
+                      tag === '[WARN]' ? 'bg-amber-500/10' : tag === '[ERROR]' ? 'bg-red-500/10' : ''
                     }`}
                   >
                     {timestamp && (
-                      <span className="text-[#5A6478] dark:text-[var(--text-3)] shrink-0 select-text">
+                      <span className="text-[#929292] shrink-0 select-text">
                         {timestamp}
                       </span>
                     )}
                     {tag && (
                       <span className={`shrink-0 ${
                         tag === '[INFO]'
-                          ? 'text-[#14213D] dark:text-[var(--text-1)] font-medium'
+                          ? 'text-[#F3F3F3] font-medium'
                           : tag === '[HEALTH]'
-                          ? 'text-[#0F766E] dark:text-[var(--accent)] font-semibold'
+                          ? 'text-[#60CDFF] font-semibold'
                           : tag === '[OCR]'
-                          ? 'text-[#0F766E] dark:text-[var(--accent)] font-medium'
+                          ? 'text-[#60CDFF] font-medium'
                           : tag === '[WARN]'
-                          ? 'text-[#B45309] dark:text-[var(--warning)] font-semibold'
-                          : 'text-[#B91C1C] dark:text-[var(--danger)] font-semibold'
+                          ? 'text-[#e0a96d] font-semibold'
+                          : 'text-[#e58383] font-semibold'
                       }`}>
                         {tag}
                       </span>
                     )}
-                    <span className="text-[#14213D] dark:text-[var(--text-1)] break-all whitespace-pre-wrap">
+                    <span className="text-[#F3F3F3] break-all whitespace-pre-wrap">
                       {body}
                     </span>
                   </div>
@@ -355,13 +355,13 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-[#8A94A6]/25 dark:border-[var(--border)] bg-[#FBFAF7] dark:bg-[var(--bg-surface)] flex items-center justify-between text-[11.5px] text-[#5A6478] dark:text-[var(--text-2)] shrink-0">
+        <div className="px-5 py-3 border-t border-white/[0.04] bg-[#272727] flex items-center justify-between text-[11.5px] text-[#A6A6A6] shrink-0">
           <div>
             Showing {filteredLogs.length} of {logs.length} entries · In-memory log buffer (bounded) · No OCR text recorded
           </div>
           <button
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-lg border border-[#8A94A6]/35 dark:border-[var(--border)] bg-white dark:bg-[var(--bg-elevated)] hover:bg-[#F0EEE8] dark:hover:bg-[var(--bg-active)] text-[#14213D] dark:text-[var(--text-1)] font-medium transition-colors cursor-pointer text-[12px] focus-visible:ring-2 focus-visible:ring-[#0F766E] dark:focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+            className="px-3.5 py-1.5 rounded-md border border-white/[0.08] hover:border-white/[0.16] bg-[#2D2D2D] text-[#F3F3F3] font-medium transition-colors cursor-pointer text-[12px] focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
             type="button"
           >
             Close

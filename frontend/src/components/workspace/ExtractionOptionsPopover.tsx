@@ -64,17 +64,37 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
   onClose,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const targetModeRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const resolutionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const activeIdx = TARGET_MODES.findIndex((t) => t.mode === taskMode);
+      const targetIdx = activeIdx >= 0 ? activeIdx : 0;
+      requestAnimationFrame(() => {
+        targetModeRefs.current[targetIdx]?.focus();
+      });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        triggerButtonRef.current?.focus();
+      }
     };
 
     const handleClickOutside = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
+        if (triggerButtonRef.current && !triggerButtonRef.current.contains(e.target as Node)) {
+          triggerButtonRef.current.focus();
+        }
       }
     };
 
@@ -86,14 +106,61 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
     };
   }, [isOpen, onClose]);
 
+  const handleTargetModeKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = (index + 1) % TARGET_MODES.length;
+      targetModeRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = (index - 1 + TARGET_MODES.length) % TARGET_MODES.length;
+      targetModeRefs.current[prev]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      targetModeRefs.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      targetModeRefs.current[TARGET_MODES.length - 1]?.focus();
+    } else if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      const activeResIdx = RESOLUTION_OPTIONS.findIndex((r) => r.dpi === currentDpi);
+      const targetIdx = activeResIdx >= 0 ? activeResIdx : 0;
+      resolutionRefs.current[targetIdx]?.focus();
+    }
+  };
+
+  const handleResolutionKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = (index + 1) % RESOLUTION_OPTIONS.length;
+      resolutionRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = (index - 1 + RESOLUTION_OPTIONS.length) % RESOLUTION_OPTIONS.length;
+      resolutionRefs.current[prev]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      resolutionRefs.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      resolutionRefs.current[RESOLUTION_OPTIONS.length - 1]?.focus();
+    } else if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      const activeTargetIdx = TARGET_MODES.findIndex((t) => t.mode === taskMode);
+      const targetIdx = activeTargetIdx >= 0 ? activeTargetIdx : 0;
+      targetModeRefs.current[targetIdx]?.focus();
+    }
+  };
+
   const activeMode = TARGET_MODES.find((m) => m.mode === taskMode);
 
   return (
     <div className="relative inline-flex items-center" ref={popoverRef}>
       <button
+        ref={triggerButtonRef}
         type="button"
         onClick={onToggleOpen}
-        className="h-8 px-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] rounded-sm text-xs font-medium flex items-center gap-1.5 border border-white/8 active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+        className="h-8 px-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] rounded-md text-xs font-medium flex items-center gap-1.5 border border-white/8 active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
         title="Extraction Options (Target Mode & Scan Detail)"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
@@ -109,26 +176,31 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
 
       {isOpen && (
         <div
-          className="absolute left-0 top-9 w-[290px] bg-[#272727] dark:bg-[var(--bg-elevated)] rounded-sm border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.36)] py-1.5 z-30 text-[13px] origin-top-left animate-dropdown"
+          className="absolute left-0 top-9 w-[290px] bg-[#272727] dark:bg-[var(--bg-elevated)] rounded-lg border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.36)] py-1.5 z-30 text-[13px] origin-top-left animate-dropdown"
           role="dialog"
+          aria-modal="false"
           aria-label="Extraction Options"
         >
           {/* Section 1: EXTRACTION TARGET */}
           <div className="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-[#A6A6A6] border-b border-white/8 mb-1">
             EXTRACTION TARGET
           </div>
-          <div role="group" aria-label="Extraction target modes">
-            {TARGET_MODES.map((tm) => (
+          <div role="radiogroup" aria-label="Extraction Target Modes">
+            {TARGET_MODES.map((tm, idx) => (
               <button
                 key={tm.mode}
-                type="button"
-                onClick={() => {
-                  onSelectMode(tm.mode);
+                ref={(el) => {
+                  targetModeRefs.current[idx] = el;
                 }}
+                type="button"
+                role="radio"
+                aria-checked={taskMode === tm.mode}
+                tabIndex={taskMode === tm.mode ? 0 : -1}
+                onClick={() => onSelectMode(tm.mode)}
+                onKeyDown={(e) => handleTargetModeKeyDown(e, idx)}
                 className={`w-full text-left px-3 py-1.5 hover:bg-white/[0.08] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
                   taskMode === tm.mode ? 'bg-[#60CDFF]/15' : ''
                 }`}
-                role="menuitem"
               >
                 <div className="pr-2">
                   <span className="font-semibold text-[#F3F3F3] block text-xs">
@@ -152,18 +224,22 @@ export const ExtractionOptionsPopover: React.FC<ExtractionOptionsPopoverProps> =
               Syncs with Settings
             </span>
           </div>
-          <div role="group" aria-label="Scan detail resolution options">
-            {RESOLUTION_OPTIONS.map((res) => (
+          <div role="radiogroup" aria-label="Scan Detail Resolution">
+            {RESOLUTION_OPTIONS.map((res, idx) => (
               <button
                 key={res.dpi}
-                type="button"
-                onClick={() => {
-                  onSelectDpi(res.dpi);
+                ref={(el) => {
+                  resolutionRefs.current[idx] = el;
                 }}
+                type="button"
+                role="radio"
+                aria-checked={currentDpi === res.dpi}
+                tabIndex={currentDpi === res.dpi ? 0 : -1}
+                onClick={() => onSelectDpi(res.dpi)}
+                onKeyDown={(e) => handleResolutionKeyDown(e, idx)}
                 className={`w-full text-left px-3 py-1.5 hover:bg-white/[0.08] flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
                   currentDpi === res.dpi ? 'bg-[#60CDFF]/15' : ''
                 }`}
-                role="menuitem"
               >
                 <div className="pr-2">
                   <div className="flex items-center gap-1.5">

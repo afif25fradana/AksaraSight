@@ -73,7 +73,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
             <button
               onClick={onClearFinished}
               disabled={!hasFinished}
-              className={`text-[12px] font-medium transition-all duration-150 px-2 py-0.5 rounded-sm min-h-[24px] min-w-[24px] inline-flex items-center justify-center ${
+              className={`text-[12px] font-medium transition-all duration-150 px-2 py-0.5 rounded-md min-h-[24px] min-w-[24px] inline-flex items-center justify-center ${
                 hasFinished
                   ? 'text-[#A6A6A6] hover:text-[#F3F3F3] bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none'
                   : 'text-[#929292] opacity-40 cursor-not-allowed select-none'
@@ -93,7 +93,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="flex-1 border-2 border-dashed border-white/10 hover:border-[#60CDFF]/50 bg-white/[0.02] hover:bg-[#60CDFF]/[0.03] rounded-sm transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-[#60CDFF]"
+            className="flex-1 border-2 border-dashed border-white/10 hover:border-[#60CDFF]/50 bg-white/[0.02] hover:bg-[#60CDFF]/[0.03] rounded-md transition-colors p-4 text-center cursor-pointer flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-[#60CDFF]"
           >
             <input 
               ref={fileInputRef}
@@ -121,12 +121,12 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
       ) : (
         <>
           {/* Compact Drop Zone */}
-          <div className="p-3 border-b border-white/8 dark:border-[var(--border)] shrink-0">
+          <div className="p-3 shrink-0">
             <div 
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-white/10 hover:border-[#60CDFF]/50 bg-white/[0.02] hover:bg-[#60CDFF]/[0.03] rounded-sm transition-colors p-3 text-center cursor-pointer group flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+              className="border-2 border-dashed border-white/10 hover:border-[#60CDFF]/50 bg-white/[0.02] hover:bg-[#60CDFF]/[0.03] rounded-md transition-colors p-3 text-center cursor-pointer group flex flex-col items-center justify-center focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
               tabIndex={0}
               role="button"
               aria-label="Upload documents"

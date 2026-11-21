@@ -16,7 +16,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   const renderedElements = useMemo(() => {
     if (!content.trim()) {
       return (
-        <div className="text-[#5A6478] dark:text-[var(--text-2)] italic p-4 text-center text-[13px]">
+        <div className="text-[#A6A6A6] italic p-4 text-center text-[13px]">
           No content extracted for {taskMode} mode
         </div>
       );
@@ -95,27 +95,27 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // Headings
       if (trimmed.startsWith('### ')) {
         elements.push(
-          <h4 key={`h3-${index}`} className="text-[14px] font-bold text-[#14213D] dark:text-[var(--text-1)] mt-3 mb-1">
+          <h4 key={`h3-${index}`} className="text-[14px] font-bold text-[#F3F3F3] mt-3 mb-1">
             {trimmed.replace('### ', '')}
           </h4>
         );
       } else if (trimmed.startsWith('## ')) {
         elements.push(
-          <h3 key={`h2-${index}`} className="text-[15px] font-bold text-[#14213D] dark:text-[var(--text-1)] mt-3.5 mb-1.5 border-b border-black/5 dark:border-[var(--border)] pb-1">
+          <h3 key={`h2-${index}`} className="text-[15px] font-bold text-[#F3F3F3] mt-3.5 mb-1.5 border-b border-white/[0.04] pb-1">
             {trimmed.replace('## ', '')}
           </h3>
         );
       } else if (trimmed.startsWith('# ')) {
         elements.push(
-          <h2 key={`h1-${index}`} className="text-[16px] font-bold text-[#14213D] dark:text-[var(--text-1)] mt-4 mb-2">
+          <h2 key={`h1-${index}`} className="text-[16px] font-bold text-[#F3F3F3] mt-4 mb-2">
             {trimmed.replace('# ', '')}
           </h2>
         );
       } else if (trimmed.startsWith('---')) {
-        elements.push(<hr key={`hr-${index}`} className="my-3 border-t border-[#8A94A6]/30 dark:border-[var(--border)]" />);
+        elements.push(<hr key={`hr-${index}`} className="my-3 border-t border-white/[0.04]" />);
       } else {
         elements.push(
-          <p key={`p-${index}`} className="text-[13px] leading-relaxed text-[#14213D] dark:text-[var(--text-1)] mb-1">
+          <p key={`p-${index}`} className="text-[13px] leading-relaxed text-[#F3F3F3] mb-1">
             {trimmed}
           </p>
         );

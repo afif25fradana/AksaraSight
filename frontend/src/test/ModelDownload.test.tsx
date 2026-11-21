@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
 import { SettingsView } from '../components/settings/SettingsView';
@@ -193,8 +193,8 @@ describe('Model Weights Management UI and Download Workflow', () => {
     // Wait for model status to load and verify downloaded badge
     const badge = await screen.findByText(/Downloaded \(Verified Local Weights\)/i);
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveClass('bg-[#15803D]/10');
-    expect(badge).toHaveClass('text-[#14532D]');
+    expect(badge).toHaveClass('text-[#78c697]');
+    expect(badge).toHaveClass('bg-[#78c697]/15');
 
     // Verify metadata
     expect(screen.getByText('PaddleOCR-VL-1.6')).toBeInTheDocument();
@@ -213,8 +213,8 @@ describe('Model Weights Management UI and Download Workflow', () => {
 
     const badge = await screen.findByText(/Not Downloaded \(Download required\)/i);
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveClass('bg-amber-500/10');
-    expect(badge).toHaveClass('text-amber-700');
+    expect(badge).toHaveClass('text-amber-300');
+    expect(badge).toHaveClass('bg-amber-400/15');
 
     // Verify "Download Pinned Model" action button
     expect(screen.getByRole('button', { name: 'Download Pinned Model' })).toBeInTheDocument();
@@ -417,11 +417,10 @@ describe('Model Weights Management UI and Download Workflow', () => {
     expect(screen.getByText(/50%/)).toBeInTheDocument();
   });
 
-  // Test 7: clicking "Re-download Weights" prompts confirmation and aborts if dismissed
-  it('clicking "Re-download Weights" prompts confirmation and aborts if dismissed', async () => {
+  // Test 7: clicking "Re-download Weights" opens in-DOM alertdialog and aborts when Cancel is clicked
+  it('clicking "Re-download Weights" opens in-DOM alertdialog and aborts when Cancel is clicked', async () => {
     const user = userEvent.setup();
     let downloadCalled = false;
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -445,17 +444,26 @@ describe('Model Weights Management UI and Download Workflow', () => {
     const redownloadBtn = await screen.findByRole('button', { name: 'Re-download Weights' });
     await user.click(redownloadBtn);
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?'
-    );
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText('Re-download Model Weights')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?'
+      )
+    ).toBeInTheDocument();
+
+    const cancelBtn = within(dialog).getByRole('button', { name: 'Cancel' });
+    await user.click(cancelBtn);
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(downloadCalled).toBe(false);
   });
 
-  // Test 8: clicking "Re-download Weights" prompts confirmation and proceeds if confirmed
-  it('clicking "Re-download Weights" prompts confirmation and proceeds if confirmed', async () => {
+  // Test 8: clicking "Re-download Weights" opens in-DOM alertdialog and proceeds when confirmed
+  it('clicking "Re-download Weights" opens in-DOM alertdialog and proceeds when confirmed', async () => {
     const user = userEvent.setup();
     let downloadCalled = false;
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -486,9 +494,13 @@ describe('Model Weights Management UI and Download Workflow', () => {
     const redownloadBtn = await screen.findByRole('button', { name: 'Re-download Weights' });
     await user.click(redownloadBtn);
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?'
-    );
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toBeInTheDocument();
+
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Re-download Weights' });
+    await user.click(confirmBtn);
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(downloadCalled).toBe(true);
     });

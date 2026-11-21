@@ -20,25 +20,25 @@ export const ToastContainer: React.FC = () => {
             key={item.id}
             role={isAssertive ? 'alert' : 'status'}
             aria-live={isAssertive ? 'assertive' : 'polite'}
-            className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg border shadow-lg text-[13px] leading-snug transition-all duration-200 animate-fade-in ${
+            className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg border shadow-xs text-[13px] leading-snug transition-all duration-200 animate-fade-in ${
               item.type === 'error'
-                ? 'bg-[#FEF2F2] dark:bg-[var(--bg-elevated)] border-red-300 dark:border-[var(--danger)]/50 text-[#991B1B] dark:text-[var(--danger)]'
+                ? 'bg-[#2D2D2D] border-red-500/40 text-[#e58383]'
                 : item.type === 'warning'
-                ? 'bg-amber-50 dark:bg-[var(--bg-elevated)] border-amber-300 dark:border-[var(--warning)]/50 text-amber-900 dark:text-[var(--warning)]'
+                ? 'bg-[#2D2D2D] border-amber-500/40 text-[#e0a96d]'
                 : item.type === 'success'
-                ? 'bg-emerald-50 dark:bg-[var(--bg-elevated)] border-emerald-300 dark:border-[var(--success)]/50 text-emerald-900 dark:text-[var(--success)]'
-                : 'bg-white dark:bg-[var(--bg-elevated)] border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)]'
+                ? 'bg-[#2D2D2D] border-[#78c697]/40 text-[#78c697]'
+                : 'bg-[#2D2D2D] border-white/[0.08] text-[#F3F3F3]'
             }`}
           >
             <div className="shrink-0 mt-0.5">
               {item.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-red-600 dark:text-[var(--danger)]" aria-hidden="true" />
+                <AlertCircle className="w-4 h-4 text-[#e58383]" aria-hidden="true" />
               ) : item.type === 'warning' ? (
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-[var(--warning)]" aria-hidden="true" />
+                <AlertTriangle className="w-4 h-4 text-[#e0a96d]" aria-hidden="true" />
               ) : item.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-[var(--success)]" aria-hidden="true" />
+                <CheckCircle2 className="w-4 h-4 text-[#78c697]" aria-hidden="true" />
               ) : (
-                <Info className="w-4 h-4 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
+                <Info className="w-4 h-4 text-[#60CDFF]" aria-hidden="true" />
               )}
             </div>
 
@@ -49,7 +49,7 @@ export const ToastContainer: React.FC = () => {
             <button
               type="button"
               onClick={() => removeToast(item.id)}
-              className="shrink-0 w-6 h-6 -mr-1 -mt-1 rounded flex items-center justify-center text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] hover:dark:text-[var(--text-1)] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none"
+              className="shrink-0 w-6 h-6 -mr-1 -mt-1 rounded flex items-center justify-center text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
               aria-label="Dismiss notification"
             >
               <X className="w-3.5 h-3.5" aria-hidden="true" />

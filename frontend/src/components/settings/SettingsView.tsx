@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Cpu, Sliders, Terminal, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { BackendSettings, EngineSettings, ModelStatusInfo, RuntimeStatusInfo } from '../../types';
 import { useToast } from '../../hooks/useToast';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SettingsEngineTab } from './SettingsEngineTab';
 import { SettingsProcessingTab } from './SettingsProcessingTab';
 import { SettingsAdvancedTab } from './SettingsAdvancedTab';
@@ -52,6 +53,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [doctorError, setDoctorError] = useState<string | null>(null);
   const [isStartingRuntimeDownload, setIsStartingRuntimeDownload] = useState(false);
   const [isStartingModelDownload, setIsStartingModelDownload] = useState(false);
+  const [showRedownloadAlert, setShowRedownloadAlert] = useState(false);
+  const alertModalRef = useFocusTrap<HTMLDivElement>(showRedownloadAlert);
+  const redownloadTriggerRef = useRef<HTMLElement | null>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (showRedownloadAlert) {
+      cancelBtnRef.current?.focus();
+    }
+  }, [showRedownloadAlert]);
+
+  useEffect(() => {
+    if (!showRedownloadAlert) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowRedownloadAlert(false);
+        redownloadTriggerRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showRedownloadAlert]);
 
   const {
     effectiveModelStatus,
@@ -105,14 +129,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleDownloadModelAction = async () => {
-    if (isStartingModelDownload || effectiveModelStatus?.is_downloading) return;
-    if (
-      effectiveModelStatus?.downloaded &&
-      !window.confirm('Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?')
-    ) {
-      return;
-    }
+  const executeModelDownload = async () => {
     setIsStartingModelDownload(true);
     try {
       if (onDownloadModel) {
@@ -131,6 +148,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setIsStartingModelDownload(false);
       }
     }
+  };
+
+  const handleDownloadModelAction = async () => {
+    if (isStartingModelDownload || effectiveModelStatus?.is_downloading) return;
+    if (effectiveModelStatus?.downloaded) {
+      if (document.activeElement instanceof HTMLElement) {
+        redownloadTriggerRef.current = document.activeElement;
+      }
+      setShowRedownloadAlert(true);
+      return;
+    }
+    await executeModelDownload();
   };
 
   const handleSave = async () => {
@@ -207,179 +236,245 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="flex-1 bg-[#202020] dark:bg-[var(--bg-base)] flex flex-col overflow-hidden min-h-0 transition-colors">
-      <div className="flex-1 p-4 md:p-6 flex justify-center items-center overflow-hidden min-h-0">
-        <div className="w-full max-w-[840px] h-full max-h-[660px] flex flex-col bg-[#272727] dark:bg-[var(--bg-surface)] rounded-sm border border-white/8 dark:border-[var(--border)] shadow-sm overflow-hidden transition-colors">
-          <div className="border-b border-white/8 dark:border-[var(--border)] px-6 pt-4 pb-0 shrink-0 bg-[#272727] dark:bg-[var(--bg-surface)]">
-            {saveError && (
-              <div role="alert" className="mb-3 p-3 bg-red-500/10 border border-red-500/25 text-red-400 rounded-sm text-xs flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{saveError}</span>
-                </div>
-                <button type="button" onClick={() => setSaveError(null)} className="text-xs font-semibold underline cursor-pointer">
-                  Dismiss
-                </button>
-              </div>
-            )}
-            <div className="flex items-center justify-between pb-3">
-              <div>
-                <h1 className="text-[16px] font-semibold text-[#F3F3F3] dark:text-[var(--text-1)]">
-                  Engine & Quality Settings
-                </h1>
-                <p className="text-[12.5px] text-[#A6A6A6] dark:text-[var(--text-2)] mt-0.5">
-                  Configure local llama-server runtime, inference targets, and OCR pipeline parameters
-                </p>
-              </div>
-              {saveSuccess && (
-                <div role="status" className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-sm flex items-center gap-1.5 text-emerald-400 text-[12px] font-medium shadow-2xs">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Settings saved successfully</span>
-                </div>
-              )}
+    <div className="flex-1 bg-[#272727] rounded-tl-lg flex flex-col overflow-hidden min-h-0 transition-colors">
+      {/* Sticky header */}
+      <div className="shrink-0 px-8 pt-6 pb-4 bg-[#272727] border-b border-white/[0.04]">
+        {saveError && (
+          <div role="alert" className="mb-3 p-3 bg-red-500/10 border border-red-500/25 text-red-400 rounded-md text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{saveError}</span>
             </div>
-            <div
-              className="flex items-center gap-6 text-[13.5px] font-medium"
-              role="tablist"
-              aria-label="Settings categories"
-              onKeyDown={handleTabKeyDown}
-            >
-              {(['engine', 'processing', 'advanced'] as const).map((cat) => (
-                <button
-                  key={cat}
-                  id={`tab-${cat}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeCategory === cat}
-                  aria-controls={`tabpanel-${cat}`}
-                  tabIndex={activeCategory === cat ? 0 : -1}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`pb-2.5 border-b-2 font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    activeCategory === cat
-                      ? 'border-[#60CDFF] text-[#60CDFF]'
-                      : 'border-transparent text-[#A6A6A6] hover:text-[#F3F3F3]'
-                  }`}
-                >
-                  {cat === 'engine' ? (
-                    <>
-                      <Cpu className="w-4 h-4" />
-                      <span>Engine & Hardware</span>
-                    </>
-                  ) : cat === 'processing' ? (
-                    <>
-                      <Sliders className="w-4 h-4" />
-                      <span>Processing & Quality</span>
-                    </>
-                  ) : (
-                    <>
-                      <Terminal className="w-4 h-4" />
-                      <span>Advanced & Network</span>
-                    </>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div
-            id={`tabpanel-${activeCategory}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${activeCategory}`}
-            tabIndex={0}
-            className="flex-1 p-6 overflow-y-auto min-h-0 bg-[#202020]/40 space-y-4 focus:outline-none"
-          >
-            {activeCategory === 'engine' && (
-              <SettingsEngineTab
-                formData={formData}
-                setFormData={setFormData}
-                effectiveRuntimeStatus={effectiveRuntimeStatus}
-                effectiveModelStatus={effectiveModelStatus}
-                doctorReport={doctorReport}
-                doctorError={doctorError}
-                isDoctorRunning={isDoctorRunning}
-                isRefreshingHardware={isRefreshingHardware}
-                isStartingRuntimeDownload={isStartingRuntimeDownload}
-                onRefreshHardware={() => { setIsRefreshingHardware(true); handleRunDoctor(); }}
-                onRunDoctor={handleRunDoctor}
-                onBrowseExecutable={handleBrowseExecutable}
-                onDownloadRuntime={async () => {
-                  if (onDownloadRuntime) {
-                    await onDownloadRuntime();
-                    return;
-                  }
-                  setIsStartingRuntimeDownload(true);
-                  try {
-                    const res = await fetch('/api/runtime/download', { method: 'POST' });
-                    if (!res.ok) {
-                      const errData = await res.json().catch(() => ({}));
-                      const msg = errData.detail || errData.error || `Runtime download failed (HTTP ${res.status})`;
-                      toast.error(msg);
-                    } else {
-                      const statusRes = await fetch('/api/runtime/status');
-                      if (statusRes.ok && isMountedRef.current) {
-                        setInternalRuntimeStatus(await statusRes.json());
-                      }
-                    }
-                  } catch (err: any) {
-                    toast.error(err?.message || 'Network error starting runtime download');
-                  } finally {
-                    if (isMountedRef.current) {
-                      setIsStartingRuntimeDownload(false);
-                    }
-                  }
-                }}
-                onDownloadModel={handleDownloadModelAction}
-                onCancelModelDownload={() => {
-                  if (onCancelModelDownload) onCancelModelDownload();
-                  else fetch('/api/model/download/cancel', { method: 'POST' });
-                }}
-              />
-            )}
-            {activeCategory === 'processing' && (
-              <SettingsProcessingTab formData={formData} setFormData={setFormData} />
-            )}
-            {activeCategory === 'advanced' && (
-              <SettingsAdvancedTab formData={formData} setFormData={setFormData} />
-            )}
-          </div>
-
-          <div className="bg-[#272727] dark:bg-[var(--bg-surface)] border-t border-white/8 py-3 px-6 flex justify-end items-center gap-3 shrink-0">
-            <button
-              onClick={onCancel}
-              className="px-4 py-1.5 text-[13px] font-medium text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.04] rounded-sm cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
-              type="button"
-            >
-              Cancel
+            <button type="button" onClick={() => setSaveError(null)} className="text-xs font-semibold underline cursor-pointer">
+              Dismiss
             </button>
+          </div>
+        )}
+        <div className="flex items-center justify-between pb-3">
+          <div>
+            <h1 className="text-[18px] font-semibold text-[#F3F3F3]">
+              Engine & Quality Settings
+            </h1>
+            <p className="text-[12.5px] text-[#A6A6A6] mt-0.5">
+              Configure local llama-server runtime, inference targets, and OCR pipeline parameters
+            </p>
+          </div>
+          {saveSuccess && (
+            <div role="status" className="px-3 py-1.5 bg-[#78c697]/15 border border-[#78c697]/30 rounded-sm flex items-center gap-1.5 text-[#78c697] text-[12px] font-medium shadow-2xs">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Settings saved successfully</span>
+            </div>
+          )}
+        </div>
+        <div
+          className="flex items-center gap-6 text-[13.5px] font-medium"
+          role="tablist"
+          aria-label="Settings categories"
+          onKeyDown={handleTabKeyDown}
+        >
+          {(['engine', 'processing', 'advanced'] as const).map((cat) => (
             <button
-              onClick={handleSave}
-              disabled={!isDirty || isSaving}
-              className={`min-w-[124px] h-[34px] px-4 rounded-sm text-[13px] font-semibold flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none ${
-                saveSuccess
-                  ? 'bg-emerald-600 text-white'
-                  : isDirty
-                    ? 'bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] cursor-pointer'
-                    : 'bg-white/10 text-white/40 opacity-40 cursor-not-allowed'
-              }`}
+              key={cat}
+              id={`tab-${cat}`}
               type="button"
+              role="tab"
+              aria-selected={activeCategory === cat}
+              aria-controls={`tabpanel-${cat}`}
+              tabIndex={activeCategory === cat ? 0 : -1}
+              onClick={() => setActiveCategory(cat)}
+              className={`pb-2.5 border-b-2 font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                activeCategory === cat
+                  ? 'border-[#60CDFF] text-[#60CDFF]'
+                  : 'border-transparent text-[#A6A6A6] hover:text-[#F3F3F3]'
+              }`}
             >
-              {saveSuccess ? (
+              {cat === 'engine' ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Saved!</span>
+                  <Cpu className="w-4 h-4" />
+                  <span>Engine & Hardware</span>
                 </>
-              ) : isSaving ? (
+              ) : cat === 'processing' ? (
                 <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Saving...</span>
+                  <Sliders className="w-4 h-4" />
+                  <span>Processing & Quality</span>
                 </>
               ) : (
-                <span>Save Settings</span>
+                <>
+                  <Terminal className="w-4 h-4" />
+                  <span>Advanced & Network</span>
+                </>
               )}
             </button>
-          </div>
+          ))}
         </div>
       </div>
+
+      {/* Scrollable canvas body */}
+      <div
+        id={`tabpanel-${activeCategory}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${activeCategory}`}
+        tabIndex={0}
+        className="flex-1 overflow-y-auto overscroll-contain px-8 py-6 focus:outline-none"
+      >
+        <div className="w-full max-w-[1280px] space-y-3">
+          {activeCategory === 'engine' && (
+            <SettingsEngineTab
+              formData={formData}
+              setFormData={setFormData}
+              effectiveRuntimeStatus={effectiveRuntimeStatus}
+              effectiveModelStatus={effectiveModelStatus}
+              doctorReport={doctorReport}
+              doctorError={doctorError}
+              isDoctorRunning={isDoctorRunning}
+              isRefreshingHardware={isRefreshingHardware}
+              isStartingRuntimeDownload={isStartingRuntimeDownload}
+              onRefreshHardware={() => { setIsRefreshingHardware(true); handleRunDoctor(); }}
+              onRunDoctor={handleRunDoctor}
+              onBrowseExecutable={handleBrowseExecutable}
+              onDownloadRuntime={async () => {
+                if (onDownloadRuntime) {
+                  await onDownloadRuntime();
+                  return;
+                }
+                setIsStartingRuntimeDownload(true);
+                try {
+                  const res = await fetch('/api/runtime/download', { method: 'POST' });
+                  if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    const msg = errData.detail || errData.error || `Runtime download failed (HTTP ${res.status})`;
+                    toast.error(msg);
+                  } else {
+                    const statusRes = await fetch('/api/runtime/status');
+                    if (statusRes.ok && isMountedRef.current) {
+                      setInternalRuntimeStatus(await statusRes.json());
+                    }
+                  }
+                } catch (err: any) {
+                  toast.error(err?.message || 'Network error starting runtime download');
+                } finally {
+                  if (isMountedRef.current) {
+                    setIsStartingRuntimeDownload(false);
+                  }
+                }
+              }}
+              onDownloadModel={handleDownloadModelAction}
+              onCancelModelDownload={() => {
+                if (onCancelModelDownload) onCancelModelDownload();
+                else fetch('/api/model/download/cancel', { method: 'POST' });
+              }}
+            />
+          )}
+          {activeCategory === 'processing' && (
+            <SettingsProcessingTab formData={formData} setFormData={setFormData} />
+          )}
+          {activeCategory === 'advanced' && (
+            <SettingsAdvancedTab formData={formData} setFormData={setFormData} />
+          )}
+        </div>
+      </div>
+
+      {/* Sticky footer action bar */}
+      <div className="px-8 py-3 bg-[#272727] border-t border-white/[0.04] flex justify-end items-center gap-3 shrink-0">
+        <button
+          onClick={onCancel}
+          className="px-4 py-1.5 text-[13px] font-medium text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.04] rounded-md cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!isDirty || isSaving}
+          className={`min-w-[124px] h-[34px] px-4 rounded-md text-[13px] font-semibold flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none ${
+            saveSuccess
+              ? 'bg-[#78c697] text-[#000000]'
+              : isDirty
+                ? 'bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] cursor-pointer'
+                : 'bg-white/10 text-white/40 opacity-40 cursor-not-allowed'
+          }`}
+          type="button"
+        >
+          {saveSuccess ? (
+            <>
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Saved!</span>
+            </>
+          ) : isSaving ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Saving...</span>
+            </>
+          ) : (
+            <span>Save Settings</span>
+          )}
+        </button>
+      </div>
+
+      {/* Re-download Confirmation WinUI 3 Alert Dialog */}
+      {showRedownloadAlert && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[4px] animate-modal-backdrop"
+          onClick={() => {
+            setShowRedownloadAlert(false);
+            redownloadTriggerRef.current?.focus();
+          }}
+        >
+          <div
+            ref={alertModalRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="redownload-alert-title"
+            aria-describedby="redownload-alert-desc"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-[#2D2D2D] rounded-lg shadow-xs border border-white/[0.08] p-5 space-y-4 text-[#F3F3F3] animate-modal-window will-change-transform transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-md bg-amber-500/15 flex items-center justify-center text-[#fcd34d] shrink-0">
+                <AlertTriangle className="w-5 h-5 text-[#fcd34d]" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 id="redownload-alert-title" className="font-semibold text-[15px] text-[#F3F3F3]">
+                  Re-download Model Weights
+                </h3>
+                <span className="text-[12px] text-[#fcd34d] font-medium">
+                  Existing weights installed (~1.82 GB)
+                </span>
+              </div>
+            </div>
+
+            <p id="redownload-alert-desc" className="text-[13px] text-[#A6A6A6] leading-relaxed">
+              Model weights are already verified and installed locally. Do you want to re-download the ~1.82 GB model from Hugging Face?
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/[0.04]">
+              <button
+                ref={cancelBtnRef}
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setShowRedownloadAlert(false);
+                  redownloadTriggerRef.current?.focus();
+                }}
+                className="px-3.5 py-1.5 text-[12.5px] border border-white/[0.08] hover:border-white/[0.16] bg-[#272727] text-[#F3F3F3] rounded-md font-medium cursor-pointer active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRedownloadAlert(false);
+                  redownloadTriggerRef.current?.focus();
+                  executeModelDownload();
+                }}
+                className="px-4 py-1.5 text-[12.5px] bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] rounded-md font-semibold cursor-pointer shadow-xs active:scale-[0.96] active:translate-y-px transition-all duration-150 ease-out focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+              >
+                Re-download Weights
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

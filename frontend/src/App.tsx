@@ -203,13 +203,13 @@ function AppContent() {
               id="nav-panel-workspace"
               aria-labelledby="nav-tab-workspace"
               tabIndex={0}
-              className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden relative z-10 focus:outline-none"
+              className="flex-1 min-h-0 flex flex-col lg:flex-row p-2 gap-2 bg-[#202020] overflow-hidden relative z-10 focus:outline-none"
             >
               {isQueueOpen && (
                 <aside
                   id="workspace-file-queue"
                   aria-label="Document Queue"
-                  className="w-full lg:w-[252px] shrink-0 border-b lg:border-b-0 lg:border-r border-white/8 bg-[#202020] overflow-hidden flex flex-col"
+                  className="w-full lg:w-[252px] shrink-0 h-full bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs"
                 >
                   <MemoizedFileQueuePanel
                     documents={documents}
@@ -225,14 +225,14 @@ function AppContent() {
                 </aside>
               )}
 
-              <div className="flex-1 min-w-0 flex flex-col lg:flex-row h-full overflow-hidden">
-                <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-white/8 bg-[#202020] overflow-hidden flex flex-col">
+              <div className="flex-1 min-w-0 flex flex-col lg:flex-row gap-2 h-full overflow-hidden">
+                <div className="flex-1 min-w-0 bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs">
                   <MemoizedDocumentPreviewPanel
                     document={selectedDocument}
                     onPageChange={handlePageChange}
                   />
                 </div>
-                <div className="flex-1 min-w-0 bg-[#202020] overflow-hidden flex flex-col">
+                <div className="flex-1 min-w-0 bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs">
                   <MemoizedExtractedTextPanel
                     document={selectedDocument}
                     runningJobDocId={runningJobDocId}

@@ -58,7 +58,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
           onSelectDoc(doc.id);
         }
       }}
-      className={`relative p-3 rounded-sm cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020] transition-colors duration-150 ${
+      className={`relative p-3 rounded-md cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020] transition-colors duration-150 ${
         isSelected
           ? 'bg-white/[0.08] text-[#F3F3F3]'
           : 'text-[#A6A6A6] hover:bg-white/[0.04] hover:text-[#F3F3F3]'
@@ -116,7 +116,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
                   e.stopPropagation();
                   onRemoveFromQueue(doc.id);
                 }}
-                className="text-[#A6A6A6] hover:text-red-400 hover:bg-red-500/10 text-[11px] px-1.5 py-0.5 rounded-sm min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+                className="text-[#A6A6A6] hover:text-red-400 hover:bg-red-500/10 text-[11px] px-1.5 py-0.5 rounded-md min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
                 title="Cancel queued extraction"
                 aria-label={`Cancel queued extraction for ${doc.name}`}
               >
@@ -136,7 +136,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
                 onRemoveFromQueue(doc.id);
               }
             }}
-            className="text-[#A6A6A6] hover:text-red-400 hover:bg-red-500/10 text-[11px] px-1.5 py-0.5 rounded-sm min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+            className="text-[#A6A6A6] hover:text-red-400 hover:bg-red-500/10 text-[11px] px-1.5 py-0.5 rounded-md min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
             title="Remove file"
             aria-label={`Remove ${doc.name}`}
           >
@@ -164,7 +164,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
 
       {/* Truncated Row */}
       {doc.status === 'Truncated' && doc.statusNote && (
-        <div className="mt-2 bg-amber-500/10 p-2 rounded-sm border border-amber-500/25 text-[12px] text-amber-400">
+        <div className="mt-2 bg-amber-500/10 p-2 rounded-md border border-amber-500/25 text-[12px] text-amber-400">
           <p className="leading-snug break-words">
             {doc.statusNote}
           </p>
@@ -175,7 +175,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
                 e.stopPropagation();
                 onOpenSettings();
               }}
-              className="px-2 py-0.5 rounded-sm border border-amber-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-amber-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
+              className="px-2 py-0.5 rounded-md border border-amber-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-amber-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
             >
               Open settings
             </button>
@@ -185,7 +185,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
 
       {/* Failed Row */}
       {doc.status === 'Failed' && doc.statusNote && (
-        <div className="mt-2 bg-red-500/10 p-2 rounded-sm border border-red-500/25 text-[12px] text-red-400">
+        <div className="mt-2 bg-red-500/10 p-2 rounded-md border border-red-500/25 text-[12px] text-red-400">
           <p className="leading-snug break-words">
             {doc.statusNote}
           </p>
@@ -197,7 +197,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
                   e.stopPropagation();
                   onRetryDoc(doc.id);
                 }}
-                className="px-2 py-0.5 rounded-sm border border-red-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-red-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+                className="px-2 py-0.5 rounded-md border border-red-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-red-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
               >
                 Retry
               </button>
@@ -209,7 +209,7 @@ export const QueueItemRow: React.FC<QueueItemRowProps> = ({
                   e.stopPropagation();
                   onRemoveDoc(doc.id);
                 }}
-                className="px-2 py-0.5 rounded-sm border border-red-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-red-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+                className="px-2 py-0.5 rounded-md border border-red-500/30 bg-white/5 hover:bg-white/10 text-[11.5px] font-medium text-red-300 min-h-[24px] min-w-[24px] inline-flex items-center justify-center transition-all duration-150 ease-out cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
               >
                 Remove
               </button>

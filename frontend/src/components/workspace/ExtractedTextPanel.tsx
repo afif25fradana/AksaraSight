@@ -191,7 +191,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       </div>
 
       {/* Extraction Options Popover + Primary Action Toolbar */}
-      <div className="p-2.5 px-3 border-b border-white/8 dark:border-[var(--border)] bg-white/[0.02] dark:bg-[var(--bg-surface)] flex items-center justify-between gap-2 shrink-0">
+      <div className="p-2.5 px-3 bg-white/[0.02] dark:bg-[var(--bg-surface)] flex items-center justify-between gap-2 shrink-0">
         <ExtractionOptionsPopover
           taskMode={taskMode}
           currentDpi={currentDpi}
@@ -208,7 +208,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
         <div className="flex items-center gap-1.5 shrink-0">
           {!isEngineOnline ? (
             <button
-              className="h-8 px-3 rounded-sm border border-white/10 text-[#929292] cursor-not-allowed font-medium text-[13px] bg-transparent opacity-60"
+              className="h-8 px-3 rounded-md border border-white/10 text-[#929292] cursor-not-allowed font-medium text-[13px] bg-transparent opacity-60"
               disabled
               type="button"
               aria-label="Extraction disabled because engine is offline"
@@ -217,7 +217,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </button>
           ) : isEmptyState ? (
             <button
-              className="h-8 px-3.5 flex items-center bg-white/[0.04] text-[#929292] rounded-sm text-[13px] font-medium border border-white/10 cursor-not-allowed"
+              className="h-8 px-3.5 flex items-center bg-white/[0.04] text-[#929292] rounded-md text-[13px] font-medium border border-white/10 cursor-not-allowed"
               disabled
               type="button"
               aria-label="Extraction disabled because no document is selected"
@@ -227,7 +227,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           ) : isTotalFailure ? (
             <button
               onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
-              className="h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-sm flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+              className="h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-md flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
               type="button"
               aria-label="Retry extraction"
             >
@@ -237,7 +237,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           ) : isDocOwnerOfRunningJob ? (
             <button
               onClick={() => onCancelExtraction(document.id)}
-              className="h-8 px-3.5 bg-[var(--danger)]/15 text-[var(--danger)] border border-[var(--danger)]/30 font-semibold text-[13px] rounded-sm flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none"
+              className="h-8 px-3.5 bg-[var(--danger)]/15 text-[var(--danger)] border border-[var(--danger)]/30 font-semibold text-[13px] rounded-md flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none"
               type="button"
               aria-label="Cancel extraction"
             >
@@ -246,14 +246,14 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </button>
           ) : document.status === 'Waiting' ? (
             <div className="flex items-center gap-1.5">
-              <span className="h-8 px-2.5 bg-white/[0.04] text-[#F3F3F3] rounded-sm text-xs font-medium flex items-center gap-1.5 border border-white/8">
+              <span className="h-8 px-2.5 bg-white/[0.04] text-[#F3F3F3] rounded-md text-xs font-medium flex items-center gap-1.5 border border-white/8">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#60CDFF]" />
                 <span>Queued #{document.queuePosition || 1}</span>
               </span>
               <button
                 type="button"
                 onClick={() => onRemoveFromQueue(document.id)}
-                className="h-8 px-2 text-[#A6A6A6] hover:text-red-400 rounded-sm text-xs font-medium cursor-pointer"
+                className="h-8 px-2 text-[#A6A6A6] hover:text-red-400 rounded-md text-xs font-medium cursor-pointer"
                 title="Remove from queue"
               >
                 <span>Remove</span>
@@ -262,7 +262,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           ) : isAnotherJobRunning && document.status === 'Not extracted' ? (
             <button
               onClick={() => onAddToQueue(document.id)}
-              className="h-8 px-3 bg-[#60CDFF] hover:bg-[#4CC2FF] text-[#000000] font-semibold text-[13px] rounded-sm flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+              className="h-8 px-3 bg-[#60CDFF] hover:bg-[#4CC2FF] text-[#000000] font-semibold text-[13px] rounded-md flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
               type="button"
               aria-label="Add to Queue"
             >
@@ -273,14 +273,14 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             <div className="flex items-center gap-2">
               {document.isReExtractionQueued ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="h-8 px-2.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-sm text-xs font-medium flex items-center gap-1.5">
+                  <span className="h-8 px-2.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-md text-xs font-medium flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                     <span>Queued #{document.queuePosition || 1}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => onRemoveFromQueue(document.id)}
-                    className="h-8 px-2 text-[#A6A6A6] hover:text-red-400 text-xs font-medium cursor-pointer"
+                    className="h-8 px-2 text-[#A6A6A6] hover:text-red-400 text-xs font-medium cursor-pointer rounded-md"
                     title="Remove from queue"
                   >
                     Remove
@@ -289,7 +289,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               ) : (
                 <button
                   onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
-                  className="h-8 px-2.5 text-[#F3F3F3] bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 rounded-sm text-xs font-medium flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+                  className="h-8 px-2.5 text-[#F3F3F3] bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
                   title="Re-extract entire document with current settings"
                   type="button"
                 >
@@ -308,7 +308,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           ) : (
             <button
               onClick={() => onRunDocumentExtraction(document.id, taskMode, currentDpi)}
-              className="h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-sm flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+              className="h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold text-[13px] rounded-md flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
               type="button"
               aria-label="Extract Document"
             >
@@ -320,9 +320,9 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       </div>
 
       {/* Preview tab switcher (Formatted / Raw / JSON) */}
-      <div className="px-3 py-1.5 border-b border-white/8 dark:border-[var(--border)] bg-white/[0.02] dark:bg-[var(--bg-surface)] flex items-center justify-between shrink-0">
+      <div className="px-3 py-1.5 bg-white/[0.02] dark:bg-[var(--bg-surface)] flex items-center justify-between shrink-0">
         <div
-          className="inline-flex p-0.5 bg-white/[0.04] border border-white/8 rounded-sm gap-0.5"
+          className="inline-flex p-0.5 bg-white/[0.04] border border-white/8 rounded-md gap-0.5"
           role="tablist"
           aria-label="Preview display modes"
         >
@@ -333,7 +333,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               role="tab"
               aria-selected={activePreviewTab === tab}
               onClick={() => setActivePreviewTab(tab)}
-              className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
                 activePreviewTab === tab
                   ? 'bg-white/[0.08] text-[#F3F3F3]'
                   : 'text-[#A6A6A6] hover:text-[#F3F3F3]'
@@ -363,7 +363,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
       {/* Main Content Area */}
       {!isEngineOnline ? (
         <div className="flex-1 p-6 flex flex-col justify-center items-center overflow-y-auto bg-[#202020] min-h-0">
-          <div className="w-full max-w-sm rounded-sm bg-[#272727] border border-red-500/30 p-5 shadow-xs flex flex-col items-start gap-4 my-auto">
+          <div className="w-full max-w-sm rounded-lg bg-[#272727] border border-red-500/30 p-5 shadow-xs flex flex-col items-start gap-4 my-auto">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
@@ -377,7 +377,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               <button
                 onClick={onStartEngine}
                 disabled={isTransitioning}
-                className="h-8.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold px-4 rounded-sm flex items-center gap-1.5 text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+                className="h-8.5 bg-[#60CDFF] hover:bg-[#4CC2FF] active:bg-[#0091E6] text-[#000000] font-semibold px-4 rounded-md flex items-center gap-1.5 text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
                 type="button"
               >
                 {isTransitioning ? (
@@ -394,7 +394,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               </button>
               <button
                 onClick={onOpenSettings}
-                className="h-8.5 border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] font-medium px-3.5 rounded-sm text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+                className="h-8.5 border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] font-medium px-3.5 rounded-md text-[13px] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
                 type="button"
               >
                 Open Settings
@@ -404,7 +404,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
         </div>
       ) : isEmptyState ? (
         <div className="flex-1 p-4 flex flex-col min-h-0 bg-[#202020]">
-          <div className="flex-1 border border-white/8 rounded-sm bg-[#272727] p-4 flex flex-col justify-center items-center text-center">
+          <div className="flex-1 border border-white/8 rounded-lg bg-[#272727] p-4 flex flex-col justify-center items-center text-center">
             <FileText className="w-8 h-8 text-[#A6A6A6] mb-1" aria-hidden="true" />
             <p className="text-sm text-[#F3F3F3] font-medium">No Extracted Content</p>
             <span className="text-xs text-[#A6A6A6]">
@@ -414,7 +414,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
         </div>
       ) : isTotalFailure ? (
         <div className="flex-1 p-6 flex flex-col justify-center items-center overflow-y-auto bg-[#202020] min-h-0">
-          <div className="w-full max-w-sm rounded-sm bg-red-500/10 border border-red-500/25 p-5 shadow-xs flex flex-col items-start gap-3 my-auto">
+          <div className="w-full max-w-sm rounded-lg bg-red-500/10 border border-red-500/25 p-5 shadow-xs flex flex-col items-start gap-3 my-auto">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-red-400" aria-hidden="true" />
               <p className="text-sm font-semibold text-[#F3F3F3]">Extraction Failed</p>
@@ -425,7 +425,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             <button
               type="button"
               onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
-              className="mt-1 h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] text-[#000000] font-semibold text-[13px] rounded-sm flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
+              className="mt-1 h-8 px-3.5 bg-[#60CDFF] hover:bg-[#4CC2FF] text-[#000000] font-semibold text-[13px] rounded-md flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors"
             >
               <Play className="w-3.5 h-3.5 fill-current text-[#000000]" aria-hidden="true" />
               <span>Retry extraction</span>
@@ -449,7 +449,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           {isPartialFailure && (
             <div
               role="alert"
-              className="mb-3 p-3 bg-amber-500/10 border border-amber-500/25 rounded-sm flex items-center justify-between text-xs gap-3 shrink-0 text-amber-400"
+              className="mb-3 p-3 bg-amber-500/10 border border-amber-500/25 rounded-md flex items-center justify-between text-xs gap-3 shrink-0 text-amber-400"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" aria-hidden="true" />
@@ -461,13 +461,13 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
               <button
                 type="button"
                 onClick={() => onReExtractDocument(document.id, taskMode, currentDpi)}
-                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium rounded-sm text-xs transition-colors shrink-0 cursor-pointer"
+                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium rounded-md text-xs transition-colors shrink-0 cursor-pointer"
               >
                 Retry
               </button>
             </div>
           )}
-          <div className="py-1 px-3 mb-2 rounded-sm text-xs font-mono flex justify-between items-center shrink-0 border bg-white/[0.03] border-white/8 text-[#A6A6A6]">
+          <div className="py-1 px-3 mb-2 rounded-md text-xs font-mono flex justify-between items-center shrink-0 border bg-white/[0.03] border-white/8 text-[#A6A6A6]">
             <span className="font-medium">
               --- Page {currentPage} of {document.pages} ---
             </span>
@@ -478,7 +478,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             {activePreviewTab === 'formatted' && (
               <div
-                className="flex-1 overflow-y-auto p-3.5 rounded-sm border border-white/8 bg-[#202020] select-text text-[#F3F3F3] animate-fade-in"
+                className="flex-1 overflow-y-auto p-3.5 rounded-md border border-white/8 bg-[#202020] select-text text-[#F3F3F3] animate-fade-in"
                 tabIndex={0}
                 role="region"
                 aria-label="Formatted reading view"
@@ -494,12 +494,12 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
                 readOnly
                 aria-label="OCR extracted text (Raw Markdown)"
                 value={currentTextContent}
-                className="w-full flex-1 resize-none p-3.5 rounded-sm border border-white/8 bg-[#202020] text-[#F3F3F3] text-[13px] font-mono outline-none focus:border-[#60CDFF] focus-visible:ring-1 focus-visible:ring-[#60CDFF] animate-fade-in"
+                className="w-full flex-1 resize-none p-3.5 rounded-md border border-white/8 bg-[#202020] text-[#F3F3F3] text-[13px] font-mono outline-none focus:border-[#60CDFF] focus-visible:ring-1 focus-visible:ring-[#60CDFF] animate-fade-in"
               />
             )}
             {activePreviewTab === 'json' && (
               <div
-                className="w-full flex-1 overflow-auto p-3.5 rounded-sm border border-white/8 bg-[#202020] text-xs font-mono text-[#F3F3F3] animate-fade-in"
+                className="w-full flex-1 overflow-auto p-3.5 rounded-md border border-white/8 bg-[#202020] text-xs font-mono text-[#F3F3F3] animate-fade-in"
                 tabIndex={0}
                 role="region"
                 aria-label="Structured JSON output tree"
@@ -516,7 +516,7 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
         <button
           disabled={!canExportOrCopy}
           onClick={handleCopy}
-          className={`h-8 px-3 rounded-sm border text-xs font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
+          className={`h-8 px-3 rounded-md border text-xs font-medium flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none transition-colors ${
             copied
               ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
               : 'border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] disabled:opacity-40 disabled:cursor-not-allowed'

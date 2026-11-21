@@ -102,7 +102,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
     const optionsButton = screen.getByRole('button', { name: /Extraction Options/i });
     await user.click(optionsButton);
 
-    const tableOption = await screen.findByRole('menuitem', { name: /Single Table Crop/i });
+    const tableOption = await screen.findByRole('radio', { name: /Single Table Crop/i });
     await user.click(tableOption);
 
     // Click Extract Document button
@@ -233,7 +233,7 @@ describe('UI-to-API extraction wire contract (POST /api/documents/{id}/extract)'
     expect(screen.getByText('SCAN DETAIL / RESOLUTION')).toBeInTheDocument();
 
     // Select 150 DPI
-    const highDetailOption = await screen.findByRole('menuitem', { name: /High Detail \(150 DPI\)/i });
+    const highDetailOption = await screen.findByRole('radio', { name: /High Detail \(150 DPI\)/i });
     await user.click(highDetailOption);
 
     // Verify popover button label shows updated 150 DPI badge
@@ -651,12 +651,12 @@ describe('ExtractedTextPanel Unified Extraction Options Popover', () => {
     expect(screen.getByText('Recommended')).toBeInTheDocument();
 
     // Select 150 DPI
-    const dpi150Option = screen.getByRole('menuitem', { name: /High Detail \(150 DPI\)/i });
+    const dpi150Option = screen.getByRole('radio', { name: /High Detail \(150 DPI\)/i });
     await user.click(dpi150Option);
     expect(onDpiChange).toHaveBeenCalledWith(150);
 
     // Select Single Table Crop
-    const tableOption = screen.getByRole('menuitem', { name: /Single Table Crop/i });
+    const tableOption = screen.getByRole('radio', { name: /Single Table Crop/i });
     await user.click(tableOption);
     expect(toggleBtn).toHaveTextContent('Single Table Crop');
 

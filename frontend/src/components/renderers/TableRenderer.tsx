@@ -191,11 +191,11 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
 
   return (
     <div
-      className={`my-3 overflow-x-auto rounded-lg border border-[#8A94A6]/30 dark:border-[var(--border)] shadow-2xs bg-white dark:bg-[var(--bg-surface)] ${className}`}
+      className={`my-3 overflow-x-auto rounded-lg border border-white/[0.04] shadow-xs bg-[#272727] ${className}`}
     >
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#8A94A6]/20 dark:border-[var(--border)] bg-[#F8F7F3] dark:bg-[var(--bg-elevated)] select-none">
-        <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-[#5A6478] dark:text-[var(--text-2)]">
-          <FileSpreadsheet className="w-3.5 h-3.5 text-[#0F766E] dark:text-[var(--accent)]" aria-hidden="true" />
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.04] bg-[#2D2D2D] select-none">
+        <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-[#A6A6A6]">
+          <FileSpreadsheet className="w-3.5 h-3.5 text-[#60CDFF]" aria-hidden="true" />
           <span>Structured Table</span>
         </div>
 
@@ -203,13 +203,13 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
           <button
             type="button"
             onClick={() => handleCopy('csv')}
-            className="h-6 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
+            className="h-6 px-2 rounded-md hover:bg-white/5 text-[#A6A6A6] hover:text-[#F3F3F3] flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
             title="Copy table as CSV"
           >
             {copyStatus === 'csv' ? (
               <>
-                <Check className="w-3 h-3 text-emerald-600 dark:text-[var(--success)]" aria-hidden="true" />
-                <span className="text-emerald-700 dark:text-[var(--success)] font-medium">CSV Copied</span>
+                <Check className="w-3 h-3 text-[#78c697]" aria-hidden="true" />
+                <span className="text-[#78c697] font-medium">CSV Copied</span>
               </>
             ) : (
               <>
@@ -222,13 +222,13 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
           <button
             type="button"
             onClick={() => handleCopy('tsv')}
-            className="h-6 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#5A6478] dark:text-[var(--text-2)] hover:text-[#14213D] dark:hover:text-[var(--text-1)] flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
+            className="h-6 px-2 rounded-md hover:bg-white/5 text-[#A6A6A6] hover:text-[#F3F3F3] flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
             title="Copy table as TSV (Excel/Sheets)"
           >
             {copyStatus === 'tsv' ? (
               <>
-                <Check className="w-3 h-3 text-emerald-600 dark:text-[var(--success)]" aria-hidden="true" />
-                <span className="text-emerald-700 dark:text-[var(--success)] font-medium">TSV Copied</span>
+                <Check className="w-3 h-3 text-[#78c697]" aria-hidden="true" />
+                <span className="text-[#78c697] font-medium">TSV Copied</span>
               </>
             ) : (
               <>
@@ -246,15 +246,16 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
             {headerRows.map((row, rIdx) => (
               <tr
                 key={`hrow-${rIdx}`}
-                className="bg-[#F2EFE9] dark:bg-[var(--bg-elevated)] border-b border-[#8A94A6]/30 dark:border-[var(--border)] text-[#14213D] dark:text-[var(--text-1)] font-semibold"
+                className="bg-[#2D2D2D] border-b border-white/[0.06] text-[#F3F3F3] font-semibold"
               >
                 {row.cells.map((cell, cIdx) => (
                   <th
                     key={`hcell-${cIdx}`}
                     colSpan={cell.colSpan}
                     rowSpan={cell.rowSpan}
+                    scope="col"
                     style={{ textAlign: cell.textAlign }}
-                    className={`px-3 py-2 border-r border-[#8A94A6]/20 dark:border-[var(--border)] last:border-r-0 ${cell.alignClass}`}
+                    className={`px-3 py-2 border-r border-white/[0.04] last:border-r-0 ${cell.alignClass}`}
                   >
                     {cell.text}
                   </th>
@@ -265,13 +266,13 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
         )}
 
         {bodyRows.length > 0 && (
-          <tbody className="divide-y divide-[#8A94A6]/20 dark:divide-[var(--border)]">
+          <tbody className="divide-y divide-white/[0.04]">
             {bodyRows.map((row, rIdx) => (
               <tr
                 key={`brow-${rIdx}`}
                 className={`${
-                  rIdx % 2 === 0 ? 'bg-white dark:bg-[var(--bg-surface)]' : 'bg-[#FAF9F5] dark:bg-[var(--bg-elevated)]'
-                } hover:bg-black/[0.025] dark:hover:bg-white/[0.03] transition-colors duration-100`}
+                  rIdx % 2 === 0 ? 'bg-[#272727]' : 'bg-[#232323]'
+                } hover:bg-white/[0.03] transition-colors duration-100`}
               >
                 {row.cells.map((cell, cIdx) => {
                   const CellTag = cell.isHeader ? 'th' : 'td';
@@ -280,8 +281,9 @@ export const TableRenderer: React.FC<TableRendererProps> = ({
                       key={`bcell-${cIdx}`}
                       colSpan={cell.colSpan}
                       rowSpan={cell.rowSpan}
+                      {...(cell.isHeader ? { scope: 'row' } : {})}
                       style={{ textAlign: cell.textAlign }}
-                      className={`px-3 py-2 border-r border-[#8A94A6]/15 dark:border-[var(--border)] last:border-r-0 text-[#14213D] dark:text-[var(--text-1)] ${
+                      className={`px-3 py-2 border-r border-white/[0.04] last:border-r-0 text-[#F3F3F3] ${
                         cell.isHeader ? 'font-semibold' : ''
                       } ${cell.alignClass}`}
                     >

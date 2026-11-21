@@ -43,7 +43,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             Document Preview
           </h2>
         </div>
-        <div className="h-11 px-3 border-b border-white/8 dark:border-[var(--border)] flex items-center justify-between bg-white/[0.02] dark:bg-[var(--bg-surface)] shrink-0 text-[#A6A6A6] text-[13px] select-none">
+        <div className="h-11 px-3 flex items-center justify-between bg-white/[0.02] dark:bg-[var(--bg-surface)] shrink-0 text-[#A6A6A6] text-[13px] select-none">
           <div className="flex items-center gap-1 opacity-50">
             <span className="h-7 px-2 flex items-center gap-1 font-medium text-[12.5px]">Previous</span>
             <span className="px-2 text-[12.5px] tabular-nums">0 of 0</span>
@@ -53,7 +53,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             <span className="h-7 px-2 flex items-center font-medium text-[12.5px]">Fit</span>
           </div>
         </div>
-        <div className="flex-1 bg-[#181818] dark:bg-[var(--canvas-matte)] p-6 flex flex-col items-center justify-center text-center select-none">
+        <div className="flex-1 m-2 p-6 bg-[#1C1C1C] rounded-md border border-white/[0.03] flex flex-col items-center justify-center text-center select-none min-h-0">
           <div className="w-12 h-12 rounded-full bg-white/[0.04] border border-white/8 flex items-center justify-center mb-3 text-[#A6A6A6]">
             <ScrollText className="w-6 h-6 text-[#A6A6A6]" aria-hidden="true" />
           </div>
@@ -86,13 +86,13 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
       </div>
 
       {/* Toolbar: Ghost utility style for frequent utilities (Previous/Next, zoom, Fit) */}
-      <div className="h-11 px-3 border-b border-white/8 dark:border-[var(--border)] flex items-center justify-between bg-white/[0.02] dark:bg-[var(--bg-surface)] shrink-0">
+      <div className="h-11 px-3 flex items-center justify-between bg-white/[0.02] dark:bg-[var(--bg-surface)] shrink-0">
         {/* Pager utility */}
         <div className="flex items-center gap-1">
           <button 
             disabled={currentPage <= 1}
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-            className="h-7 px-2.5 rounded-sm hover:bg-white/[0.08] hover:text-[#F3F3F3] disabled:opacity-30 disabled:hover:bg-transparent text-[#A6A6A6] active:scale-[0.96] transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
+            className="h-7 px-2.5 rounded-md hover:bg-white/[0.08] hover:text-[#F3F3F3] disabled:opacity-30 disabled:hover:bg-transparent text-[#A6A6A6] active:scale-[0.96] transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
             type="button" 
             aria-label="Previous"
           >
@@ -107,7 +107,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           <button 
             disabled={currentPage >= totalPages}
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-            className="h-7 px-2.5 rounded-sm hover:bg-white/[0.08] hover:text-[#F3F3F3] disabled:opacity-30 disabled:hover:bg-transparent text-[#A6A6A6] active:scale-[0.96] transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
+            className="h-7 px-2.5 rounded-md hover:bg-white/[0.08] hover:text-[#F3F3F3] disabled:opacity-30 disabled:hover:bg-transparent text-[#A6A6A6] active:scale-[0.96] transition-all duration-100 ease-tactile flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
             type="button" 
             aria-label="Next"
           >
@@ -118,10 +118,10 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
 
         {/* Zoom & Fit utilities */}
         <div className="flex items-center gap-1">
-          <div className="inline-flex items-center rounded-sm p-0.5 bg-white/[0.04] border border-white/8">
+          <div className="inline-flex items-center rounded-md p-0.5 bg-white/[0.04] border border-white/8">
             <button 
               onClick={handleZoomOut}
-              className="w-7 h-7 rounded-sm hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
+              className="w-7 h-7 rounded-md hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
               title="Zoom out" 
               aria-label="Zoom out" 
               type="button" 
@@ -133,7 +133,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             </span>
             <button 
               onClick={handleZoomIn}
-              className="w-7 h-7 rounded-sm hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
+              className="w-7 h-7 rounded-md hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
               title="Zoom in" 
               aria-label="Zoom in" 
               type="button" 
@@ -146,7 +146,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
 
           <button 
             onClick={handleZoomReset}
-            className="h-7 px-2.5 rounded-sm hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
+            className="h-7 px-2.5 rounded-md hover:bg-white/[0.08] text-[#A6A6A6] hover:text-[#F3F3F3] active:scale-90 transition-all duration-100 ease-out flex items-center gap-1 text-[12.5px] font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none" 
             title="Fit" 
             aria-label="Fit" 
             type="button" 
@@ -158,22 +158,22 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
       </div>
 
       {/* Document Viewport / Canvas */}
-      <div className="flex-1 bg-[#181818] dark:bg-[var(--canvas-matte)] p-4 overflow-y-auto flex justify-center items-start transition-colors">
+      <div className="flex-1 m-2 p-2 bg-[#1C1C1C] rounded-md border border-white/[0.03] overflow-y-auto flex justify-center items-start transition-colors min-h-0">
         <div 
           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
           className="transition-transform duration-150 w-full flex justify-center"
         >
           {document.previewImageUrl && !imageLoadError ? (
-            <div className="w-full max-w-[560px] bg-[#1e1e1e] dark:bg-[var(--paper-bg)] border border-white/10 dark:border-[var(--paper-border)] rounded-sm shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-3 flex justify-center min-h-[300px] relative">
+            <div className="w-full max-w-[560px] bg-[#1e1e1e] dark:bg-[var(--paper-bg)] border border-white/10 dark:border-[var(--paper-border)] rounded-md shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-3 flex justify-center min-h-[300px] relative">
               {!imageLoaded && (
-                <div className="absolute inset-3 bg-white/[0.04] rounded-sm flex items-center justify-center animate-pulse" aria-hidden="true">
+                <div className="absolute inset-3 bg-white/[0.04] rounded-md flex items-center justify-center animate-pulse" aria-hidden="true">
                   <span className="text-2xs text-[#A6A6A6] font-mono">Rendering page...</span>
                 </div>
               )}
               <img 
                 src={document.previewImageUrl} 
                 alt={`${document.name} page ${currentPage}`}
-                className={`max-w-full h-auto object-contain rounded-sm transition-opacity duration-200 ease-tactile ${
+                className={`max-w-full h-auto object-contain rounded-md transition-opacity duration-200 ease-tactile ${
                   imageLoaded ? 'opacity-100' : 'opacity-0'
                 }`}
                 onLoad={() => setImageLoaded(true)}
@@ -184,7 +184,7 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             <div 
               role="region" 
               aria-label={`Document preview: ${document.name}, page ${currentPage} of ${totalPages}`}
-              className="w-full max-w-[480px] bg-[#1e1e1e] dark:bg-[var(--paper-bg)] border border-white/10 dark:border-[var(--paper-border)] rounded-sm shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-6 text-[#F3F3F3] dark:text-[var(--paper-text)] relative select-text transition-colors"
+              className="w-full max-w-[480px] bg-[#1e1e1e] dark:bg-[var(--paper-bg)] border border-white/10 dark:border-[var(--paper-border)] rounded-md shadow-[0_4px_24px_rgba(0,0,0,0.5)] p-6 text-[#F3F3F3] dark:text-[var(--paper-text)] relative select-text transition-colors"
             >
               <div className="border-b-2 border-white/20 pb-3 mb-4 flex justify-between items-start">
                 <div>
@@ -207,11 +207,11 @@ export const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                     : '[Document preview raster unavailable. Extracted text is displayed in the right panel.]'}
                 </p>
                 {document.extractedText ? (
-                  <div className="p-3 bg-black/20 rounded-sm border border-white/10 font-mono text-[11px] text-[#F3F3F3] whitespace-pre-wrap max-h-60 overflow-y-auto">
+                  <div className="p-3 bg-black/20 rounded-md border border-white/10 font-mono text-[11px] text-[#F3F3F3] whitespace-pre-wrap max-h-60 overflow-y-auto">
                     {document.extractedText.slice(0, 320)}...
                   </div>
                 ) : (
-                  <div className="p-4 bg-white/[0.02] rounded-sm border border-dashed border-white/15 text-center text-[#A6A6A6] text-[12px]">
+                  <div className="p-4 bg-white/[0.02] rounded-md border border-dashed border-white/15 text-center text-[#A6A6A6] text-[12px]">
                     Document has not been extracted yet.
                   </div>
                 )}

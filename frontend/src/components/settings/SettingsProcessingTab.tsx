@@ -19,8 +19,8 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
 }) => {
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* DPI Selection Block */}
-      <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3 transition-colors">
+      {/* DPI Selection Section */}
+      <div className="space-y-2.5">
         <div className="flex justify-between items-center">
           <div>
             <h3 className="text-[13.5px] font-semibold text-[#F3F3F3]">
@@ -39,7 +39,7 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
         </div>
 
         {/* Interactive DPI Preset Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1" role="group" aria-label="Document Render Resolution">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="group" aria-label="Document Render Resolution">
           {DPI_OPTIONS.map((option) => {
             const isSelected = formData.dpi === option.dpi;
             return (
@@ -49,10 +49,10 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
                 aria-pressed={isSelected}
                 aria-label={`${option.dpi} DPI`}
                 onClick={() => setFormData((prev) => ({ ...prev, dpi: option.dpi }))}
-                className={`p-3 rounded-md border text-left cursor-pointer transition-all duration-150 flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] active:scale-[0.98] ${
+                className={`p-3.5 rounded-lg border text-left cursor-pointer transition-all duration-150 flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] active:scale-[0.98] ${
                   isSelected
                     ? 'bg-[#60CDFF]/10 border-[#60CDFF] ring-1 ring-[#60CDFF]/30 shadow-xs'
-                    : 'bg-[#202020] border-white/[0.06] hover:border-white/[0.12]'
+                    : 'bg-[#272727] border-white/[0.08] hover:border-white/[0.16] hover:bg-[#2d2d2d]'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -87,7 +87,7 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
       </div>
 
       {/* Limits Grid */}
-      <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] grid grid-cols-2 gap-4 transition-colors">
+      <div className="bg-[#272727] p-4 rounded-lg border border-white/[0.06] grid grid-cols-2 gap-4 transition-colors">
         <div>
           <label className="block text-[13px] font-medium text-[#F3F3F3] mb-1" htmlFor="max-image-size">
             Max Image Dimension
@@ -100,7 +100,7 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
               max={8192}
               value={formData.max_image_dimension}
               onChange={(e) => setFormData((prev) => ({ ...prev, max_image_dimension: Number(e.target.value) }))}
-              className="w-full max-w-[120px] h-[34px] px-2.5 text-[13.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+              className="w-full max-w-[120px] h-[34px] px-2.5 text-[13.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
             />
             <span className="text-[12px] text-[#A6A6A6]">px</span>
           </div>
@@ -120,7 +120,7 @@ export const SettingsProcessingTab: React.FC<SettingsProcessingTabProps> = ({
             max={16384}
             value={formData.max_tokens}
             onChange={(e) => setFormData((prev) => ({ ...prev, max_tokens: Number(e.target.value) }))}
-            className="w-full max-w-[120px] h-[34px] px-2.5 text-[13.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+            className="w-full max-w-[120px] h-[34px] px-2.5 text-[13.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
           />
           <p className="text-[11.5px] text-[#A6A6A6] mt-1">
             Context window token budget reserved for each page's OCR output

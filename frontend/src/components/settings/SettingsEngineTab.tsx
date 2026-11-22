@@ -63,7 +63,7 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Local Inference Backend Radios */}
-      <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3">
+      <div className="space-y-2.5">
         <label className="block text-[13.5px] font-semibold text-[#F3F3F3]">
           Local Inference Engine Backend
         </label>
@@ -73,10 +73,10 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
             return (
               <label 
                 key={backendOption}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer transition-all duration-150 active:scale-[0.98] ${
+                className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border cursor-pointer transition-all duration-150 active:scale-[0.98] ${
                   isSelected 
-                    ? 'border-[#60CDFF] bg-[#60CDFF]/10 ring-1 ring-[#60CDFF]/30' 
-                    : 'border-white/[0.06] hover:bg-white/[0.03] bg-[#202020]'
+                    ? 'border-[#60CDFF] bg-[#60CDFF]/10 ring-1 ring-[#60CDFF]/30 shadow-xs' 
+                    : 'bg-[#272727] border-white/[0.08] hover:border-white/[0.16] hover:bg-[#2d2d2d]'
                 }`}
               >
                 <input 
@@ -90,8 +90,8 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
                 <div 
                   className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors duration-150 shrink-0 ${
                     isSelected 
-                      ? 'border-[#60CDFF] bg-[#2D2D2D]' 
-                      : 'border-white/[0.15] bg-[#202020]'
+                      ? 'border-[#60CDFF] bg-[#272727]' 
+                      : 'border-white/[0.15] bg-transparent'
                   }`}
                   aria-hidden="true"
                 >
@@ -111,7 +111,7 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
       </div>
 
       {/* Runtime Binary Source */}
-      <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3">
+      <div className="bg-[#272727] p-4 rounded-lg border border-white/[0.06] space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <label className="text-[13.5px] font-semibold text-[#F3F3F3] block">
@@ -123,7 +123,7 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
           </div>
           <div 
             ref={runtimeContainerRef}
-            className="relative inline-flex p-0.5 bg-[#202020] border border-white/[0.06] rounded-md gap-1 whitespace-nowrap"
+            className="relative inline-flex p-0.5 bg-black/20 border border-white/[0.06] rounded-md gap-1 whitespace-nowrap"
           >
             <div 
               className="absolute top-0.5 bottom-0.5 bg-[#383838] rounded shadow-xs transition-all duration-200 ease-out"
@@ -160,7 +160,7 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
             formatBytes={formatBytes}
           />
         ) : (
-          <div className="bg-[#202020] rounded-lg p-3.5 border border-white/[0.04] space-y-3 transition-colors animate-fade-in">
+          <div className="pt-3 border-t border-white/[0.04] space-y-3 transition-colors animate-fade-in">
             <div>
               <label className="block text-[13px] font-medium text-[#F3F3F3] mb-1.5" htmlFor="custom-server-path">
                 Custom llama-server Executable Path
@@ -172,12 +172,12 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
                   value={formData.llama_server_path || ''}
                   onChange={(e) => setFormData((prev) => ({ ...prev, llama_server_path: e.target.value }))}
                   placeholder="C:\tools\llama-cpp\llama-server.exe"
-                  className="flex-1 h-[34px] px-3 font-mono text-[12px] bg-[#272727] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]"
+                  className="flex-1 h-[34px] px-3 font-mono text-[12px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]"
                 />
                 <button
                   type="button"
                   onClick={onBrowseExecutable}
-                  className="h-[34px] px-3 border border-white/[0.08] hover:border-white/[0.16] bg-[#2D2D2D] hover:bg-white/[0.04] text-[#F3F3F3] rounded-md text-[12.5px] font-medium transition-colors cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
+                  className="h-[34px] px-3 border border-white/[0.08] hover:border-white/[0.16] bg-white/[0.04] hover:bg-white/[0.08] text-[#F3F3F3] rounded-md text-[12.5px] font-medium active:scale-[0.98] transition-transform duration-100 cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none"
                   title="Browse local disk for llama-server executable"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-[#60CDFF]" />
@@ -208,7 +208,7 @@ export const SettingsEngineTab: React.FC<SettingsEngineTabProps> = ({
       />
 
       {/* Auto Start Server Toggle */}
-      <div className="flex items-center justify-between bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] transition-colors">
+      <div className="flex items-center justify-between bg-[#272727] p-4 rounded-lg border border-white/[0.06] transition-colors">
         <div>
           <span className="text-[13.5px] font-semibold text-[#F3F3F3] block">
             Start engine automatically with Web UI

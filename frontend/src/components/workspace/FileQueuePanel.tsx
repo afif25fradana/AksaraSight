@@ -73,7 +73,7 @@ export const FileQueuePanel: React.FC<FileQueuePanelProps> = ({
             <button
               onClick={onClearFinished}
               disabled={!hasFinished}
-              className={`text-[12px] font-medium transition-all duration-150 px-2 py-0.5 rounded-md min-h-[24px] min-w-[24px] inline-flex items-center justify-center ${
+              className={`text-[12px] font-medium transition-all duration-150 px-2 py-0.5 rounded-sm min-h-[24px] min-w-[24px] inline-flex items-center justify-center ${
                 hasFinished
                   ? 'text-[#A6A6A6] hover:text-[#F3F3F3] bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:outline-none'
                   : 'text-[#929292] opacity-40 cursor-not-allowed select-none'

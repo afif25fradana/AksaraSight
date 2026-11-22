@@ -179,9 +179,8 @@ function AppContent() {
         >
           {currentTab === 'settings' ? (
             <div
-              role="tabpanel"
-              id="nav-panel-settings"
-              aria-labelledby="nav-tab-settings"
+              id="view-settings"
+              aria-label="Settings View"
               tabIndex={0}
               className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col animate-fade-in focus:outline-none"
             >
@@ -199,18 +198,23 @@ function AppContent() {
             </div>
           ) : (
             <div
-              role="tabpanel"
-              id="nav-panel-workspace"
-              aria-labelledby="nav-tab-workspace"
+              id="view-workspace"
+              aria-label="Workspace View"
               tabIndex={0}
-              className="flex-1 min-h-0 flex flex-col lg:flex-row p-2 gap-2 bg-[#202020] overflow-hidden relative z-10 focus:outline-none"
+              className="flex-1 min-h-0 flex flex-col lg:flex-row p-2 bg-[#202020] overflow-hidden relative z-10 animate-fade-in focus:outline-none"
             >
-              {isQueueOpen && (
-                <aside
-                  id="workspace-file-queue"
-                  aria-label="Document Queue"
-                  className="w-full lg:w-[252px] shrink-0 h-full bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs"
-                >
+              <aside
+                id="workspace-file-queue"
+                aria-label="Document Queue"
+                inert={!isQueueOpen ? true : undefined}
+                aria-hidden={!isQueueOpen}
+                className={`shrink-0 h-full bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs transition-[width,opacity,margin] duration-200 ease-fluent ${
+                  isQueueOpen
+                    ? 'w-full lg:w-[252px] opacity-100 lg:mr-2 mb-2 lg:mb-0'
+                    : 'w-0 lg:w-0 opacity-0 pointer-events-none border-0 overflow-hidden mr-0 lg:mr-0 mb-0 lg:mb-0'
+                }`}
+              >
+                <div className="w-full lg:w-[252px] h-full shrink-0 flex flex-col overflow-hidden">
                   <MemoizedFileQueuePanel
                     documents={documents}
                     selectedDocId={selectedDocId}
@@ -222,8 +226,8 @@ function AppContent() {
                     onRemoveDoc={handleRemoveDoc}
                     onRemoveFromQueue={handleRemoveFromQueue}
                   />
-                </aside>
-              )}
+                </div>
+              </aside>
 
               <div className="flex-1 min-w-0 flex flex-col lg:flex-row gap-2 h-full overflow-hidden">
                 <div className="flex-1 min-w-0 bg-[#272727] rounded-lg border border-white/[0.04] overflow-hidden flex flex-col shadow-xs">

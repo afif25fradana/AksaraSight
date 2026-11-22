@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { Layers, ListOrdered, Settings, Terminal } from 'lucide-react';
 
 export type NavRailTab = 'workspace' | 'settings';
@@ -11,28 +11,6 @@ export interface NavRailProps {
   onToggleQueue?: () => void;
 }
 
-interface TabItem {
-  id: NavRailTab;
-  label: string;
-  shortcut?: string;
-  icon: React.ReactNode;
-}
-
-const TABS: TabItem[] = [
-  {
-    id: 'workspace',
-    label: 'Workspace',
-    shortcut: 'Ctrl+1',
-    icon: <Layers className="w-5 h-5" aria-hidden="true" />,
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    shortcut: 'Ctrl+,',
-    icon: <Settings className="w-5 h-5" aria-hidden="true" />,
-  },
-];
-
 export const NavRail: React.FC<NavRailProps> = ({
   activeTab,
   onSelectTab,
@@ -40,27 +18,20 @@ export const NavRail: React.FC<NavRailProps> = ({
   isQueueOpen = true,
   onToggleQueue,
 }) => {
-  const [focusedIndex, setFocusedIndex] = useState(() => {
-    const idx = TABS.findIndex((t) => t.id === activeTab);
-    return idx >= 0 ? idx : 0;
-  });
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  // Keep focusedIndex aligned when activeTab prop changes
-  useEffect(() => {
-    const idx = TABS.findIndex((t) => t.id === activeTab);
-    if (idx >= 0) {
-      setFocusedIndex(idx);
-    }
-  }, [activeTab]);
-
-  // Global keyboard shortcuts: Ctrl+1 for Workspace, Ctrl+, for Settings, Ctrl+B for Queue
+  // Global keyboard shortcuts:
+  // Ctrl+1 / Cmd+1: Workspace
+  // Ctrl+, / Cmd+,: Settings
+  // Ctrl+B / Cmd+B: Toggle File Queue
+  // Ctrl+Shift+L / Cmd+Shift+L: Server Logs
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isModifier = e.ctrlKey || e.metaKey;
       if (!isModifier) return;
 
-      if (e.key === '1') {
+      if (e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        onOpenServerLogs?.();
+      } else if (e.key === '1') {
         e.preventDefault();
         onSelectTab('workspace');
       } else if (e.key === ',') {
@@ -74,55 +45,18 @@ export const NavRail: React.FC<NavRailProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onSelectTab, onToggleQueue]);
-
-  // Roving Tabindex keyboard cycling for the 2 view tabs
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent, index: number) => {
-      let nextIndex = index;
-
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          nextIndex = (index + 1) % TABS.length;
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          nextIndex = (index - 1 + TABS.length) % TABS.length;
-          break;
-        case 'Home':
-          e.preventDefault();
-          nextIndex = 0;
-          break;
-        case 'End':
-          e.preventDefault();
-          nextIndex = TABS.length - 1;
-          break;
-        case 'Enter':
-        case ' ':
-          e.preventDefault();
-          onSelectTab(TABS[index].id);
-          return;
-        default:
-          return;
-      }
-
-      setFocusedIndex(nextIndex);
-      tabRefs.current[nextIndex]?.focus();
-      onSelectTab(TABS[nextIndex].id);
-    },
-    [onSelectTab]
-  );
+  }, [onSelectTab, onToggleQueue, onOpenServerLogs]);
 
   return (
     <nav
       aria-label="Application Navigation"
       className="w-12 bg-[#202020] border-r border-white/8 flex flex-col justify-between py-2 shrink-0 select-none z-30 h-full"
     >
-      {/* Upper Stack: AksaraSight App Mark + View Tabs + Queue Disclosure */}
+      {/* Upper Stack: AksaraSight App Mark + Workspace destination + Queue Disclosure */}
       <div className="flex flex-col items-center gap-2">
         {/* App Mark */}
         <div
+          role="img"
           className="w-9 h-9 flex items-center justify-center rounded-sm text-[#60CDFF] mb-1"
           title="AksaraSight"
           aria-label="AksaraSight"
@@ -144,59 +78,30 @@ export const NavRail: React.FC<NavRailProps> = ({
           </svg>
         </div>
 
-        {/* WAI-ARIA Vertical Tablist (owns Workspace and Settings only) */}
-        <div
-          role="tablist"
-          aria-orientation="vertical"
-          aria-label="Views"
-          className="flex flex-col items-center gap-1 w-full"
+        {/* Workspace Destination Button */}
+        <button
+          type="button"
+          onClick={() => onSelectTab('workspace')}
+          aria-current={activeTab === 'workspace' ? 'page' : undefined}
+          title="Workspace (Ctrl+1)"
+          aria-label="Workspace"
+          className={`relative w-10 h-10 flex items-center justify-center rounded-sm transition-colors duration-100 ease-out cursor-pointer ${
+            activeTab === 'workspace'
+              ? 'bg-white/[0.08] text-[#F3F3F3]'
+              : 'text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.05]'
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020]`}
         >
-          {TABS.map((tab, idx) => {
-            const isActive = tab.id === activeTab;
-            const isFocused = idx === focusedIndex;
+          {activeTab === 'workspace' && (
+            <span
+              className="w-[3px] h-4 rounded-full bg-[#60CDFF] absolute left-1 animate-pill-enter"
+              aria-hidden="true"
+              data-testid="active-indicator"
+            />
+          )}
+          <Layers className="w-5 h-5" aria-hidden="true" />
+        </button>
 
-            return (
-              <button
-                key={tab.id}
-                ref={(el) => {
-                  tabRefs.current[idx] = el;
-                }}
-                role="tab"
-                id={`nav-tab-${tab.id}`}
-                aria-selected={isActive}
-                aria-controls={`nav-panel-${tab.id}`}
-                tabIndex={isFocused ? 0 : -1}
-                onClick={() => {
-                  setFocusedIndex(idx);
-                  onSelectTab(tab.id);
-                }}
-                onKeyDown={(e) => handleKeyDown(e, idx)}
-                title={tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}
-                aria-label={tab.label}
-                className={`relative w-10 h-10 flex items-center justify-center rounded-sm transition-colors duration-100 ease-out cursor-pointer ${
-                  isActive
-                    ? 'bg-white/[0.08] text-[#F3F3F3]'
-                    : 'text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.05]'
-                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020]`}
-              >
-                {/* 3px vertical active indicator pill */}
-                {isActive && (
-                  <span
-                    className="w-[3px] h-4 rounded-full bg-[#60CDFF] absolute left-1"
-                    aria-hidden="true"
-                    data-testid="active-indicator"
-                  />
-                )}
-                {tab.icon}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Divider between view tabs and queue panel disclosure */}
-        <div className="w-6 h-px bg-white/10 my-0.5" aria-hidden="true" />
-
-        {/* Standalone Queue Panel Disclosure Button (Outside tablist) */}
+        {/* Standalone Queue Panel Disclosure Button */}
         <button
           type="button"
           aria-expanded={isQueueOpen}
@@ -214,16 +119,39 @@ export const NavRail: React.FC<NavRailProps> = ({
         </button>
       </div>
 
-      {/* Lower Stack: Server Logs */}
+      {/* Lower Stack: Server Logs Action Button + Settings Destination Button */}
       <div className="flex flex-col items-center gap-1 w-full">
         <button
           type="button"
           onClick={onOpenServerLogs}
-          title="Server Logs"
+          aria-haspopup="dialog"
+          title="Server Logs (Ctrl+Shift+L)"
           aria-label="Server Logs"
           className="w-10 h-10 flex items-center justify-center rounded-sm text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.05] transition-colors duration-100 ease-out cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020]"
         >
           <Terminal className="w-5 h-5" aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelectTab('settings')}
+          aria-current={activeTab === 'settings' ? 'page' : undefined}
+          title="Settings (Ctrl+,)"
+          aria-label="Settings"
+          className={`relative w-10 h-10 flex items-center justify-center rounded-sm transition-colors duration-100 ease-out cursor-pointer ${
+            activeTab === 'settings'
+              ? 'bg-white/[0.08] text-[#F3F3F3]'
+              : 'text-[#A6A6A6] hover:text-[#F3F3F3] hover:bg-white/[0.05]'
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] focus-visible:ring-offset-1 focus-visible:ring-offset-[#202020]`}
+        >
+          {activeTab === 'settings' && (
+            <span
+              className="w-[3px] h-4 rounded-full bg-[#60CDFF] absolute left-1 animate-pill-enter"
+              aria-hidden="true"
+              data-testid="active-indicator"
+            />
+          )}
+          <Settings className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
     </nav>

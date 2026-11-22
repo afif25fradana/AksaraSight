@@ -20,7 +20,7 @@ export const ModelWeightsSection: React.FC<ModelWeightsSectionProps> = ({
   const modelSize = formatBytes(effectiveModelStatus?.total_bytes || TOTAL_MODEL_BYTES);
 
   return (
-    <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3.5 transition-colors">
+    <div className="bg-[#272727] p-4 rounded-lg border border-white/[0.06] space-y-3.5 transition-colors">
       <div className="flex items-center justify-between border-b border-white/[0.04] pb-2.5">
         <div>
           <div className="flex items-center gap-2">
@@ -50,7 +50,7 @@ export const ModelWeightsSection: React.FC<ModelWeightsSectionProps> = ({
       </div>
 
       {/* Model Metadata Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-3 text-xs bg-[#202020] p-3 rounded-lg border border-white/[0.04]">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-3 text-xs p-3 rounded-md border border-white/[0.06] bg-white/[0.02]">
         <div>
           <span className="text-[#A6A6A6] block font-medium mb-0.5">Model</span>
           <span className="font-semibold text-[#F3F3F3] font-mono text-[12.5px]">
@@ -93,7 +93,7 @@ export const ModelWeightsSection: React.FC<ModelWeightsSectionProps> = ({
             </div>
           </div>
 
-          <div className="w-full bg-[#202020] h-2 rounded-full overflow-hidden relative">
+          <div className="w-full bg-white/[0.06] h-2 rounded-full overflow-hidden relative">
             <div
               className="bg-[#60CDFF] h-full transition-all duration-200 rounded-full relative overflow-hidden"
               style={{ width: `${effectiveModelStatus.percent}%` }}

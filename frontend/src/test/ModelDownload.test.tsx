@@ -389,8 +389,8 @@ describe('Model Weights Management UI and Download Workflow', () => {
 
     render(<App />);
 
-    // Navigate to Settings tab
-    const settingsNavBtn = await screen.findByRole('tab', { name: 'Settings' });
+    // Navigate to Settings
+    const settingsNavBtn = await screen.findByRole('button', { name: 'Settings' });
     await user.click(settingsNavBtn);
 
     // Initial state: Not Downloaded
@@ -577,7 +577,7 @@ describe('Model Weights Management UI and Download Workflow', () => {
 
     render(<App />);
 
-    const settingsNavBtn = await screen.findByRole('tab', { name: 'Settings' });
+    const settingsNavBtn = await screen.findByRole('button', { name: 'Settings' });
     await user.click(settingsNavBtn);
 
     expect(await screen.findByText(/Not Downloaded \(Download required\)/i)).toBeInTheDocument();

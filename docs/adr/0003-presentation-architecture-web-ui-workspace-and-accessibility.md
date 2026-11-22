@@ -4,7 +4,7 @@
 Accepted
 
 ## Date
-2026-11-21
+2026-11-22
 
 ## Context
 AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTkinter, and TkinterDnD2 (`gui/`). This implementation encountered several limitations:
@@ -25,14 +25,25 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
    - Retire the native desktop GUI from `main` (permanently frozen at `v1.2.1` on branch `release/1.2`) and replace it with a browser-based local Web UI workspace (`web/` and `frontend/`) designed according to Windows 11 WinUI 3 dark-mode desktop utility principles.
    - The backend is served via FastAPI and Uvicorn on loopback (`127.0.0.1:8000`), pushing real-time progress to a React 19 Single Page Application via Server-Sent Events (SSE).
    - The packaged portable desktop executable (`AksaraSight.exe` / `AksaraSight`) starts the local server and automatically launches the user interface.
-   - **Three-Layer Elevation Hierarchy**: Enforce a strict dark-mode surface elevation system with subtle 1px top-lit hairline borders instead of disruptive drop shadows:
-     - *Layer 0 (Outer App Shell)*: Pinned to `#202020` base background hosting the 48px navigation rail, top header bar, and 26px bottom status bar.
-     - *Layer 1 (Floating Workspace Panes & Full-Canvas Settings Surface)*: Workspace panels and full-canvas settings view float at `#272727` with 8px (`rounded-lg`) corner radii and subtle borders (`border-white/[0.04]` to `border-white/8`).
-     - *Layer 2 (Grouped Settings Cards & Inset Elements)*: Interactive configuration cards and settings rows render at `#2D2D2D` with 8px corner radii and hairline borders (`border-white/[0.04]`), separating discrete options cleanly over Layer 1.
-   - **Three-Pane Floating Workspace Layout**: Organize document extraction operations into a floating 3-pane layout separated by 8px (`gap-2`) gutters over the `#202020` outer shell:
-     - *Left Pane*: Collapsible document queue (`FileQueuePanel`, `w-[252px] shrink-0`) with subtle selection states and a 3px `#60CDFF` active indicator pill.
-     - *Center Pane*: Document preview canvas (`DocumentPreviewPanel`) featuring an inset `#1C1C1C` preview well (`rounded-md` 6px, `border-white/[0.03]`) that maximizes contrast against rendered document pages.
-     - *Right Pane*: Structured extraction inspector (`ExtractedTextPanel`) providing tabbed transcription views (Markdown, Table, Formula, and Raw JSON).
+   - **Disciplined Dark-Mode Elevation Hierarchy**: Enforce a strict dark-mode surface elevation system with subtle 1px top-lit hairline borders instead of disruptive drop shadows:
+     - *Layer 0 (Outer App Shell & Settings Base)*: Pinned to `#202020` base background hosting the 48px navigation rail, top header bar, 26px bottom status bar, and full-canvas Settings view.
+     - *Layer 1 (Floating Workspace Panes & Single-Layer Settings Cards)*: Workspace panels and settings section cards float at `#272727` with 8px (`rounded-lg`) corner radii and subtle hairline borders (`border-white/[0.04]` to `border-white/[0.06]`).
+     - *Layer 2 (Inset Elements & Modals)*: Inset wells (preview canvas at `#1C1C1C`) and focused modal dialogs (`#2D2D2D` to `#272727` with `border-white/[0.08]`).
+   - **Flattened Settings Elevation & Reading Measure**:
+     - The Settings view flows directly across the `#202020` base canvas rather than resting on a raised container pane, constrained to a centered `max-w-[960px] mx-auto` measure for optimal typographic line length and ergonomic desktop scanning.
+     - Sticky header and footer action bars use `bg-[#202020]/90 backdrop-blur-md` with hairline dividers (`border-white/[0.06]`) to anchor section titles, category tabs, and persistence buttons while scrolling, aligned with the centered `max-w-[960px] mx-auto` content boundaries.
+     - Settings options and expanders render as single-layer `#272727` cards (`rounded-lg`, `border-white/[0.06]`) with subtle hairline internal dividers (`border-t border-white/[0.04]` or `border-b border-white/[0.04]`) separating discrete sub-rows and expander content, eliminating unnecessary nested card borders and visual elevation noise.
+     - Discrete option grids (such as Local Inference Backend selection and DPI render presets) are promoted directly onto the `#202020` base canvas as flat `#272727` cards with zero outer card nesting, preserving visual hierarchy and preventing elevation ambiguity.
+   - **Three-Pane Floating Workspace Layout & Queue Collapse Mechanics**:
+     - Organize document extraction operations into a floating 3-pane layout separated by 8px (`gap-2`) gutters over the `#202020` outer shell:
+       - *Left Pane*: Collapsible document queue (`FileQueuePanel`, `w-[252px] shrink-0`).
+       - *Center Pane*: Document preview canvas (`DocumentPreviewPanel`) featuring an inset `#1C1C1C` preview well (`rounded-md` 6px, `border-white/[0.03]`) that maximizes contrast against rendered document pages.
+       - *Right Pane*: Structured extraction inspector (`ExtractedTextPanel`) providing tabbed transcription views (Markdown, Table, Formula, and Raw JSON).
+     - **FileQueuePanel Collapse Mechanics**: Implement a mounted collapsible container using `inert={!isQueueOpen}` and `aria-hidden={!isQueueOpen}` rather than unmounting from the React virtual DOM:
+       - Preserves scroll positions, loaded thumbnail state, and selected document identifiers during collapse cycles.
+       - Transitions width, opacity, and margins smoothly over 200ms using Fluent 2 easing (`ease-fluent` / `cubic-bezier(0, 0, 0, 1)`): expanding to `w-full lg:w-[252px] opacity-100 lg:mr-2 mb-2 lg:mb-0` and collapsing to `w-0 lg:w-0 opacity-0 pointer-events-none border-0 mr-0 mb-0`.
+       - Employs a fixed-dimension inner container (`w-full lg:w-[252px] h-full shrink-0`) that isolates inner layout dimensions, completely preventing text re-wrapping or layout jitter during panel transitions.
+       - The `inert` attribute completely detaches collapsed panel controls from sequential tab order and accessibility trees.
    - Standardize layered WinUI 3 corner radii: 8px (`rounded-lg`) for workspace panes and settings cards, 6px (`rounded-md`) for controls, inputs, and queue rows, and 4px (`rounded`) for micro badges, strictly eliminating oversized web radii (`rounded-xl`, `rounded-2xl`) and deep drop shadows.
 2. **Standalone Chromium/Edge App-Mode Launcher**:
    - Provide a native desktop application window via Chromium-family `--app` launcher mode (`web/__main__.py`).
@@ -53,18 +64,28 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 5. **CSS View Transitions Isolation Boundary**:
    - Reserve the native View Transitions API exclusively for document-wide, full-viewport transformations.
    - Prohibit assigning explicit `view-transition-name` to inner layout containers. Sub-view transitions (Workspace ↔ Settings) use standard CSS transitions (`animate-fade-in`) to maintain a monolithic DOM root for full-screen view transitions.
-6. **Zero-Dependency Native Accessibility (WCAG 2.2 AA & WAI-ARIA 1.2 APG)**:
+6. **Zero-Dependency Native Accessibility & Fluent 2 Motion (WCAG 2.2 AA & WAI-ARIA 1.2 APG)**:
    - Implement a lightweight, zero-dependency `useFocusTrap` hook (`frontend/src/hooks/useFocusTrap.ts`) utilizing React refs and standard DOM event listeners. Caches `document.activeElement` prior to opening to restore focus on unmount; traps `Tab` / `Shift+Tab` within modal containers and alertdialogs.
+   - **Canonical WinUI 3 Landmark Navigation Rail (`NavRail`)**:
+     - Structure the 48px left rail as a semantic `<nav aria-label="Application Navigation">` landmark.
+     - View destination triggers (Workspace in upper stack, Settings in footer stack) render as native `<button>` elements with `aria-current="page"` when active, maintaining a natural sequential DOM tab sequence.
+     - The upper NavRail stack pairs the Workspace destination button and Queue disclosure button directly as a unified tool group without an intermediate divider, reinforcing their operational affinity for document extraction workflows.
+     - A 3px `#60CDFF` active indicator pill transitions vertically between views with an entrance animation (`scale-y` from 0.4 to 1.0 over 167ms).
+     - A dedicated disclosure button (`aria-expanded={isQueueOpen}`, `aria-controls="workspace-file-queue"`) toggles the file queue panel independently from view switching.
+     - Global desktop keyboard shortcuts provide instant access: `Ctrl+1` (Workspace), `Ctrl+,` (Settings), `Ctrl+B` (Toggle File Queue), and `Ctrl+Shift+L` (Server Logs dialog).
+     - In-page Settings category tabs retain `role="tablist"` and `role="tab"` semantics with roving tabindex navigation (`tabIndex={active ? 0 : -1}`), Arrow key navigation (`ArrowLeft`/`ArrowRight`), `Home`, and `End` keys.
    - **WAI-ARIA 1.2 APG Dialog & RadioGroup Popover (`ExtractionOptionsPopover`)**: Implement a non-modal dialog (`role="dialog"`, `aria-label="Extraction Options"`) containing two discrete option groups (`role="radiogroup"` for Extraction Target Modes and Scan Detail Resolutions). Radio options (`role="radio"`, `aria-checked`) feature roving tabindex (`tabIndex={checked ? 0 : -1}`), Arrow key navigation (`ArrowDown`/`ArrowUp`), `Home`/`End` bounds jumping, and `Tab`/`Shift+Tab` traversal across groups. `Escape` dismisses the popover and restores focus to the trigger button.
    - **WAI-ARIA 1.2 APG Menu Button (`ExportDropdown`)**: Implement an accessible dropdown menu (`role="menu"`, `aria-haspopup="menu"`, `aria-expanded={isOpen}`) with items assigned `role="menuitem"`. Supports `ArrowDown`/`ArrowUp` navigation with wraparound, `Home`/`End` keys, `Enter`/`Space` activation, and `Escape` collapse with focus restoration to the trigger button.
    - **WCAG 2.2 SC 1.3.1 Table Header Scoping (`TableRenderer`)**: Enforce explicit semantic header association across parsed tables: `<th scope="col">` for column headers and `<th scope="row">` for lead row headers, ensuring assistive technologies correctly contextualize data cells during tabular navigation.
    - **WCAG 2.2 SC 2.5.8 Target Size Compliance**: Enforce minimum 24px x 24px bounding boxes on interactive touch targets across toggles and buttons, sizing configuration switches to `h-6 w-11` (24px height).
-   - **Contrast & Keyboard Navigation**: Pinned WinUI 3 dark tokens satisfy WCAG 2.2 AA contrast (>= 4.5:1 for body copy; `#60CDFF` accent against `#000000` text provides 11.65:1 contrast). Implement roving tabindex navigation across navigation rail items and settings tabs (`role="tablist"` / `role="tab"`), supporting `ArrowDown`/`ArrowUp`, `ArrowLeft`/`ArrowRight`, `Home`, and `End` keys.
-   - **Calibrated Reduced Motion**: Under `prefers-reduced-motion: reduce`, exempt activity spinners (`.animate-spin`) from instant freezing by slowing rotation to 2.5s linear duration, maintaining ongoing operational awareness while preventing vestibular discomfort.
+   - **Contrast & Keyboard Navigation**: Pinned WinUI 3 dark tokens satisfy WCAG 2.2 AA contrast (>= 4.5:1 for body copy; `#60CDFF` accent against `#000000` text provides 11.65:1 contrast).
+   - **Calibrated Fluent 2 Motion & Reduced Motion Safeguards**:
+     - Standardize transition timing and curves across interactive surfaces using Fluent 2 bezier timing (`--ease-fluent`: `cubic-bezier(0, 0, 0, 1)`): 167ms fast transitions for active indicator pills and category tabs, and 200ms normal transitions for panel collapses (`fadeIn` with 6px vertical entrance slide-up, `slideUp` with 8px vertical entrance slide-up).
+     - Under `prefers-reduced-motion: reduce`, enforce universal immediate transitions (`animation-duration: 0.01ms !important`, `transition-duration: 0.01ms !important`, `scroll-behavior: auto !important`) across all elements while explicitly preserving operational activity spinners (`.animate-spin`, `[data-animate-spin]`), slowing rotation to a calm 2.5s linear duration to retain ongoing status feedback without vestibular triggers.
 7. **Responsive Viewport Overflow Resilience**:
    - Configure `<main>` in `frontend/src/App.tsx` with `overflow-y-auto lg:overflow-hidden` and provide minimum panel heights (`min-h-[340px]`, `min-h-[460px] lg:h-full`), enabling smooth vertical scrolling on mobile/tablet viewports while preserving fixed 3-column height on desktop displays.
 8. **Discrete Parameter Controls & Real-Time SSE Synchronization**:
-   - Replace continuous range sliders with structured 2x2 interactive Card Buttons (72, 100, 150, 200 DPI) incorporating semantic `aria-pressed`, tactile depress feedback, and descriptive copy.
+   - Replace continuous range sliders with structured 2x2 interactive Card Buttons (72, 100, 150, 200 DPI) incorporating semantic `aria-pressed`, tactile depress feedback, and descriptive copy, promoted directly onto the `#202020` base canvas as flat `#272727` cards with zero outer card nesting.
    - Emit an explicit terminal SSE payload (`model_download_progress` with `status: "completed"`) from the backend downloader thread, triggering immediate UI state refetch without manual page reload.
    - Synchronize workspace extraction DPI and global settings bidirectionally (`PATCH /api/settings`).
 9. **Cross-Platform Desktop Integration**:
@@ -108,7 +129,11 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 - **Unrestricted KaTeX Trust Flag (`trust: true`)**: Rejected because processing unvetted OCR transcriptions with `trust: true` introduces script execution and XSS risks.
 - **Global `window.alert` and Unmanaged `window.__eventSource` Singletons**: Rejected because native blocking dialogs disrupt screen readers and keyboard workflows, while unmanaged global event sources cause connection leaks across component remounts.
 - **Synchronous Browser Modals (`window.confirm`)**: Rejected because native browser dialogs halt JavaScript execution, display un-stylable browser chrome, cannot be trapped within standard accessibility trees, and violate keyboard accessibility patterns.
-- **Consumer Web Visual Styling (Vibrant Accents, Multi-Color Gradients, Deep Drop Shadows)**: Rejected because high-saturation styling and heavy decorative shadows create visual noise and eye fatigue during dense document transcription; a neutral 3-layer dark surface with 1px top-lit hairlines provides high contrast and clarity.
+- **Consumer Web Visual Styling (Vibrant Accents, Multi-Color Gradients, Deep Drop Shadows)**: Rejected because high-saturation styling and heavy decorative shadows create visual noise and eye fatigue during dense document transcription; a neutral dark surface with 1px top-lit hairlines provides high contrast and clarity.
+- **Unmounting FileQueuePanel on Collapse**: Rejected because unmounting removes the component from the React tree, discarding internal scroll offsets, queue selection states, and thumbnail caches; mounting with `inert={!isQueueOpen}`, `aria-hidden`, and CSS width/opacity transitions preserves state while fully disconnecting collapsed elements from the accessibility tree and keyboard sequence.
+- **Nested Multi-Layer Card Stacking in Settings**: Rejected because nesting `#2D2D2D` cards within floating `#272727` surface panels created excessive visual border noise and elevation ambiguity; flattening Settings directly onto `#202020` with single-layer `#272727` cards, promoting backend and DPI option grids directly onto the base canvas with zero outer card nesting, and using hairline internal dividers aligns with canonical Windows 11 Fluent 2 layout guidelines.
+- **Intermediate Rail Divider Between Workspace and Queue Controls**: Rejected because separating the Workspace view trigger and Queue panel disclosure with an intermediate divider disrupted visual cohesion; pairing them directly into a unified upper tool group clarifies their functional relationship in document processing.
+- **Single Composite Tablist for Application Navigation Rail**: Rejected because the navigation rail contains distinct interactive roles: view destinations, a panel collapse disclosure toggle, and a modal launcher button. Treating the entire rail as a `tablist` broke landmark accessibility; structuring as `<nav aria-label="Application Navigation">` with destination buttons (`aria-current="page"`), disclosure attributes, and sequential tab order conforms to WAI-ARIA landmark navigation patterns while preserving `role="tablist"` for in-page category switches.
 - **Full Spinner Freeze Under Reduced Motion**: Rejected because completely freezing progress indicators leaves users unable to distinguish active processing from hung background threads; a calmed 2.5s rotation provides clear status feedback without triggering vestibular triggers.
 
 ## Consequences
@@ -117,8 +142,11 @@ AksaraSight previously utilized a native desktop GUI built on Tkinter, CustomTki
 - Automatic server lifecycle termination when the application window is closed, with safe evacuation of in-progress OCR processing jobs.
 - Safe fallback to default browser launching on systems without Chromium-family browsers, including headless WSL2 bridging.
 - Test suites run 100% headless across Windows and Linux CI without display server emulators (Xvfb).
-- Cohesive Windows 11 WinUI 3 dark-mode utility aesthetic with a disciplined 3-layer elevation hierarchy (#202020 base, #272727 floating panes and settings canvas, #2D2D2D cards) with 8px gutters and an inset #1C1C1C preview well.
-- Full WCAG 2.2 AA accessibility compliance across all components: 24px target sizes (`h-6 w-11` switches), WAI-ARIA 1.2 APG Dialog & RadioGroup popover, APG Menu Button, and WCAG 1.3.1 table header scoping (`scope="col"` and `scope="row"`).
+- Cohesive Windows 11 WinUI 3 dark-mode utility aesthetic with a disciplined elevation hierarchy (#202020 base canvas, #272727 floating workspace panes and single-layer settings cards, and inset #1C1C1C preview well) with 8px gutters and max-w-[960px] mx-auto settings measure.
+- Flattened Settings elevation flowing directly on the `#202020` base canvas with translucent sticky header and footer action bars (`bg-[#202020]/90 backdrop-blur-md`), flat #272727 backend and DPI option grids with zero outer card nesting, and hairline internal dividers.
+- Smooth 200ms `FileQueuePanel` collapse mechanics preserving queue and scroll state via `inert={!isQueueOpen}` and `aria-hidden={!isQueueOpen}` with an isolated inner container dimension.
+- Full WCAG 2.2 AA accessibility compliance: canonical `<nav aria-label="Application Navigation">` landmark with view destination buttons (`aria-current="page"`), upper NavRail stack pairing Workspace destination and Queue disclosure directly as a unified tool group without an intermediate divider, sequential DOM tab sequence, global keyboard shortcuts (`Ctrl+1`, `Ctrl+,`, `Ctrl+B`, `Ctrl+Shift+L`), animated `scale-y` active indicator pill, 24px target sizes (`h-6 w-11` switches), WAI-ARIA 1.2 APG Dialog & RadioGroup popover, APG Menu Button, and WCAG 1.3.1 table header scoping (`scope="col"` and `scope="row"`).
+- Calibrated Fluent 2 motion system (`cubic-bezier(0, 0, 0, 1)`, 167ms fast / 200ms normal, 6px–8px vertical entrance slide-up) with universal 0.01ms reduced-motion collapse preserving `.animate-spin` at 2.5s.
 - In-DOM `role="alertdialog"` with initial focus on safe Cancel action, eliminating thread-blocking `window.confirm`.
 - Rich, responsive UI with side-by-side document preview, full-text rendering, and real-time SSE progress updates.
 - Modular frontend architecture with presentational views decomposed into specialized sub-components (< 350 LOC design target) and clear custom domain hook separation.

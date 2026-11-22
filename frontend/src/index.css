@@ -67,25 +67,49 @@ html {
 }
 
 @theme {
+  --ease-fluent: cubic-bezier(0, 0, 0, 1);
   --ease-tactile: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-smooth: cubic-bezier(0.25, 1, 0.5, 1);
 
-  --animate-fade-in: fadeIn 150ms ease-out;
+  --animate-fade-in: fadeIn 200ms var(--ease-fluent);
+  --animate-slide-up: slideUp 200ms var(--ease-fluent);
+  --animate-pill-enter: pillEnter 167ms var(--ease-fluent);
   --animate-modal-backdrop: modal-backdrop 200ms ease-out;
   --animate-modal-window: modal-window 240ms var(--ease-tactile);
   --animate-modal-window-exit: modal-window-out 160ms var(--ease-tactile) forwards;
   --animate-dropdown: dropdown-pop 180ms var(--ease-tactile);
-  --animate-dropdown-exit: dropdown-unpop 130ms var(--ease-tactile) forwards;
   --animate-shimmer: shimmer 2s linear infinite;
 
   @keyframes fadeIn {
     from {
       opacity: 0;
-      transform: translateY(2px);
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pillEnter {
+    from {
+      opacity: 0;
+      transform: scaleY(0.4);
+    }
+    to {
+      opacity: 1;
+      transform: scaleY(1);
     }
   }
 
@@ -128,17 +152,6 @@ html {
     to {
       opacity: 1;
       transform: scale(1) translateY(0);
-    }
-  }
-
-  @keyframes dropdown-unpop {
-    from {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-    }
-    to {
-      opacity: 0;
-      transform: scale(0.96) translateY(-4px);
     }
   }
 
@@ -298,7 +311,9 @@ input[type="number"] {
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 

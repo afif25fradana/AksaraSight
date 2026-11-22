@@ -34,7 +34,7 @@ export const SettingsAdvancedTab: React.FC<SettingsAdvancedTabProps> = ({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3.5 transition-colors">
+      <div className="bg-[#272727] p-4 rounded-lg border border-white/[0.06] space-y-3.5 transition-colors">
         {/* Local Engine HTTP Endpoint URL */}
         <div>
           <label className="block text-[13px] font-medium text-[#F3F3F3] mb-1" htmlFor="endpoint">
@@ -45,7 +45,7 @@ export const SettingsAdvancedTab: React.FC<SettingsAdvancedTabProps> = ({
             type="text" 
             value={formData.local_endpoint}
             onChange={(e) => setFormData((prev) => ({ ...prev, local_endpoint: e.target.value }))}
-            className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+            className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
           />
         </div>
 
@@ -91,7 +91,7 @@ export const SettingsAdvancedTab: React.FC<SettingsAdvancedTabProps> = ({
                 max={600}
                 value={formData.timeout}
                 onChange={(e) => setFormData((prev) => ({ ...prev, timeout: Number(e.target.value) }))}
-                className="w-full max-w-[100px] h-[34px] px-2.5 text-[13.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+                className="w-full max-w-[100px] h-[34px] px-2.5 text-[13.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
               />
               <span className="text-[12px] text-[#A6A6A6]">s</span>
             </div>
@@ -108,7 +108,7 @@ export const SettingsAdvancedTab: React.FC<SettingsAdvancedTabProps> = ({
               max={10}
               value={formData.max_retries}
               onChange={(e) => setFormData((prev) => ({ ...prev, max_retries: Number(e.target.value) }))}
-              className="w-full max-w-[100px] h-[34px] px-2.5 text-[13.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+              className="w-full max-w-[100px] h-[34px] px-2.5 text-[13.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
             />
           </div>
         </div>
@@ -123,7 +123,7 @@ export const SettingsAdvancedTab: React.FC<SettingsAdvancedTabProps> = ({
             type="text" 
             value={formData.model_repo}
             onChange={(e) => setFormData((prev) => ({ ...prev, model_repo: e.target.value }))}
-            className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-[#202020] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
+            className="w-full h-[34px] px-3 font-mono text-[12.5px] bg-white/[0.03] border border-white/[0.06] rounded-md text-[#F3F3F3] focus:outline-none focus:border-[#60CDFF] focus:ring-1 focus:ring-[#60CDFF]" 
           />
         </div>
       </div>

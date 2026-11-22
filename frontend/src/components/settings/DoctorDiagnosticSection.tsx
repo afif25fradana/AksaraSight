@@ -16,7 +16,7 @@ export const DoctorDiagnosticSection: React.FC<DoctorDiagnosticSectionProps> = (
   onRunDoctor,
 }) => {
   return (
-    <div className="bg-[#2D2D2D] p-4 rounded-lg border border-white/[0.04] space-y-3 transition-colors">
+    <div className="bg-[#272727] p-4 rounded-lg border border-white/[0.06] space-y-3 transition-colors">
       <div className="flex items-center justify-between">
         <div>
           <span className="text-[13.5px] font-semibold text-[#F3F3F3] flex items-center gap-1.5">
@@ -45,7 +45,7 @@ export const DoctorDiagnosticSection: React.FC<DoctorDiagnosticSectionProps> = (
       )}
 
       {doctorReport && (
-        <div className="p-3.5 bg-[#202020] border border-white/[0.04] text-[#F3F3F3] shadow-xs rounded-lg font-mono text-[11.5px] leading-relaxed animate-fade-in space-y-2.5">
+        <div className="p-3.5 bg-white/[0.02] border border-white/[0.06] text-[#F3F3F3] shadow-xs rounded-md font-mono text-[11.5px] leading-relaxed animate-fade-in space-y-2.5">
           <div className="flex items-center justify-between border-b border-white/[0.04] pb-2 font-sans">
             <span className="text-[#F3F3F3] font-semibold text-[12.5px]">
               Diagnostic Verification Report

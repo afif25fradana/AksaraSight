@@ -56,11 +56,14 @@ export const ManagedRuntimeSection: React.FC<ManagedRuntimeSectionProps> = ({
   }, [hardwareCheck]);
 
   return (
-    <div className="bg-[#202020] rounded-lg p-3.5 border border-white/[0.04] space-y-3 transition-colors animate-fade-in">
+    <div className="pt-3 border-t border-white/[0.04] space-y-3 transition-colors animate-fade-in">
       {/* Recommended Hardware Acceleration Banner */}
       <div className="flex items-center justify-between p-2.5 bg-[#60CDFF]/10 rounded-md border border-[#60CDFF]/20">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#60CDFF]" />
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#60CDFF] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#60CDFF]" />
+          </span>
           <span className="text-xs font-semibold text-[#60CDFF]">
             Detected Hardware:
           </span>
@@ -91,7 +94,7 @@ export const ManagedRuntimeSection: React.FC<ManagedRuntimeSectionProps> = ({
         </div>
         <div 
           ref={targetContainerRef}
-          className="relative inline-flex p-0.5 bg-[#272727] border border-white/[0.06] rounded-md gap-0.5"
+          className="relative inline-flex p-0.5 bg-black/20 border border-white/[0.06] rounded-md gap-0.5"
         >
           <div 
             className="absolute top-0.5 bottom-0.5 bg-[#383838] rounded shadow-xs transition-all duration-200 ease-out"
@@ -132,7 +135,7 @@ export const ManagedRuntimeSection: React.FC<ManagedRuntimeSectionProps> = ({
             </span>
           )}
         </div>
-        <div className="font-mono text-[11.5px] text-[#A6A6A6] truncate bg-[#272727] px-2.5 py-1.5 rounded-md border border-white/[0.04]" title={effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || ''}>
+        <div className="font-mono text-[11.5px] text-[#A6A6A6] truncate bg-white/[0.03] px-2.5 py-1.5 rounded-md border border-white/[0.06]" title={effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || ''}>
           {effectiveRuntimeStatus?.executable_path || effectiveRuntimeStatus?.expected_path || `%LOCALAPPDATA%\\AksaraSight\\runtimes\\llama-cpp\\b11361-${formData.managed_backend_override || 'auto'}\\llama-server.exe`}
         </div>
       </div>
@@ -163,7 +166,7 @@ export const ManagedRuntimeSection: React.FC<ManagedRuntimeSectionProps> = ({
             </div>
           </div>
 
-          <div className="w-full bg-[#272727] h-2 rounded-full overflow-hidden relative">
+          <div className="w-full bg-white/[0.06] h-2 rounded-full overflow-hidden relative">
             <div
               className="bg-[#60CDFF] h-full transition-all duration-200 rounded-full relative overflow-hidden"
               style={{ width: `${Math.min(100, Math.max(0, effectiveRuntimeStatus.percent))}%` }}

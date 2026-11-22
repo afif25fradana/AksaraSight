@@ -17,7 +17,15 @@ describe('NavRail Component & Semantic Navigation', () => {
     expect(nav).toHaveClass('bg-[#202020]');
 
     // Verify App Mark
-    expect(screen.getByLabelText('AksaraSight')).toBeInTheDocument();
+    const appMark = screen.getByLabelText('AksaraSight');
+    expect(appMark).toBeInTheDocument();
+    const logoSvg = appMark.querySelector('svg');
+    expect(logoSvg).toBeInTheDocument();
+    expect(logoSvg).toHaveAttribute('viewBox', '0 0 512 512');
+    expect(logoSvg).toHaveClass('w-7', 'h-7');
+    const logoGroup = logoSvg?.querySelector('g');
+    expect(logoGroup).toBeInTheDocument();
+    expect(logoGroup).toHaveAttribute('transform', 'translate(256 256) scale(1.12) translate(-256 -256)');
 
     // Verify destination buttons (Workspace and Settings)
     const workspaceBtn = screen.getByRole('button', { name: 'Workspace' });

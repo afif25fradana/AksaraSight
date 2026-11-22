@@ -1387,3 +1387,72 @@ def test_hardware_vram_endpoint_offload_and_query_param(tmp_path: Path) -> None:
             assert spy_to_thread.call_args[0][0] == mock_probe
 
 
+def test_mimetypes_safeguard_registered() -> None:
+    """Verify SVG and ICO MIME types are explicitly registered in mimetypes map."""
+    import mimetypes
+
+    assert mimetypes.types_map.get(".svg") == "image/svg+xml"
+    assert mimetypes.types_map.get(".ico") == "image/x-icon"
+
+
+def test_favicon_static_routes_content_types(tmp_path: Path) -> None:
+    """Verify /favicon.svg and /favicon.ico return correct MIME types from static router."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    svg_file = static_dir / "favicon.svg"
+    svg_file.write_text("<svg></svg>", encoding="utf-8")
+    ico_file = static_dir / "favicon.ico"
+    ico_file.write_bytes(b"\x00\x00\x01\x00")
+
+    app = create_app(upload_dir=tmp_path, static_dir=static_dir)
+
+    async def _fetch(path: str) -> Tuple[int, Dict[str, str], bytes]:
+        sent = False
+
+        async def receive():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await asyncio.sleep(10)
+            return {"type": "http.disconnect"}
+
+        resp_status = 200
+        resp_headers: Dict[str, str] = {}
+        resp_body: List[bytes] = []
+
+        async def send(message):
+            nonlocal resp_status, resp_headers
+            if message["type"] == "http.response.start":
+                resp_status = message["status"]
+                for k, v in message.get("headers", []):
+                    resp_headers[k.decode("latin-1").lower()] = v.decode("latin-1")
+            elif message["type"] == "http.response.body":
+                resp_body.append(message.get("body", b""))
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "method": "GET",
+            "path": path,
+            "raw_path": path.encode("latin-1"),
+            "query_string": b"",
+            "headers": [(b"host", b"127.0.0.1:8000")],
+            "client": ("127.0.0.1", 12345),
+            "server": ("127.0.0.1", 8000),
+        }
+        await app(scope, receive, send)
+        return resp_status, resp_headers, b"".join(resp_body)
+
+    status_svg, headers_svg, body_svg = asyncio.run(_fetch("/favicon.svg"))
+    assert status_svg == 200
+    assert "image/svg+xml" in headers_svg.get("content-type", "")
+    assert body_svg == b"<svg></svg>"
+
+    status_ico, headers_ico, body_ico = asyncio.run(_fetch("/favicon.ico"))
+    assert status_ico == 200
+    assert "image/x-icon" in headers_ico.get("content-type", "")
+    assert body_ico == b"\x00\x00\x01\x00"
+
+
+

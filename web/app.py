@@ -6,6 +6,7 @@ import dataclasses
 from datetime import datetime
 import json
 import logging
+import mimetypes
 import os
 from pathlib import Path
 import queue
@@ -66,6 +67,10 @@ from web.orchestrator import JobState, JobStatus, WebOrchestrator
 from web.security import LoopbackSecurityMiddleware
 
 logger = logging.getLogger(__name__)
+
+# Register explicit MIME types at module load to prevent Windows registry overrides
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("image/x-icon", ".ico")
 
 
 class SSEShutdownSupervisor:

@@ -10,7 +10,7 @@
     }
   ],
   "created": 1789836214,
-  "model": "GLM-OCR-Q8_0.gguf",
+  "model": "PaddleOCR-VL-1.6-GGUF.gguf",
   "system_fingerprint": "b10930-56381e407",
   "object": "chat.completion",
   "usage": {

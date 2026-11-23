@@ -411,14 +411,18 @@ def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(b'{"data": [{"id": "GLM-OCR"}]}')
+                self.wfile.write(b'{"data": [{"id": "PaddleOCR-VL"}]}')
             else:
                 self.send_response(404)
                 self.end_headers()
 
         def do_POST(self) -> None:
-            if self.path in ("/v1/chat/completions", "/chat/completions"):
+            try:
                 content_len = int(self.headers.get("Content-Length", 0))
+            except (ValueError, TypeError):
+                content_len = 0
+
+            if self.path in ("/v1/chat/completions", "/chat/completions"):
                 req_body = self.rfile.read(content_len)
                 req_json = json.loads(req_body.decode("utf-8"))
 
@@ -428,7 +432,7 @@ def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path
                 content_list = req_json["messages"][0]["content"]
                 assert any(part.get("type") == "image_url" for part in content_list)
 
-                # Send wire-accurate GLM-OCR completion
+                # Send wire-accurate PaddleOCR-VL completion
                 resp_payload = load_real_glm_ocr_response(
                     content="# E2E Recognized Invoice\nInvoice content line.",
                     cmpl_id="e2e-cmpl-001",
@@ -438,6 +442,8 @@ def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path
                 self.end_headers()
                 self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
             else:
+                if content_len > 0:
+                    self.rfile.read(content_len)
                 self.send_response(404)
                 self.end_headers()
 
@@ -481,7 +487,7 @@ def test_engine_real_loopback_e2e_pipeline_and_client_integration(tmp_path: Path
             assert page.markdown == "# E2E Recognized Invoice\nInvoice content line."
             assert page.raw_json is not None
             assert page.raw_json["id"] == "e2e-cmpl-001"
-            assert page.raw_json["model"] == "GLM-OCR-Q8_0.gguf"
+            assert page.raw_json["model"] == "PaddleOCR-VL-1.6-GGUF.gguf"
             assert page.raw_json["timings"]["prompt_n"] == 242
             assert page.latency > 0
 

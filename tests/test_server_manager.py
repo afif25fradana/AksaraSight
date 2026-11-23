@@ -231,6 +231,12 @@ def test_model_matches_helper():
     assert not _model_matches("", "ggml-org/GLM-OCR-GGUF")
     assert not _model_matches("GLM-OCR-GGUF", "")
 
+    # Pinned production model family (PaddleOCR-VL-1.6)
+    assert _model_matches("PaddleOCR-VL-1.6-GGUF.gguf", "PaddlePaddle/PaddleOCR-VL-1.6-GGUF")
+    assert _model_matches("paddleocr-vl-1.6", "PaddlePaddle/PaddleOCR-VL-1.6-GGUF")
+    assert _model_matches("C:/models/PaddleOCR-VL-1.6-GGUF.gguf", "PaddlePaddle/PaddleOCR-VL-1.6-GGUF")
+    assert not _model_matches("PaddleOCR-VL-1.6-GGUF.gguf", "unrelated-org/other-model")
+
 
 def test_server_manager_start_adopts_matching_model(caplog):
     """Verify start() adopts external server and records matched model ID."""
@@ -1303,14 +1309,18 @@ def test_real_loopback_server_manager_and_vision_client_integration():
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(b'{"data": [{"id": "GLM-OCR"}]}')
+                self.wfile.write(b'{"data": [{"id": "PaddleOCR-VL"}]}')
             else:
                 self.send_response(404)
                 self.end_headers()
 
         def do_POST(self):
-            if self.path in ("/v1/chat/completions", "/chat/completions"):
+            try:
                 content_length = int(self.headers.get("Content-Length", 0))
+            except (ValueError, TypeError):
+                content_length = 0
+
+            if self.path in ("/v1/chat/completions", "/chat/completions"):
                 req_body = self.rfile.read(content_length)
                 assert len(req_body) > 0
 
@@ -1333,6 +1343,8 @@ def test_real_loopback_server_manager_and_vision_client_integration():
                 }
                 self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
             else:
+                if content_length > 0:
+                    self.rfile.read(content_length)
                 self.send_response(404)
                 self.end_headers()
 
@@ -1348,7 +1360,7 @@ def test_real_loopback_server_manager_and_vision_client_integration():
         endpoint = f"http://127.0.0.1:{server_port}/v1"
         settings = Settings(
             local_endpoint=endpoint,
-            model_repo="ggml-org/GLM-OCR-GGUF",
+            model_repo="PaddlePaddle/PaddleOCR-VL-1.6-GGUF",
             timeout=5.0,
             max_retries=1,
         )

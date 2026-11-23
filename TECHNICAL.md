@@ -29,9 +29,9 @@ AksaraSight/
 │   ├── engine.py          # OCREngine orchestrating the ingestion-to-artifact pipeline
 │   ├── client.py          # VisionClient communicating with OpenAI-compatible backends
 │   ├── pipeline.py        # PDF/image rasterization, Lanczos downscaling, and pixel guards
-│   ├── formatter.py       # Artifact generation (Markdown, JSON, DOCX) & atomic writes
+│   ├── formatter.py       # Artifact generation (Markdown, JSON, DOCX) & OTSL table parser
 │   ├── docx_export.py     # Markdown-to-DOCX conversion with OOXML table fidelity
-│   ├── hardware.py        # NVIDIA CUDA, Vulkan, and CPU hardware probe
+│   ├── hardware.py        # NVIDIA CUDA/NVML, Vulkan, and CPU hardware probe
 │   ├── diagnostics.py     # 5-stage system diagnostics & hardware health probe (--doctor)
 │   ├── runtime_manager.py # Managed llama-server download, SHA-256 verification, and unpack
 │   ├── model_manager.py   # Pinned GGUF model weight downloader and SHA-256 verifier
@@ -45,7 +45,7 @@ AksaraSight/
 │   ├── app.py             # FastAPI application factory, API routes, and SSE streaming
 │   ├── orchestrator.py    # Batch queue orchestration, SSE progress dispatch, and worker threads
 │   ├── security.py        # Loopback-only Host header, port pinning, and origin security middleware
-│   ├── __main__.py        # Module entrypoint (`python -m web`)
+│   ├── __main__.py        # Module entrypoint (`python -m web`) and Chromium --app launcher
 │   └── static/            # Pre-built React production frontend SPA assets
 ├── frontend/              # Local Web UI Single Page Application source (React 19, TS, Vite)
 ├── config/                # Configuration management
@@ -137,7 +137,7 @@ The Web UI workspace entrypoint accepts the following flags:
 | `--port` | Port number for the Web UI server. | `8000` |
 | `--dev` | Allow Vite frontend dev server origins (port 5173). | `False` |
 | `--reload` | Auto-reload Uvicorn server on code changes. | `False` |
-| `--no-browser` | Prevent auto-launching default browser on application start. | `False` |
+| `--no-browser` | Prevent auto-launching desktop app window or default browser on startup. | `False` |
 
 ---
 
@@ -153,6 +153,46 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 - `POST /api/server/start`: Launches the managed local `llama-server` process with hardware-optimized arguments.
 - `POST /api/server/stop`: Stops the local `llama-server` process gracefully.
 - `GET /api/server/logs/stream`: SSE stream broadcasting live `llama-server` process stdout/stderr logs.
+- `GET /api/hardware/vram`: Real-time GPU VRAM telemetry via in-process NVML offloaded to a worker thread (`asyncio.to_thread`). Accepts optional `?device_index=int` query parameter.
+
+#### Hardware VRAM Telemetry Schema (`GET /api/hardware/vram`)
+
+Query Parameters:
+- `device_index` (optional integer >= 0): Target GPU device index. If omitted (`None`), automatically selects the device with the highest total VRAM.
+
+Execution Details:
+- Queries NVIDIA Management Library (`nvml.dll` on Windows, `libnvidia-ml.so.1` on Linux) in-process without spawning child CLI processes.
+- Offloaded from the FastAPI async event loop to a worker thread via `await asyncio.to_thread(probe_nvml_vram, device_index=device_index)`.
+
+Success Response (NVIDIA GPU with NVML available):
+```json
+{
+  "available": true,
+  "device_name": "NVIDIA GeForce RTX 3050 Laptop GPU",
+  "device_index": 0,
+  "device_count": 1,
+  "total_mb": 6144,
+  "used_mb": 1536,
+  "free_mb": 4608,
+  "usage_percent": 25.0,
+  "error": null
+}
+```
+
+Fallback Response (CPU-only, unsupported GPU, or NVML missing):
+```json
+{
+  "available": false,
+  "device_name": null,
+  "device_index": null,
+  "device_count": null,
+  "total_mb": null,
+  "used_mb": null,
+  "free_mb": null,
+  "usage_percent": null,
+  "error": "NVML library (nvml.dll / libnvidia-ml.so.1) not found"
+}
+```
 
 ### Settings & Configuration
 - `GET /api/settings`: Returns the active configuration dictionary (with sensitive paths sanitized).
@@ -174,7 +214,7 @@ AksaraSight provides a lightweight local REST API and Server-Sent Events (SSE) s
 - `DELETE /api/output/{filename}`: Deletes an exported artifact from the output directory.
 
 ### Model & Runtime Management
-- `GET /api/model/status`: Returns downloaded status and integrity of GLM-OCR model weights.
+- `GET /api/model/status`: Returns downloaded status and integrity of PaddleOCR-VL-1.6 model weights.
 - `POST /api/model/download`: Initiates background download of model weights with SHA-256 verification.
 - `POST /api/model/download/cancel`: Cancels an active model download while retaining partial files for resumable download.
 - `GET /api/runtime/status`: Returns detection and installation status of managed `llama-server` binaries.
@@ -207,7 +247,7 @@ Settings are loaded from environment variables or a `.env` file via `config/sett
 | `OCR_RUNTIME_MODE` | `managed` | `managed` (auto-detect and supervise) or `custom` (manual external server). |
 | `OCR_MANAGED_BACKEND_OVERRIDE` | `auto` | Force managed backend: `auto`, `cuda`, `vulkan`, or `cpu`. |
 | `OCR_LLAMA_SERVER_PATH` | None | Absolute path to `llama-server.exe` when in `custom` mode. |
-| `OCR_MODEL_REPO` | `ggml-org/GLM-OCR-GGUF` | Hugging Face repository for GGUF model weights. |
+| `OCR_MODEL_REPO` | `PaddlePaddle/PaddleOCR-VL-1.6-GGUF` | Hugging Face repository for GGUF model weights. |
 | `OCR_AUTO_START_SERVER` | `false` | Automatically start the managed server when the Web UI server starts. |
 | `OCR_BACKEND` | `llama-cpp` | Inference engine type: `llama-cpp`, `ollama`, or `vllm`. |
 | `OCR_ENDPOINT` | `http://localhost:8080/v1` | Local OpenAI-compatible API endpoint URL. |
@@ -234,17 +274,17 @@ If you maintain an independent `llama.cpp`, Ollama, or vLLM deployment, you can 
 
 ### Running standalone `llama-server`
 
-GLM-OCR is a vision-language model requiring both text weights and multimodal projector weights (`mmproj`):
+PaddleOCR-VL-1.6 is a 0.9B parameter vision-language model (licensed under Apache 2.0) requiring both base model weights and multimodal projector weights (`mmproj`):
 
 ```powershell
 # Option A: Automatic Hugging Face resolution (llama.cpp b11361+ auto-downloads matching mmproj)
-llama-server -hf ggml-org/GLM-OCR-GGUF --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
+llama-server -hf PaddlePaddle/PaddleOCR-VL-1.6-GGUF --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 
 # Option B: Local GGUF files (explicit --mmproj is REQUIRED)
-llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.gguf --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
+llama-server -m path/to/PaddleOCR-VL-1.6-GGUF.gguf --mmproj path/to/PaddleOCR-VL-1.6-GGUF-mmproj.gguf --host 127.0.0.1 --port 8080 -ngl 99 -c 8192 --parallel 1
 ```
 
-> **VRAM Configuration Tip**: While raw GGUF weights are ~1.43 GB (~1.34 GiB, ~1.8 GB VRAM), `llama-server` defaults to `n_slots=4` and `n_ctx_slot=40192`, which pre-allocates an extra ~2.0 GB of unified KV cache and balloons VRAM to >4.2 GB. Launching with `-c 8192 --parallel 1` caps context to 8k tokens and single-slot concurrency, holding VRAM to ~2.18 GB.
+> **VRAM Configuration Tip**: PaddleOCR-VL-1.6 weights total ~1.82 GB (~1.70 GiB; base ~936 MB + mmproj ~882 MB). While `llama-server` defaults to `n_slots=4` and `n_ctx_slot=40192` (which pre-allocates an extra ~2.0 GB of unified KV cache and balloons VRAM to >4.5 GB), launching with `-c 8192 --parallel 1` caps context to 8k tokens and single-slot concurrency, holding active VRAM consumption to ~3.0 GB.
 
 ---
 
@@ -297,8 +337,11 @@ llama-server -m path/to/GLM-OCR-Q8_0.gguf --mmproj path/to/mmproj-GLM-OCR-Q8_0.g
   - `100 DPI` (Default, ~1.7 MP): ~2.7s per page on an NVIDIA RTX 3050 Laptop GPU (60W). Provides reliable recognition on clear, standard printed text.
   - `150 DPI` (~3.8 MP): ~5.6s per page. Recommended for dense small-print receipts or low-resolution scans.
   - `72 DPI`: ~1.5s per page. Faster throughput, but may introduce OCR distortion on fine print.
-- **Currency Symbol Delimiter Formatting (`$DIGIT`)**:
-  Standard unspaced amounts (e.g., `$100.00`, `$1,250.00`) transcribe accurately in body text, tables, and receipts. However, in documents with inline formulas or math environments, GLM-OCR's tokenizer may interpret `$` as an inline LaTeX math delimiter, which can occasionally produce token-spaced formatting like `$ 1 0 0 . 0 0`. If your scans mix math and currency, double-check dollar amounts in the preview before exporting.
+- **Specialized Prompt Modes & Table Parsing**:
+  PaddleOCR-VL-1.6 (0.9B VLM, Apache 2.0) routes document transcription through native prompt presets:
+  - `text` (`OCR:`): Standard transcription for documents, correspondence, reports, and receipts into clean Markdown and DOCX.
+  - `table` (`Table Recognition:`): Transcribes complex, multi-row, and nested tables using OTSL (Open Table Structure Language). AksaraSight's parser converts OTSL directly into semantic HTML and Markdown pipe tables with cell spanning support.
+  - `formula` (`Formula Recognition:`): Transcribes mathematical equations and expressions, rendered offline via KaTeX while scoping `repeat_penalty=1.1` to prevent LaTeX repetition loops.
 - **Page-Boundary Cancellation**: Active HTTP vision requests cannot be safely terminated mid-transfer without destroying the underlying HTTP connection pool. Cancelling multi-page jobs completes the current in-flight page before gracefully halting.
 
 ---
@@ -313,10 +356,10 @@ When running as a packaged desktop application, runtime logs are written directl
 - **Multi-Instance Concurrency on Windows**: Windows enforces mandatory file locks on open file handles. When two application instances run concurrently and share the same log file, log rotation cannot rename active log files (`PermissionError`). Python's logging handler catches this condition internally, deferring rotation until the secondary process releases its handle. Standard single-instance execution rotates logs cleanly without interruption.
 
 ### Hardware Pre-Flight & Cold-Start Diagnostics
-GLM-OCR inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 2.2 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
+PaddleOCR-VL-1.6 inference under the default 8,192 token context window (`-c 8192 --parallel 1`) requires approximately 3.0 GB of GPU VRAM. AksaraSight implements early hardware pre-flight checks to alert users before inference begins:
 - **Asynchronous Hardware Pre-Warming**: Both the CLI (`cli/main.py`) and Web UI (`web/app.py`) invoke `start_hardware_prewarm()` on cold start. This initializes hardware detection (querying `nvidia-smi` and Vulkan physical devices) on a background daemon thread, populating an in-memory cache without delaying application startup or blocking UI rendering.
-- **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 2,200 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without delaying server launch or freezing UI responsiveness.
-- **Diagnostic Recommendations (`--doctor`, `--detect-hardware`)**: Comprehensive system health diagnostics recommend >= 3,000 MB dedicated VRAM to guarantee headroom for OS display compositing. Values between 2,200 MB and 3,000 MB log a non-blocking advisory note while permitting normal server startup.
+- **Low-VRAM Pre-Flight Warning**: When an NVIDIA GPU is detected with less than 3,000 MB of dedicated VRAM, an advisory warning is logged alerting the user that the server may experience CUDA out-of-memory errors or require partial CPU offloading. By checking cached profiles during server startup without acquiring blocking locks, the warning evaluates immediately without delaying server launch or freezing UI responsiveness.
+- **Diagnostic Recommendations (`--doctor`, `--detect-hardware`)**: Comprehensive system health diagnostics recommend >= 3,000 MB dedicated VRAM to guarantee headroom for OS display compositing. Values below 3,000 MB log a non-blocking advisory note while permitting normal server startup.
 
 ---
 

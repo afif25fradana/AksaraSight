@@ -4,27 +4,47 @@ A chronological overview of the development, architecture, security hardening, a
 
 ---
 
-## [Unreleased]
+## [1.4.0] - 2026-11-23
+
+*Focus: Production engine migration to PaddleOCR-VL-1.6, WinUI 3 desktop workbench redesign, borderless Chromium app-mode launcher, in-process NVML GPU telemetry, vector branding, Linux platform support, and concurrency & reliability hardening.*
 
 ### Added
-- **First-Class Linux x86_64 Platform Support**: Native support for Linux x86_64 distributions and WSL2, enabling zero-dependency hardware probing, runtime downloading, process lifecycle management, desktop integration, and portable packaging.
-- **ADR-0013 (Linux x86_64 Platform Support and Architecture Parity)**: Documented architectural decisions governing Linux hardware probing, XDG Base Directory specification compliance, safe tarball extraction, POSIX process group containment, Vulkan-first acceleration, dynamic linker prepending, and dual-OS CI matrix governance.
+- **PaddleOCR-VL-1.6 Production Engine Migration**: Migrated default vision-language OCR model to `PaddlePaddle/PaddleOCR-VL-1.6-GGUF` (commit `ee64973`, 0.9B VLM, Apache 2.0 license, pinned revision `511b0964`, ~1.82 GB total weights: base ~936 MB + mmproj ~882 MB). Features 8,192 context window, standardized task prompts (`OCR:`, `Table Recognition:`, `Formula Recognition:`), and scoped `repeat_penalty=1.1` to prevent LaTeX repetition loops.
+- **OTSL Structured Table Extraction**: Implemented Open Table Structure Language (OTSL) parser in `core/formatter.py` using Python standard library, converting tabular vision output into semantic HTML and Markdown pipe tables with cell spanning support.
+- **Desktop App Mode Launcher**: Added standalone borderless window launcher via Chromium/Edge `--app` mode (`web/__main__.py`), configured with user profile isolation (`--user-data-dir`) and first-run suppression.
+- **SSE Connection-Tracking Auto-Shutdown**: Added `SSEShutdownSupervisor` in `web/app.py` tracking active browser SSE connections, triggering background server termination after a 10-second debounce window when desktop client windows close.
+- **WinUI 3 Dark Mode Workbench**: Redesigned Web UI into a layered WinUI 3 desktop workspace featuring a 48px vertical NavRail, top header action bar, flattened settings cards, and view transitions.
+- **In-Process NVML GPU VRAM Telemetry**: Implemented `probe_nvml_vram()` in `core/hardware.py` querying NVIDIA Management Library (`nvml.dll` / `libnvidia-ml.so.1`) in-process, exposed via `GET /api/hardware/vram` offloaded to a worker thread (`asyncio.to_thread`), powering a live color-coded status bar VRAM gauge.
+- **Collapsible File Queue**: Added collapsible sidebar queue (`Ctrl+B`) with zero-dimension isolation to maximize preview workspace without layout re-wrapping.
+- **Global Keyboard Shortcuts**: Implemented global workspace shortcuts (`Ctrl+1` Workspace, `Ctrl+,` Settings, `Ctrl+B` toggle queue, `Ctrl+Shift+L` live server logs) guarded against active form editing.
+- **Offline KaTeX Mathematical Rendering**: Added offline KaTeX math formula preview in the workspace, rendering LaTeX equations without external network requests.
+- **Brand Iconography & Multi-Resolution Assets**: Integrated calligraphic "AS" vector eye emblem across NavRail, dual web favicons (`favicon.svg`, 7-frame `favicon.ico`), and generated a 2048x2048 master icon with unsharp-masked downsampling for Windows taskbar and titlebar rendering.
+- **Linux x86_64 Platform Support**: Added native support for Linux x86_64 distributions and WSL2, covering hardware probing, runtime downloading, process lifecycle management, desktop integration, and portable packaging.
+- **ADR-0006 (Linux x86_64 Platform Support and Architecture Parity)**: Documented architectural decisions governing Linux hardware probing, XDG Base Directory specification compliance, safe tarball extraction, POSIX process group containment, Vulkan-first acceleration, dynamic linker prepending, and dual-OS CI matrix governance.
 - **Zero-Subprocess DRM sysfs & sysfs Hardware Probes**: Added native Linux GPU vendor and VRAM probing via `/sys/class/drm/card*/device/vendor` (`0x10de` NVIDIA, `0x1002` AMD, `0x8086` Intel) and Python standard library `platform.processor()` / `platform.machine()` for CPU detection, with opportunistic `nvidia-smi` telemetry when installed on PATH.
 - **Safe Tarball Extraction with Symlink Quarantine (`safe_extract_tar`)**: Implemented secure `.tar.gz` runtime extraction in `core/runtime_manager.py` with Tar-Slip path traversal defense, pre-existing symlink unlinking in Pass 1, relative symlink boundary enforcement, top-level wrapper unnesting (`llama-b<build>/`), and `0o755` executable permissions for binaries and shared libraries (`.so`, `.so.*`).
-- **POSIX Process Group Containment (`ServerManager`)**: Implemented process group isolation using `start_new_session=True` without `preexec_fn` fork hazards, ensuring child and grandchild process trees are cleanly terminated via `os.killpg(pgid, SIGTERM)` with escalation to `SIGKILL` on timeout, strictly guarded by `pgid > 1` and `proc.poll() is None`.
+- **POSIX Process Group Containment (`ServerManager`)**: Implemented process group isolation using `start_new_session=True` without `preexec_fn` fork hazards, terminating child and grandchild process trees via `os.killpg(pgid, SIGTERM)` with escalation to `SIGKILL` on timeout, guarded by `pgid > 1` and `proc.poll() is None`.
 - **Dynamic Linker (`LD_LIBRARY_PATH`) Isolation & Prepending**: Prepended managed runtime binary directories to `LD_LIBRARY_PATH` during server spawn and binary validation with strict sanitization against empty elements (`::`), trailing colons, and relative paths.
 - **Linux Desktop & WSL2 Host Integration**: Added native file picker integration via `zenity` (with fallback to `kdialog`), folder reveal via `xdg-open` with return code validation, and headless WSL2 browser host bridging (`wslview -- <url>` and `powershell.exe Start-Process '{safe_url}'` with single-quote escaping and URL scheme validation).
 - **Portable Linux `.tar.gz` Packaging (`scripts/build_portable.py`)**: Added automated packaging of Linux ELF portable binaries (`AksaraSight` and `AksaraSight-CLI`) into `AksaraSight-v<version>-linux-x64.tar.gz` rooted at `AksaraSight/` with normalized root ownership (`uid=0, gid=0`) and `0o755` executable modes.
 - **Dual-OS CI Matrix in GitHub Actions (`.github/workflows/tests.yml` & `release.yml`)**: Added automated `test-linux` CI jobs across Python 3.12 and 3.14 on `ubuntu-latest` with `--cov-fail-under=89` gate parity, and automated `release-linux` artifact build and SHA-256 generation.
 
 ### Changed
-- **Strict XDG Base Directory Compliance**: Mapped models and runtime weights to `$XDG_DATA_HOME/aksarasight/` (`~/.local/share/aksarasight/`), application logs to `$XDG_STATE_HOME/aksarasight/logs/app.log` (`~/.local/state/aksarasight/logs/app.log`), web upload scratch space to `$XDG_DATA_HOME/aksarasight/web_uploads/` (`0o700`), and frozen settings fallback to `$XDG_CONFIG_HOME/aksarasight/settings.env` (`~/.config/aksarasight/settings.env`, `0o600`) when executable directories are read-only.
+- **VRAM Diagnostic Baseline**: Calibrated recommended GPU VRAM threshold to 3.0 GB (3,000 MB) for an 8k context window; updated low-VRAM pre-flight warning to fire when detected VRAM is below 3,000 MB.
+- **Model Downloader SHA-256 Digest Alignment**: Pinned cryptographic SHA-256 verification in `core/model_manager.py` to PaddleOCR-VL-1.6 weights, enforcing startup integrity checks and safe legacy model directory pruning.
+- **XDG Base Directory Compliance on Linux**: Mapped models and runtime weights to `$XDG_DATA_HOME/aksarasight/` (`~/.local/share/aksarasight/`), application logs to `$XDG_STATE_HOME/aksarasight/logs/app.log`, web uploads to `$XDG_DATA_HOME/aksarasight/web_uploads/`, and frozen settings fallback to `$XDG_CONFIG_HOME/aksarasight/settings.env`.
+- **WAI-ARIA APG Tabs Implementation**: Upgraded preview tabs in `ExtractedTextPanel.tsx` to WAI-ARIA APG 1.2 Tabs standard with roving `tabIndex`, cyclic arrow key navigation, and concurrently mounted tabpanels to maintain valid `aria-controls` targets.
 - **Platform-Specific Subprocess Kwargs Isolation**: Forwarded `creationflags=CREATE_NO_WINDOW` strictly on Windows (`sys.platform == "win32"`), omitting the keyword on POSIX.
-- **Consolidated Asset Resolution & Pruned Redundancy**: Removed redundant function aliases `resolve_required_asset_names`, `package_archive`, and `package_zip_archive`, removed dead module constant `_EXE_NAME`, and atomically updated all test callers across test suites.
+- **Consolidated Asset Resolution**: Removed function aliases `resolve_required_asset_names`, `package_archive`, and `package_zip_archive`, removed unused constant `_EXE_NAME`, and updated test callers across test suites.
 - **Host Acceleration Diagnostics**: Added dynamic runtime diagnostics probing `libgomp.so.1` and `libvulkan.so.1` via `ctypes.CDLL` with distro remediation guidance in `core/diagnostics.py`.
 
 ### Fixed
-- **PID Recycling & Self-DoS Hazard in POSIX Termination**: Guarded `os.killpg()` against recycled PIDs and invalid groups by enforcing `proc.poll() is None` and `target_pgid > 1`.
+- **SSE Terminal Event Eviction on QueueFull**: Implemented `_safe_enqueue_event` in `web/orchestrator.py` evicting non-terminal events when queue capacity is reached, so terminal `completed`, `failed`, and `cancelled` events are not dropped.
+- **Model Download Concurrency Lock (HTTP 409)**: Guarded `POST /api/model/download` with HTTP 409 Conflict when local inference server is starting or ready, preventing Windows NTFS file-lock collisions (`[WinError 32]`).
+- **Windows TCP RST on HTTP 404 Requests**: Hoisted `Content-Length` parsing and drained unread incoming request bytes (`self.rfile.read(...)`) on HTTP 404 paths in loopback mock servers (`FakeOpenAIHandler`, `FakeOCRHandler`), eliminating `[WinError 10054]` Winsock resets on Windows.
+- **Mock Model Fixture Alignment**: Aligned test fixtures and mock models to PaddleOCR-VL-1.6 wire schemas while preserving backwards compatibility across legacy wire helpers.
+- **Shortcut Typing Isolation**: Guarded NavRail keyboard shortcuts against active user typing in input, textarea, select, or contentEditable elements.
+- **PID Recycling Guard in POSIX Termination**: Guarded `os.killpg()` against recycled PIDs and invalid groups by requiring `proc.poll() is None` and `target_pgid > 1`.
 - **WSL PowerShell Browser Opening Command Injection**: Replaced raw string interpolation with URL scheme validation (`urllib.parse.urlsplit`), control character rejection, and single-quote doubling (`safe_url = url.replace("'", "''")`).
 - **Archive Symlink Following & File Overwrite in `safe_extract_tar`**: Prevented pre-existing symlinks in the target directory from being followed during regular file and directory extraction.
 - **Unmanaged Stream Resource Leak in Archive Extraction**: Wrapped `f_in` member extraction in a context manager (`with f_in, open(...)`), preventing dangling file descriptors on I/O write failures.
@@ -40,8 +60,8 @@ A chronological overview of the development, architecture, security hardening, a
 *Focus: Run-token queue isolation, in-flight client configuration snapshotting, fail-closed downloader lifecycles, atomic export sanitization, release workflow automation, and modular test decomposition.*
 
 ### Added
-- **ADR-0011 (Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization)**: Established architectural decisions for Dependabot auto-merge workflows, branch protection status check gates, cross-OS coverage thresholds, and decoupled static bundle compilation.
-- **ADR-0012 (Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization)**: Documented architectural invariants for run-token queue tracking, in-flight client parameter isolation, advisory lock retention on Windows NTFS, and fail-closed downloader lifecycles.
+- **ADR-0006 (Automated Maintenance Pipeline, Cross-OS Coverage Governance, and CI Bundle Synchronization)**: Established architectural decisions for Dependabot auto-merge workflows, branch protection status check gates, cross-OS coverage thresholds, and decoupled static bundle compilation.
+- **ADR-0004 (Concurrency Governance, Run-Token Queue Isolation, and Wire Contract Synchronization)**: Documented architectural invariants for run-token queue tracking, in-flight client parameter isolation, advisory lock retention on Windows NTFS, and fail-closed downloader lifecycles.
 - **Modular Web Test Suite Decomposition**: Split the monolithic `tests/test_web_api.py` into 7 modular domain-focused suites (`test_web_security.py`, `test_web_settings.py`, `test_web_downloader.py`, `test_web_server.py`, `test_web_entrypoint.py`, `test_web_export.py`, `test_web_documents.py`) with shared fixtures in `tests/web_fixtures.py`.
 - **Downloader Failure & Cancellation Test Coverage**: Added dedicated integration tests in `tests/test_web_downloader.py` covering model download cancellation/error branches and runtime download archive failure paths.
 - **Frontend Error Recovery & Preview Tests**: Added Vitest test suites for `ErrorBoundary` component recovery and `DocumentPreviewPanel` zoom bounds, pagination, and raster fallback.
@@ -59,7 +79,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Fixed
 - **Queue & Cancellation Races in Web Orchestrator**: Replaced plain string queue tracking with `QueueToken` tuple `(job_id, run_id, cancel_event)` in `web/orchestrator.py`, permitted re-enqueueing during cancelled `PROCESSING`, and guarded `on_progress` updates so dying in-flight page completions cannot corrupt re-enqueued runs.
-- **Worker Execution Parameter Snapshotting**: Isolated execution parameters (`run_dpi`, `run_prompt_mode`, `run_cancel_event`) within the worker lock in `web/orchestrator.py`, guaranteeing that cancelled jobs and subsequent re-enqueued runs maintain complete parameter and cancellation token isolation.
+- **Worker Execution Parameter Snapshotting**: Isolated execution parameters (`run_dpi`, `run_prompt_mode`, `run_cancel_event`) within the worker lock in `web/orchestrator.py`, keeping cancelled jobs and re-enqueued runs isolated in parameters and cancellation tokens.
 - **Frozen Windows Entrypoint Multiprocessing Support**: Added `multiprocessing.freeze_support()` at frozen CLI and Web UI entrypoints to prevent spawned helper processes from re-executing `main()`.
 - **Downloader Permanent 409 Deadlock**: Wrapped `ModelDownloader._execute_download()` in a top-level `try...except...finally` block resetting `self.is_downloading = False` under all filesystem or network exceptions.
 - **Server Ownership Drift & Backend Verification Invalidation**: Synchronized `app.state.server_managed = False` when server ownership transitions away from managed mode, and wired `server_manager.on_lifecycle_change = app_engine.invalidate_backend_verification`.
@@ -67,15 +87,15 @@ A chronological overview of the development, architecture, security hardening, a
 - **Page Preview 404 Preflight Alignment & Doctor Check Diagnostics**: Caught `FilePreflightError` alongside `FileNotFoundError` in `GET /api/documents/{job_id}/pages/{page_num}/preview` returning HTTP 404, and normalized `DiagnosticCheck` fallback serialization so `SettingsView.tsx` correctly renders hardware acceleration details.
 - **Test Mock Fidelity & State Integrity**: Updated `MockEngine.process_document` to return an aborted `OCRResult` matching production engine behavior rather than raising `ServerOfflineError`, updated `MockModelDownloader` to fail closed and respect cancellation, removed artificial manual status mutations in `test_reextraction_resets_run_id_and_progress`, and eliminated duplicate test cases.
 - **Fatal PowerShell Here-String Crash in Release Workflow**: Resolved `WhitespaceBeforeHereStringFooter` syntax error in `.github/workflows/release.yml` by replacing indented here-strings with deterministic file-based table generation.
-- **Dependabot GraphQL Auto-Merge Rejection**: Configured GitHub Branch Protection Rules on `main` requiring core status checks with `enforce_admins: false`, enabling native deferred auto-merge for non-major updates.
+- **Dependabot GraphQL Auto-Merge Rejection**: Configured GitHub Branch Protection Rules on `main` requiring core status checks with `enforce_admins: false`, allowing deferred auto-merge for non-major updates.
 - **Dependabot Auto-Merge Fallback**: Added fallback error handling in `dependabot-automerge.yml` to prevent unhandled GraphQL API errors from halting CI runs.
-- **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/web_fixtures.py`, ensuring root and internal loggers and redirected std streams are deterministically closed and restored.
+- **Process-Global Logging State Teardown**: Encapsulated frozen logging test execution within a scoped context manager in `tests/web_fixtures.py`, closing and restoring root and internal loggers and redirected std streams deterministically.
 
 ### v1.3.2: Deterministic Cleanup, Path Sanitization & API Resilience (October 29, 2026)
 *Focus: Deterministic network and process lifecycle cleanup, local path redaction in exports, event loop offloading, and pre-release stability hardening.*
 
 ### Added
-- **OCREngine Context Manager Lifecycle**: Implemented `__enter__` and `__exit__` protocols on `OCREngine` in `core/engine.py`, guaranteeing automatic session cleanup upon scope exit.
+- **OCREngine Context Manager Lifecycle**: Implemented `__enter__` and `__exit__` protocols on `OCREngine` in `core/engine.py`, providing automatic session cleanup on scope exit.
 
 ### Changed
 - **Async Hardware Profiling in Runtime Download**: Offloaded `get_cached_hardware_profile(blocking=True)` inside `post_runtime_download` in `web/app.py` via `await asyncio.to_thread(...)`, preventing event loop latency spikes during cold-start hardware detection.
@@ -88,7 +108,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **Deterministic HTTP Session & Subprocess Pipe Cleanup**:
   - Bound `run_diagnostics()` (`POST /api/doctor`), `cli/main.py`, and application shutdown lifespan in `web/app.py` with explicit `engine.close()` calls in `finally:` blocks, deterministically releasing underlying `requests.Session` socket connection pools.
   - Ensured ephemeral HTTP sessions created during release asset metadata fetching and asset verification in `core/runtime_manager.py` are explicitly closed in `finally:` blocks.
-  - Closed `proc.stdout` stream pipes explicitly in `ServerManager.stop()`'s `finally:` block in strict alignment with ADR-0010 Decision 5.
+  - Closed `proc.stdout` stream pipes explicitly in `ServerManager.stop()`'s `finally:` block in strict alignment with ADR-0001 Decision 5.
 - **Test Harness Output Isolation**: Added session-scoped temporary directory isolation in `tests/conftest.py` with immediate teardown cleanup, preventing test export artifacts from polluting the user's local Documents folder during test runs.
 
 ### v1.3.1: Concurrency Hardening, Settings Decoupling & UI Polish (October 23, 2026)
@@ -98,7 +118,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **Real-Time Model Download SSE Streaming**: Background model downloads now emit a terminal completion event (`model_download_progress`) over Server-Sent Events (SSE). The frontend UI immediately updates the status badge to "Verified Local Weights" without requiring a manual browser refresh.
 - **Tailwind CSS v4 Design Tokens**: Registered custom cubic-bezier easing tokens (`--ease-tactile: cubic-bezier(0.16, 1, 0.3, 1)` and `--ease-smooth: cubic-bezier(0.25, 1, 0.5, 1)`) and keyframe definitions (`shimmer`, `modal-window-out`, `dropdown-unpop`) in `@theme`.
 - **Micro-Interactions & Visual Polish**: Added animated modal exit transitions for `OutputFolderModal` and `ServerLogsModal`, a raster reveal transition on document preview changes, a rotating `RefreshCw` spinner during server status changes, a pulsing radar dot on engine startup, and an indeterminate translucent shimmer sweep on progress bars.
-- **React 19 Error Boundary**: Wrapped the workspace root in an Error Boundary with component retry capabilities, preventing unexpected rendering exceptions from crashing the application.
+- **React 19 Error Boundary**: Wrapped the workspace root in an Error Boundary with retry support, preventing unexpected rendering errors from crashing the UI.
 
 ### Changed
 - **Engine Reconfiguration & Settings Decoupling**: Introduced `OCREngine.reconfigure(settings)` to eliminate router monkey-patching of client internals in `web/app.py`, decoupled circular runtime probes in `config/settings.py` by relocating binary path resolution to `core.runtime_manager.resolve_effective_server_path()`, and offloaded synchronous output file directory scans in `web/app.py` via `await asyncio.to_thread()` to prevent event loop stalls.
@@ -117,7 +137,7 @@ A chronological overview of the development, architecture, security hardening, a
 - **Theme Toggle View Transition Collision**: Fixed an issue where explicit `viewTransitionName: 'tab-view'` on `<main>` and settings containers caused browser View Transitions to clip and tear the document-wide circular ripple mask. The View Transitions API is now reserved exclusively for the full-viewport theme toggle.
 - **Theme Switch Knob Glide**: Re-synchronized `.theme-checkbox::before` translation timing (`0.35s ease`) with the switch background gradient, restoring smooth knob motion.
 - **Export Dropdown Hover Stability**: Removed an aggressive `onMouseLeave` auto-collapse listener on the Export dropdown in `ExtractedTextPanel`, keeping the menu open until option selection, Esc key, or click-outside.
-- **WCAG AA Color Contrast**: Adjusted muted text and badge color tokens in dark mode to achieve 12.5:1 contrast ratios, surpassing WCAG AA standards.
+- **WCAG AA Color Contrast**: Adjusted muted text and badge color tokens in dark mode to achieve 12.5:1 contrast ratios, exceeding WCAG AA minimums (4.5:1).
 
 ---
 
@@ -159,7 +179,7 @@ A chronological overview of the development, architecture, security hardening, a
   - `SecurityConfirmationDialog` (`gui/security_dialog.py`): Remote endpoint opt-in confirmation.
   - Core helper `Win32JobObject` (`core/job_object.py`): OS process containment with `KILL_ON_JOB_CLOSE`.
   - Reduced `gui/app.py` from ~2,700 lines down to 1,497 lines, with all temporary migration facades cleanly removed.
-- **Test Suite Expansion**: Expanded automated test coverage across dedicated controller unit tests and build hygiene tests, achieving 100% green pass rate across Windows (Python 3.10 & 3.14) and Linux headless matrix legs.
+- **Test Suite Expansion**: Expanded automated test coverage across dedicated controller unit tests and build hygiene tests, passing across Windows (Python 3.10 & 3.14) and Linux headless matrix legs.
 - **Server Lifecycle Concurrency Hardening (`core/server_manager.py`)**: Introduced `_lifecycle_lock` to serialize process start/stop lifecycles across blocking process termination, freeing `_lock` to guard state snapshots without deadlock risk during concurrent stdout draining.
 - **DOCX Nested List & Image Node Support (`core/docx_export.py`)**: Added recursive AST rendering for deeply nested bullet/ordered lists with depth indentation, and converted image AST nodes into clean visible placeholders.
 - **CI Matrix & Dependency Pinning**: Added Python 3.10 to the GitHub Actions test matrix alongside 3.14; pinned direct dependencies across runtime, dev, and build manifests.
@@ -170,7 +190,7 @@ A chronological overview of the development, architecture, security hardening, a
 ### v1.1.1: Maintenance, Test-Suite Hardening & Documentation Synchronization (September 22, 2026)
 *Focus: Release readiness, version alignment, batch CLI assertion hardening, and documentation synchronization. (Patch/hardening; no breaking changes).*
 - **Version Alignment (`core/constants.py`)**: Bumped single-source-of-truth application version to `1.1.1` across runtime, CLI version banner, frozen executable metadata, and verification suites.
-- **Batch CLI Fast-Fail Assertion (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), ensuring aborted batch runs exit early.
+- **Batch CLI Fast-Fail Assertion (`cli/main.py`)**: Replaced unreachable dead exit code check (`if has_aborted: return 1`) following the batch execution loop with an explicit assertion (`assert not has_aborted, "unreachable: aborted batch jobs must fail fast and return early"`), so aborted batch runs exit early.
 - **Documentation**: Updated test counts and documentation across repository guides following recent test additions.
 
 ---
@@ -178,10 +198,10 @@ A chronological overview of the development, architecture, security hardening, a
 ### Test Suite Improvements & Golden Fixtures (September 20, 2026)
 *Focus: End-to-end integration testing, downstream mock alignment to real GLM-OCR wire responses, batch CLI fast-fail verification, and Word (.docx) export AST coverage. (Internal/test infrastructure; no user-facing behavior change).*
 - **Shared Wire Fixture Helpers (`tests/fixture_helpers.py`)**: Centralized wire-accurate GLM-OCR completion response generation via `load_real_glm_ocr_response()` and `load_real_glm_ocr_error_response()`, aligning downstream mocks across `tests/test_engine.py` and `tests/test_cli.py` with real wire schema.
-- **Batch CLI Functional Coverage (`tests/test_cli.py`)**: Added test coverage for multi-file progress banner reporting (`[1/3] ... -> SUCCESS`), fail-fast abort on server disconnection (guaranteeing subsequent documents are strictly never started), quiet flag banner suppression, single-file zero-page stderr reporting, missing stdout buffer error handling, and recursive directory discovery.
+- **Batch CLI Functional Coverage (`tests/test_cli.py`)**: Added test coverage for multi-file progress banner reporting (`[1/3] ... -> SUCCESS`), fail-fast abort on server disconnection (preventing subsequent documents from starting), quiet flag banner suppression, single-file zero-page stderr reporting, missing stdout buffer error handling, and recursive directory discovery.
 - **True End-to-End Loopback TCP Integration Test (`tests/test_engine.py`)**: Implemented unmocked E2E integration test exercising `pypdfium2` PDF synthesis -> `OCREngine` -> `VisionClient` -> live TCP loopback `HTTPServer` -> atomic disk export via `save_artifacts()`. Achieved 100% statement coverage on `core/engine.py` alongside `engine.close()` lifecycle coverage.
 - **DOCX CommonMark/GFM AST Fidelity Coverage (`tests/test_docx_export.py`)**: Added targeted unit tests covering GFM table cell horizontal alignment (`WD_ALIGN_PARAGRAPH.LEFT/CENTER/RIGHT`), rich inline cell styling (bold, italic, strikethrough, code run), paragraph softbreak vs hardbreak separation, empty and 0-column table handling, unrecognized AST node fallback, and mixed-status multi-page break boundary fidelity.
-- **Gitignore Coverage Pattern Tightening (`.gitignore`)**: Tightened coverage exclusion pattern to `.coverage` and `.coverage.*`, ensuring `.coveragerc` is preserved and tracked.
+- **Gitignore Coverage Pattern Tightening (`.gitignore`)**: Tightened coverage exclusion pattern to `.coverage` and `.coverage.*`, keeping `.coveragerc` tracked.
 
 ---
 
@@ -197,7 +217,7 @@ A chronological overview of the development, architecture, security hardening, a
 *Focus: Native Word document generation from OCR CommonMark/GFM AST, tabular formatting fidelity, write-path sanitization widening, and frozen bundle distribution. (Additive; no breaking changes).*
 - **Native DOCX Export Engine (`core/docx_export.py`)**: Implemented pure-Python CommonMark and GFM AST converter (`python-docx` + `markdown-it-py`) translating OCR Markdown into clean Word documents with styled headings, inline formatting (bold, italic, inline code), blockquotes, lists, verbatim code blocks, and full table support (including header repeat across pages `w:tblHeader` and row split prevention `w:cantSplit`). Multi-page OCR documents insert page breaks strictly between pages.
 - **GFM Table Prompt Instruction (`core/models.py`)**: Updated default text transcription prompt preset (`PROMPT_PRESETS["text"]`) to explicitly instruct GLM-OCR to format tabular, grid, or checklist content (including checkbox columns) using GFM pipe tables (`| ... |`), directly feeding table AST nodes to the DOCX converter.
-- **Write-Path Exception Sanitization Widening (`core/formatter.py`)**: Unified exception handling across all three export formats (`markdown`, `json`, `docx`) with `_reconstruct_sanitized_exception()`, ensuring filesystem path redaction on disk write errors preserves `errno` without causing `TypeError`.
+- **Write-Path Exception Sanitization Widening (`core/formatter.py`)**: Unified exception handling across all three export formats (`markdown`, `json`, `docx`) with `_reconstruct_sanitized_exception()`, so filesystem path redaction on disk write errors preserves `errno` without causing `TypeError`.
 - **CLI & GUI Integration**: Added `-f docx` to `cli/main.py` supporting stdout piping (with TTY safety check) and directory exports. Added 2-option export selector (Markdown & JSON vs Word Document) in GUI Studio (`gui/app.py`) with per-document fault isolation during batch export.
 - **Portable Distribution & Verification Tooling**: Bundled `docx` and `markdown_it` templates in PyInstaller spec (`build_portable.spec`), added template existence checks to `scripts/build_portable.py`, and implemented permanent empirical test suite `scripts/verify_frozen_docx.py` confirming 100% source vs frozen output parity.
 
@@ -217,7 +237,7 @@ A chronological overview of the development, architecture, security hardening, a
 ### Initial Development & Foundation Milestones (v1.0.0 Lifecycle)
 *Focus: Defense-in-depth isolation, loopback binding enforcement, proxy interception prevention, and path sanitization in JSON exports.*
 - **Explicit Loopback Host Binding**: Added explicit `"--host", "127.0.0.1"` to `llama-server` subprocess launch in `core/server_manager.py`, eliminating reliance on upstream binary default host behavior.
-- **Proxy Interception Defense**: Set `trust_env = False` on `requests.Session` instances in `core/client.py` and `core/server_manager.py`, guaranteeing OS-level proxy environment variables (`HTTP_PROXY`/`HTTPS_PROXY`) cannot intercept local loopback inference traffic.
+- **Proxy Interception Defense**: Set `trust_env = False` on `requests.Session` instances in `core/client.py` and `core/server_manager.py`, preventing OS-level proxy environment variables (`HTTP_PROXY`/`HTTPS_PROXY`) from intercepting local loopback inference traffic.
 - **JSON Export Path & Error Sanitization**: Added `sanitize_export_error()` to `core/formatter.py` to redact absolute local filesystem paths embedded within error messages (`data["error"]` and `page["error"]`) when `sanitize_path=True`. Ensured single-file CLI JSON output routes through `format_output()`.
 
 ---
@@ -253,7 +273,7 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Test Coverage & Error Handling Improvements
 *Focus: Unmocked subprocess execution, end-to-end integration, and boundary testing.*
-- **PDF Downscaling Guard**: Enforced `max_image_dimension` downscaling on rendered PDF rasters in `_process_pdf()`, ensuring multi-megapixel blueprint PDFs cannot bypass memory limits.
+- **PDF Downscaling Guard**: Enforced `max_image_dimension` downscaling on rendered PDF rasters in `_process_pdf()`, preventing oversized blueprint PDFs from exceeding memory limits.
 - **Subprocess Smoke Tests**: Added automated tests verifying isolated package launches: `python -m gui -h`, `python -m cli.main --help`, and `scripts/smoke_test_gui.py`.
 - **Real Loopback Integration**: Added live TCP socket integration test verifying `ServerManager` health probing against an active server.
 - **Atomic Persistence Edge Cases**: Added fault-injection tests validating `.tmp` file cleanup on disk write failures.
@@ -302,9 +322,9 @@ A chronological overview of the development, architecture, security hardening, a
 
 ### Security Hardening & Process Isolation
 *Focus: OS process isolation, race conditions, and configuration persistence.*
-- **Win32 Job Object**: Bound managed `llama-server.exe` subprocesses to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`, guaranteeing immediate process termination even upon hard application crashes.
+- **Win32 Job Object**: Bound managed `llama-server.exe` subprocesses to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)`, terminating child processes if the parent application crashes.
 - **Settings Propagation**: Fixed client endpoint synchronization and implemented safe inter-document boundary settings staging.
-- **Safe .env Round-Tripping**: Single-quoted string serialization in `Settings.save_to_env()` ensuring paths with spaces, `#`, or apostrophes round-trip cleanly without backslash corruption on Windows.
+- **Safe .env Round-Tripping**: Single-quoted string serialization in `Settings.save_to_env()`, so paths with spaces, `#`, or apostrophes round-trip cleanly without backslash corruption on Windows.
 - **Process Cleanup**: Added `atexit` hooks and active launch cancellation during server startup.
 
 ---

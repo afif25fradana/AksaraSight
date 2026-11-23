@@ -1461,7 +1461,7 @@ def test_orchestrator_safe_enqueue_event_eviction_and_fallback() -> None:
     evicts oldest non-terminal for terminal events, drops oldest when all terminal,
     and falls back cleanly when target queue lacks _queue.
     """
-    from web.orchestrator import _safe_enqueue_event, TERMINAL_EVENTS
+    from web.orchestrator import _safe_enqueue_event
 
     # 1. Non-terminal dropped when queue full
     q: asyncio.Queue = asyncio.Queue(maxsize=3)

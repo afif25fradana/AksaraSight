@@ -146,7 +146,7 @@ class VisionClient:
             prompt: Text prompt / instruction for the model.
             model: Model identifier tag passed to the OpenAI API endpoint.
             max_tokens: Maximum tokens to generate (defaults to settings.max_tokens,
-                justified by GLM-OCR 128k context and page density).
+                bounded by AksaraSight's 8k llama-server context via -c 8192 in core/server_manager.py).
             temperature: Sampling temperature (default: 0.0 for deterministic OCR).
             endpoint: Optional per-request endpoint override (defaults to self.endpoint).
             timeout: Optional per-request timeout override (defaults to settings.timeout).

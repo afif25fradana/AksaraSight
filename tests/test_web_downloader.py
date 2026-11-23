@@ -15,7 +15,9 @@ from tests.web_fixtures import (
     AsgiClient,
     MockEngine,
     MockModelDownloader,
+    MockServerManager,
 )
+from core.server_manager import ServerStatus
 
 
 def test_get_model_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,7 +67,8 @@ def test_get_model_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 def test_post_model_download_rejects_client_inputs(tmp_path: Path) -> None:
     """Verify POST /api/model/download rejects forbidden client-controlled parameters with HTTP 400."""
     mock_dl = MockModelDownloader()
-    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    mock_sm = MockServerManager(status=ServerStatus.OFFLINE)
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl, server_manager=mock_sm)
     client = AsgiClient(app)
 
     forbidden_payloads = [
@@ -116,7 +119,8 @@ def test_post_model_download_rejects_client_inputs(tmp_path: Path) -> None:
 def test_post_model_download_starts_and_reports_202(tmp_path: Path) -> None:
     """Verify POST /api/model/download initiates background download and returns 202 Accepted."""
     mock_dl = MockModelDownloader(is_downloading=False)
-    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    mock_sm = MockServerManager()
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl, server_manager=mock_sm)
     client = AsgiClient(app)
 
     status, _, body = client.post(
@@ -143,7 +147,8 @@ def test_post_model_download_starts_and_reports_202(tmp_path: Path) -> None:
 def test_post_model_download_conflict_409(tmp_path: Path) -> None:
     """Verify POST /api/model/download returns 409 Conflict if download is already in progress."""
     mock_dl = MockModelDownloader(is_downloading=True)
-    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl)
+    mock_sm = MockServerManager()
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl, server_manager=mock_sm)
     client = AsgiClient(app)
 
     status, _, body = client.post(
@@ -154,6 +159,36 @@ def test_post_model_download_conflict_409(tmp_path: Path) -> None:
     assert status == 409
     resp_data = json.loads(body.decode("utf-8"))
     assert "Model download is already in progress" in resp_data["detail"]
+
+
+def test_post_model_download_server_running_conflict_409(tmp_path: Path) -> None:
+    """Verify POST /api/model/download returns 409 Conflict if server is STARTING or READY."""
+    mock_dl = MockModelDownloader(is_downloading=False)
+    mock_sm = MockServerManager()
+    mock_sm._status = ServerStatus.READY
+    app = create_app(upload_dir=tmp_path, model_downloader=mock_dl, server_manager=mock_sm)
+    client = AsgiClient(app)
+
+    status, _, body = client.post(
+        "/api/model/download",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+    )
+    assert status == 409
+    resp_data = json.loads(body.decode("utf-8"))
+    assert resp_data["detail"] == "Cannot download model weights while local inference server is running. Stop the server first."
+
+    # Also verify STARTING status triggers the 409 guard
+    mock_sm._status = ServerStatus.STARTING
+    status, _, body = client.post(
+        "/api/model/download",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+    )
+    assert status == 409
+    resp_data = json.loads(body.decode("utf-8"))
+    assert resp_data["detail"] == "Cannot download model weights while local inference server is running. Stop the server first."
+
 
 
 def test_post_model_download_cancel(tmp_path: Path) -> None:
@@ -185,10 +220,12 @@ def test_post_model_download_cancel(tmp_path: Path) -> None:
 def test_model_download_sse_progress_broadcasting(tmp_path: Path) -> None:
     """Verify model download progress events are broadcast over /api/events SSE stream."""
     mock_engine = MockEngine()
+    mock_sm = MockServerManager(status=ServerStatus.OFFLINE)
     orchestrator = WebOrchestrator(engine=mock_engine)  # type: ignore[arg-type]
     mock_dl = MockModelDownloader(is_downloading=False)
     app = create_app(
         engine=mock_engine,  # type: ignore[arg-type]
+        server_manager=mock_sm,
         orchestrator=orchestrator,
         upload_dir=tmp_path,
         model_downloader=mock_dl,
@@ -648,8 +685,10 @@ def test_model_download_cancelled_and_error_branches(tmp_path: Path) -> None:
             return False
 
     dl_cancel = CancelledMockDownloader()
+    mock_sm_cancel = MockServerManager(status=ServerStatus.OFFLINE)
     app_cancel = create_app(
         engine=mock_engine,
+        server_manager=mock_sm_cancel,
         orchestrator=orchestrator,
         upload_dir=tmp_path,
         model_downloader=dl_cancel,
@@ -687,9 +726,11 @@ def test_model_download_cancelled_and_error_branches(tmp_path: Path) -> None:
             raise RuntimeError("Simulated download disk corruption")
 
     dl_fail = FailingMockDownloader()
+    mock_sm_fail = MockServerManager(status=ServerStatus.OFFLINE)
     orchestrator_fail = WebOrchestrator(engine=mock_engine)
     app_fail = create_app(
         engine=mock_engine,
+        server_manager=mock_sm_fail,
         orchestrator=orchestrator_fail,
         upload_dir=tmp_path,
         model_downloader=dl_fail,

@@ -1413,6 +1413,15 @@ def create_app(
         """Initiate background download of pinned model weights with SSE progress reporting."""
         await _reject_client_download_inputs(request)
 
+        server_mgr = getattr(app.state, "server_manager", None) or getattr(request.app.state, "server_manager", None) or app_server_manager
+        if server_mgr is not None:
+            server_info = await asyncio.to_thread(server_mgr.poll_status)
+            if server_info.status in (ServerStatus.STARTING, ServerStatus.READY):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot download model weights while local inference server is running. Stop the server first.",
+                )
+
         downloader = getattr(app.state, "model_downloader", None) or get_model_downloader()
         if getattr(downloader, "is_downloading", False):
             raise HTTPException(

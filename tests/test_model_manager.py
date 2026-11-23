@@ -1,6 +1,7 @@
 """Tests for core.model_manager and server_manager model path integration."""
 
 import hashlib
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,7 @@ from core.model_manager import (
     PINNED_MODEL_REVISION,
     TOTAL_MODEL_BYTES,
     ModelDownloader,
+    _verify_candidate,
     get_local_model_paths,
     is_pinned_model_repo,
     prune_legacy_models,
@@ -618,6 +620,22 @@ def test_downloader_http_416_recovery(tmp_path: Path) -> None:
                 second_call_headers = mock_session.get.call_args_list[1].kwargs["headers"]
                 assert "Range" in first_call_headers
                 assert "Range" not in second_call_headers
+
+
+def test_verify_candidate_oserror_logs_warning_and_returns_false(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify _verify_candidate returns False and logs a warning with exception details on OSError."""
+    model_path = Path("PaddleOCR-VL-1.6-GGUF.gguf")
+    mmproj_path = Path("PaddleOCR-VL-1.6-GGUF-mmproj.gguf")
+
+    with patch.object(Path, "is_file", return_value=True):
+        with patch.object(Path, "stat", side_effect=OSError("Disk read failure")):
+            with caplog.at_level(logging.WARNING):
+                result = _verify_candidate(model_path, mmproj_path)
+
+    assert result is False
+    assert "Failed to verify model candidate files" in caplog.text
+    assert "Disk read failure" in caplog.text
+
 
 
 

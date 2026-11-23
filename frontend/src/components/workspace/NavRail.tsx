@@ -25,6 +25,19 @@ export const NavRail: React.FC<NavRailProps> = ({
   // Ctrl+Shift+L / Cmd+Shift+L: Server Logs
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable ||
+          target.getAttribute?.('contenteditable') === 'true' ||
+          target.getAttribute?.('contenteditable') === '')
+      ) {
+        return;
+      }
+
       const isModifier = e.ctrlKey || e.metaKey;
       if (!isModifier) return;
 

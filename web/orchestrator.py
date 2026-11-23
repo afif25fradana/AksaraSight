@@ -18,6 +18,36 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_QUEUE_SIZE: int = 50
 MAX_STORED_JOBS: int = 50
+TERMINAL_EVENTS: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+
+
+def _safe_enqueue_event(target_q: asyncio.Queue, item: Dict[str, Any]) -> None:
+    """Enqueue event payload into target subscriber queue with queue-full terminal eviction."""
+    try:
+        target_q.put_nowait(item)
+    except asyncio.QueueFull:
+        if item.get("event") not in TERMINAL_EVENTS:
+            return
+        deque_obj = getattr(target_q, "_queue", None)
+        if deque_obj is not None:
+            removed = False
+            for idx, queued_item in enumerate(deque_obj):
+                if not isinstance(queued_item, dict) or queued_item.get("event") not in TERMINAL_EVENTS:
+                    del deque_obj[idx]
+                    removed = True
+                    break
+            if not removed:
+                deque_obj.popleft()
+        else:
+            try:
+                target_q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        try:
+            target_q.put_nowait(item)
+        except asyncio.QueueFull:
+            pass
+
 
 
 class JobStatus(str, Enum):
@@ -281,14 +311,8 @@ class WebOrchestrator:
                 if loop.is_closed():
                     dead.append(entry)
                 else:
-                    def _safe_put(target_q: asyncio.Queue = q, item: Dict[str, Any] = payload) -> None:
-                        try:
-                            target_q.put_nowait(item)
-                        except asyncio.QueueFull:
-                            pass
-
                     try:
-                        loop.call_soon_threadsafe(_safe_put)
+                        loop.call_soon_threadsafe(_safe_enqueue_event, q, payload)
                     except RuntimeError:
                         dead.append(entry)
             for entry in dead:

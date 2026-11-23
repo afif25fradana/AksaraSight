@@ -1455,4 +1455,84 @@ def test_favicon_static_routes_content_types(tmp_path: Path) -> None:
     assert body_ico == b"\x00\x00\x01\x00"
 
 
+def test_orchestrator_safe_enqueue_event_eviction_and_fallback() -> None:
+    """Verify _safe_enqueue_event drops non-terminal events when full,
+
+    evicts oldest non-terminal for terminal events, drops oldest when all terminal,
+    and falls back cleanly when target queue lacks _queue.
+    """
+    from web.orchestrator import _safe_enqueue_event, TERMINAL_EVENTS
+
+    # 1. Non-terminal dropped when queue full
+    q: asyncio.Queue = asyncio.Queue(maxsize=3)
+    item1 = {"event": "page_progress", "data": {"page": 1}}
+    item2 = {"event": "page_progress", "data": {"page": 2}}
+    item3 = {"event": "page_progress", "data": {"page": 3}}
+    _safe_enqueue_event(q, item1)
+    _safe_enqueue_event(q, item2)
+    _safe_enqueue_event(q, item3)
+    assert q.qsize() == 3
+
+    item4 = {"event": "page_progress", "data": {"page": 4}}
+    _safe_enqueue_event(q, item4)
+    assert q.qsize() == 3
+    items = [q.get_nowait(), q.get_nowait(), q.get_nowait()]
+    assert items == [item1, item2, item3]
+
+    # 2. Terminal event evicts oldest non-terminal event
+    q2: asyncio.Queue = asyncio.Queue(maxsize=3)
+    t_start = {"event": "started", "data": {"job_id": "j1"}}
+    p1 = {"event": "page_progress", "data": {"page": 1}}
+    p2 = {"event": "page_progress", "data": {"page": 2}}
+    _safe_enqueue_event(q2, t_start)
+    _safe_enqueue_event(q2, p1)
+    _safe_enqueue_event(q2, p2)
+    assert q2.qsize() == 3
+
+    completed = {"event": "completed", "data": {"job_id": "j1"}}
+    _safe_enqueue_event(q2, completed)
+    assert q2.qsize() == 3
+    # Oldest non-terminal was t_start ("started" is not in TERMINAL_EVENTS)
+    items2 = [q2.get_nowait(), q2.get_nowait(), q2.get_nowait()]
+    assert items2 == [p1, p2, completed]
+
+    # 3. All items terminal: terminal event drops oldest item (popleft)
+    q3: asyncio.Queue = asyncio.Queue(maxsize=2)
+    term1 = {"event": "completed", "data": 1}
+    term2 = {"event": "failed", "data": 2}
+    _safe_enqueue_event(q3, term1)
+    _safe_enqueue_event(q3, term2)
+    assert q3.qsize() == 2
+
+    term3 = {"event": "cancelled", "data": 3}
+    _safe_enqueue_event(q3, term3)
+    assert q3.qsize() == 2
+    items3 = [q3.get_nowait(), q3.get_nowait()]
+    assert items3 == [term2, term3]
+
+    # 4. Fallback when queue lacks _queue
+    class MockQueueNoInternalDeque:
+        def __init__(self, maxsize: int = 1) -> None:
+            self._maxsize = maxsize
+            self.items: list = []
+
+        def put_nowait(self, item: Any) -> None:
+            if len(self.items) >= self._maxsize:
+                raise asyncio.QueueFull
+            self.items.append(item)
+
+        def get_nowait(self) -> Any:
+            if not self.items:
+                raise asyncio.QueueEmpty
+            return self.items.pop(0)
+
+    no_deque_q = MockQueueNoInternalDeque(maxsize=1)
+    no_deque_q.put_nowait({"event": "started", "data": 0})
+    term_fallback = {"event": "completed", "data": 99}
+    _safe_enqueue_event(no_deque_q, term_fallback)  # type: ignore[arg-type]
+    assert len(no_deque_q.items) == 1
+    assert no_deque_q.items[0] == term_fallback
+
+
+
 

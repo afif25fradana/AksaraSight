@@ -37,17 +37,10 @@ REQUIRED_EXTRA_DISK_BYTES = 500_000_000
 
 
 def _migrate_legacy_models(
-    legacy_dir: Optional[Path] = None,
-    canonical_dir: Optional[Path] = None,
+    legacy_dir: Path,
+    canonical_dir: Path,
 ) -> bool:
     """Migrate model weights from legacy PascalCase directory to canonical XDG directory."""
-    if legacy_dir is None:
-        legacy_dir = Path.home() / ".local" / "share" / "AksaraSight" / "models" / "glm-ocr-q8_0"
-    if canonical_dir is None:
-        xdg_data = os.environ.get("XDG_DATA_HOME")
-        base = Path(xdg_data) if xdg_data and xdg_data.strip() else Path.home() / ".local" / "share"
-        canonical_dir = base / "aksarasight" / "models" / "glm-ocr-q8_0"
-
     try:
         if not legacy_dir.is_dir():
             parent_legacy = legacy_dir.parent
@@ -202,7 +195,13 @@ def _verify_candidate(
             if _compute_sha256(mmproj_path).lower() != PINNED_MODEL_FILES["mmproj"]["sha256"].lower():
                 return False
         return True
-    except OSError:
+    except OSError as exc:
+        logger.warning(
+            "Failed to verify model candidate files (%s, %s): %s",
+            model_path,
+            mmproj_path,
+            exc,
+        )
         return False
 
 

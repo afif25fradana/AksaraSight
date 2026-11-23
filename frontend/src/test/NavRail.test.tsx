@@ -156,6 +156,54 @@ describe('NavRail Component & Semantic Navigation', () => {
     expect(handleToggleQueue).not.toHaveBeenCalled();
   });
 
+  it('does not trigger global shortcuts when typing inside editable inputs or textareas', () => {
+    const handleSelectTab = vi.fn();
+    const handleToggleQueue = vi.fn();
+    const handleOpenLogs = vi.fn();
+
+    render(
+      <div>
+        <NavRail
+          activeTab="workspace"
+          onSelectTab={handleSelectTab}
+          onToggleQueue={handleToggleQueue}
+          onOpenServerLogs={handleOpenLogs}
+        />
+        <input data-testid="test-input" type="text" />
+        <textarea data-testid="test-textarea" />
+        <select data-testid="test-select"><option value="1">1</option></select>
+        <div data-testid="test-editable" contentEditable="true" />
+      </div>
+    );
+
+    const input = screen.getByTestId('test-input');
+    const textarea = screen.getByTestId('test-textarea');
+    const select = screen.getByTestId('test-select');
+    const editable = screen.getByTestId('test-editable');
+
+    // Focus input and test Ctrl+1, Ctrl+,, Ctrl+B, Ctrl+Shift+L
+    fireEvent.keyDown(input, { key: '1', ctrlKey: true });
+    fireEvent.keyDown(input, { key: ',', ctrlKey: true });
+    fireEvent.keyDown(input, { key: 'b', ctrlKey: true });
+    fireEvent.keyDown(input, { key: 'l', ctrlKey: true, shiftKey: true });
+
+    // Focus textarea and test
+    fireEvent.keyDown(textarea, { key: '1', ctrlKey: true });
+    fireEvent.keyDown(textarea, { key: ',', ctrlKey: true });
+    fireEvent.keyDown(textarea, { key: 'b', ctrlKey: true });
+    fireEvent.keyDown(textarea, { key: 'l', ctrlKey: true, shiftKey: true });
+
+    // Focus select and test
+    fireEvent.keyDown(select, { key: '1', ctrlKey: true });
+
+    // Focus contenteditable and test
+    fireEvent.keyDown(editable, { key: 'b', ctrlKey: true });
+
+    expect(handleSelectTab).not.toHaveBeenCalled();
+    expect(handleToggleQueue).not.toHaveBeenCalled();
+    expect(handleOpenLogs).not.toHaveBeenCalled();
+  });
+
   it('strictly adheres to WinUI 3 constraints and bans rounded-xl, rounded-2xl, and drop shadows across all Wave 3 workspace components', () => {
     const files = [
       path.resolve(__dirname, '../App.tsx'),

@@ -50,6 +50,37 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const [showExtractionOptions, setShowExtractionOptions] = useState(false);
   const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('formatted');
   const copyTimeoutRef = useRef<any>(null);
+  const tabRefs = useRef<Record<PreviewTab, HTMLButtonElement | null>>({
+    formatted: null,
+    raw: null,
+    json: null,
+  });
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, currentTab: PreviewTab) => {
+    const tabs: PreviewTab[] = ['formatted', 'raw', 'json'];
+    const currentIndex = tabs.indexOf(currentTab);
+    let nextIndex = -1;
+
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = tabs.length - 1;
+    }
+
+    if (nextIndex !== -1) {
+      const nextTab = tabs[nextIndex];
+      setActivePreviewTab(nextTab);
+      tabRefs.current[nextTab]?.focus();
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -86,6 +117,9 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
   const isCurrentPageViewedProcessed = Boolean(
     document &&
       (document.status === 'Done' || document.status === 'Truncated' || isPartialFailure || currentPage <= processedPages)
+  );
+  const isPreviewMounted = Boolean(
+    isEngineOnline && !isEmptyState && !isTotalFailure && isCurrentPageViewedProcessed
   );
   const currentPageData = document?.pagesData?.[currentPage];
 
@@ -326,31 +360,41 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
           role="tablist"
           aria-label="Preview display modes"
         >
-          {(['formatted', 'raw', 'json'] as PreviewTab[]).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={activePreviewTab === tab}
-              onClick={() => setActivePreviewTab(tab)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
-                activePreviewTab === tab
-                  ? 'bg-white/[0.08] text-[#F3F3F3]'
-                  : 'text-[#A6A6A6] hover:text-[#F3F3F3]'
-              }`}
-            >
-              {tab === 'formatted' ? (
-                <Layers className="w-3.5 h-3.5" />
-              ) : tab === 'raw' ? (
-                <Code2 className="w-3.5 h-3.5" />
-              ) : (
-                <FileCode className="w-3.5 h-3.5" />
-              )}
-              <span>
-                {tab === 'formatted' ? 'Formatted Preview' : tab === 'raw' ? 'Raw Markdown' : 'JSON Tree'}
-              </span>
-            </button>
-          ))}
+          {(['formatted', 'raw', 'json'] as PreviewTab[]).map((tab) => {
+            const isSelected = activePreviewTab === tab;
+            return (
+              <button
+                key={tab}
+                ref={(el) => {
+                  tabRefs.current[tab] = el;
+                }}
+                id={`preview-tab-${tab}`}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                tabIndex={isSelected ? 0 : -1}
+                aria-controls={isPreviewMounted ? `preview-tabpanel-${tab}` : undefined}
+                onClick={() => setActivePreviewTab(tab)}
+                onKeyDown={(e) => handleTabKeyDown(e, tab)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#60CDFF] ${
+                  isSelected
+                    ? 'bg-white/[0.08] text-[#F3F3F3]'
+                    : 'text-[#A6A6A6] hover:text-[#F3F3F3]'
+                }`}
+              >
+                {tab === 'formatted' ? (
+                  <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+                ) : tab === 'raw' ? (
+                  <Code2 className="w-3.5 h-3.5" aria-hidden="true" />
+                ) : (
+                  <FileCode className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                <span>
+                  {tab === 'formatted' ? 'Formatted Preview' : tab === 'raw' ? 'Raw Markdown' : 'JSON Tree'}
+                </span>
+              </button>
+            );
+          })}
         </div>
         {document?.status === 'Truncated' && (
           <span className="text-2xs font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-sm flex items-center gap-1 shrink-0">
@@ -476,37 +520,55 @@ export const ExtractedTextPanel: React.FC<ExtractedTextPanelProps> = ({
             </span>
           </div>
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            {activePreviewTab === 'formatted' && (
-              <div
-                className="flex-1 overflow-y-auto p-3.5 rounded-md border border-white/8 bg-[#202020] select-text text-[#F3F3F3] animate-fade-in"
-                tabIndex={0}
-                role="region"
-                aria-label="Formatted reading view"
-              >
+            <div
+              id="preview-tabpanel-formatted"
+              role="tabpanel"
+              aria-labelledby="preview-tab-formatted"
+              tabIndex={0}
+              hidden={activePreviewTab !== 'formatted'}
+              className={`flex-1 overflow-y-auto p-3.5 rounded-md border border-white/8 bg-[#202020] select-text text-[#F3F3F3] animate-fade-in focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#60CDFF] ${
+                activePreviewTab !== 'formatted' ? 'hidden' : ''
+              }`}
+            >
+              {activePreviewTab === 'formatted' && (
                 <MarkdownRenderer content={currentTextContent} taskMode={taskMode} />
-              </div>
-            )}
-            {activePreviewTab === 'raw' && (
-              <textarea
-                id="ocr-editor"
-                spellCheck="false"
-                role="textbox"
-                readOnly
-                aria-label="OCR extracted text (Raw Markdown)"
-                value={currentTextContent}
-                className="w-full flex-1 resize-none p-3.5 rounded-md border border-white/8 bg-[#202020] text-[#F3F3F3] text-[13px] font-mono outline-none focus:border-[#60CDFF] focus-visible:ring-1 focus-visible:ring-[#60CDFF] animate-fade-in"
-              />
-            )}
-            {activePreviewTab === 'json' && (
-              <div
-                className="w-full flex-1 overflow-auto p-3.5 rounded-md border border-white/8 bg-[#202020] text-xs font-mono text-[#F3F3F3] animate-fade-in"
-                tabIndex={0}
-                role="region"
-                aria-label="Structured JSON output tree"
-              >
+              )}
+            </div>
+            <div
+              id="preview-tabpanel-raw"
+              role="tabpanel"
+              aria-labelledby="preview-tab-raw"
+              hidden={activePreviewTab !== 'raw'}
+              className={`flex-1 flex flex-col overflow-hidden min-h-0 animate-fade-in ${
+                activePreviewTab !== 'raw' ? 'hidden' : ''
+              }`}
+            >
+              {activePreviewTab === 'raw' && (
+                <textarea
+                  id="ocr-editor"
+                  spellCheck="false"
+                  role="textbox"
+                  readOnly
+                  aria-label="OCR extracted text (Raw Markdown)"
+                  value={currentTextContent}
+                  className="w-full flex-1 resize-none p-3.5 rounded-md border border-white/8 bg-[#202020] text-[#F3F3F3] text-[13px] font-mono outline-none focus:border-[#60CDFF] focus-visible:ring-1 focus-visible:ring-[#60CDFF]"
+                />
+              )}
+            </div>
+            <div
+              id="preview-tabpanel-json"
+              role="tabpanel"
+              aria-labelledby="preview-tab-json"
+              tabIndex={0}
+              hidden={activePreviewTab !== 'json'}
+              className={`w-full flex-1 overflow-auto p-3.5 rounded-md border border-white/8 bg-[#202020] text-xs font-mono text-[#F3F3F3] animate-fade-in focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#60CDFF] ${
+                activePreviewTab !== 'json' ? 'hidden' : ''
+              }`}
+            >
+              {activePreviewTab === 'json' && (
                 <pre className="whitespace-pre font-mono">{memoizedHighlightedJson}</pre>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

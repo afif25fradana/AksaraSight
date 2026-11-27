@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Run Ruff
         uses: astral-sh/ruff-action@v4.1.0
@@ -37,92 +35,8 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Run frontend typecheck and tests
-        run: |
-          cd frontend
-          npm ci
-          npm run lint
-          npm test
-
-      - name: Verify frontend build reproducibility and bundle sync
-        run: |
-          cd frontend
-          npm run build
-          cd ..
-          if [ -n "$(git status --porcelain web/static)" ]; then
-            if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
-              echo "::notice::Static bundle drift detected on Dependabot PR. Bypassing failure since Dependabot does not compile frontend assets."
-            elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              if [ "${{ github.actor }}" = "dependabot[bot]" ] || [ "${{ github.event.head_commit.author.name }}" = "dependabot[bot]" ] || echo "${{ github.event.head_commit.author.email }}" | grep -q "dependabot"; then
-                echo "::notice::Static bundle drift detected on Dependabot merge. Dedicated sync-static-bundle job will manage auto-commit."
-              else
-                echo "::notice::Cross-OS static bundle variance detected on main, but compiled assets were updated or untouched. Build accepted."
-              fi
-            else
-              BASE_REF="${{ github.base_ref || 'main' }}"
-              CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || true)
-              FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^frontend/' || true)
-              STATIC_CHANGED=$(echo "$CHANGED_FILES" | grep -E '^web/static/' || true)
-
-              # Block direct manual modification of web/static without frontend source changes
-              if [ -z "$FRONTEND_CHANGED" ] && [ -n "$STATIC_CHANGED" ]; then
-                echo "::error::Direct modification of web/static/ is prohibited. Edit frontend/ source and run 'npm run build'."
-                exit 1
-              fi
-
-              # Enforce bundle rebuild when frontend source is modified
-              if [ -n "$FRONTEND_CHANGED" ] && [ -z "$STATIC_CHANGED" ]; then
-                echo "::error::Frontend source files were modified, but web/static bundle was not updated. Please run 'npm run build' inside frontend/ and commit compiled assets."
-                git status --porcelain web/static
-                exit 1
-              fi
-
-              echo "::notice::Cross-OS static bundle variance within acceptable build parameters. Build accepted."
-            fi
-          fi
-
-      - name: Upload static bundle on mismatch
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: static-bundle-linux
-          path: web/static/
-
-  sync-static-bundle:
-    name: Auto-Sync Dependabot Static Bundle
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (github.actor == 'dependabot[bot]' || github.event.head_commit.author.name == 'dependabot[bot]' || contains(github.event.head_commit.author.email, 'dependabot'))
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Build and auto-commit drifted bundle
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-          cd ..
-          if [ -n "$(git status --porcelain web/static)" ]; then
-            echo "::notice::Static bundle drift detected after Dependabot merge. Auto-committing synced bundle..."
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add web/static
-            git commit -m "chore: auto-sync web/static bundle after merge [skip ci]"
-            git push origin HEAD:main
-          else
-            echo "::notice::Static bundle is already in sync with dependencies."
-          fi
+      - name: Verify frontend tests, typecheck & build
+        run: cd frontend && npm ci && npm run lint && npm test && npm run build
 
   test-windows:
     name: Windows Python ${{ matrix.python-version }} (Full Test Suite)

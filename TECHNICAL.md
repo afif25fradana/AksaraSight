@@ -50,21 +50,11 @@ AksaraSight/
 ├── frontend/              # Local Web UI Single Page Application source (React 19, TS, Vite)
 ├── config/                # Configuration management
 │   └── settings.py        # Immutable, self-validating Settings dataclass & .env persistence
-├── docs/                  # Project documentation and architectural records
-│   ├── adr/               # Architecture Decision Records (ADR-0001 through ADR-0006)
+├── docs/                  # Project documentation assets
 │   └── images/            # Documentation screenshots and UI assets
 ├── scripts/               # Benchmarking, smoke tests, and build verification harnesses
 └── tests/                 # Automated test suite (unit, functional, and integration tests)
 ```
-
-### Architectural Decision Records (ADRs)
-Formal engineering decisions, context, trade-offs, and rejected alternatives are maintained as Living Domain Michael Nygard ADRs under [`docs/adr/`](docs/adr/):
-- **[ADR-0001](docs/adr/0001-decoupled-local-inference-managed-runtimes-and-subprocess-supervision.md)**: Decoupled local inference, managed runtimes, and subprocess supervision.
-- **[ADR-0002](docs/adr/0002-document-ingestion-thread-safe-pdfium-rasterization-and-core-pipeline.md)**: Document ingestion, thread-safe PDFium rasterization, and core pipeline.
-- **[ADR-0003](docs/adr/0003-presentation-architecture-web-ui-workspace-and-accessibility.md)**: Presentation architecture: Web UI workspace and accessibility.
-- **[ADR-0004](docs/adr/0004-web-application-orchestration-event-loop-offloading-and-concurrency.md)**: Web application orchestration, event loop offloading, and concurrency.
-- **[ADR-0005](docs/adr/0005-defense-in-depth-security-loopback-boundary-and-anti-exfiltration.md)**: Defense-in-depth security, loopback boundary, and anti-exfiltration.
-- **[ADR-0006](docs/adr/0006-cross-platform-support-packaging-distribution-and-ci-governance.md)**: Cross-platform support, packaging distribution, and CI governance.
 
 ### Architectural Guarantees & Concurrency
 - **Thread Safety**: `pypdfium2` PDF bindings are not thread-safe; all PDF operations are strictly serialized via `_PDFIUM_LOCK` in `core/pipeline.py`.

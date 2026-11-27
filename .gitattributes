@@ -1,2 +1,7 @@
 frontend/** text eol=lf
 web/static/** text eol=lf
+*.png binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
